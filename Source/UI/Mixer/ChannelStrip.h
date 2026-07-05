@@ -39,11 +39,23 @@ public:
     void resized() override;
 
 private:
+    class SendControlRow;
+
     void initialise();
     void refreshSendControls();
     void updateFromModel();
+    void showAddSendMenu();
 
-    te::AuxSendPlugin* getSend() const;
+    te::Edit& edit;
+    te::Track* track = nullptr;   // nullptr for the master strip
+    te::VolumeAndPanPlugin::Ptr volumePlugin;
+
+    juce::Slider fader, panSlider;
+    juce::TextButton muteButton { "M" }, soloButton { "S" }, addSendButton { "+Send" };
+    juce::Label nameLabel;
+    std::unique_ptr<LevelMeter> meter;
+
+    juce::OwnedArray<SendControlRow> sendRows;
 
     // AutomatableParameter::Listener
     void curveHasChanged (te::AutomatableParameter&) override {}
@@ -51,20 +63,10 @@ private:
 
     // ValueTree::Listener
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier& id) override;
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override {}
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override {}
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { refreshSendControls(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { refreshSendControls(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { refreshSendControls(); }
     void valueTreeParentChanged (juce::ValueTree&) override {}
-
-    te::Edit& edit;
-    te::Track* track = nullptr;   // nullptr for the master strip
-    te::VolumeAndPanPlugin::Ptr volumePlugin;
-    te::Plugin::Ptr sendPlugin;
-
-    juce::Slider fader, panSlider, sendSlider;
-    juce::TextButton muteButton { "M" }, soloButton { "S" }, addSendButton { "+Send" };
-    juce::Label nameLabel;
-    std::unique_ptr<LevelMeter> meter;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStrip)
 };

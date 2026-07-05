@@ -47,6 +47,7 @@ private:
 
     void timerCallback() override;
     void finishScan (int numFound);
+    void mouseDrag (const juce::MouseEvent& e) override;
 
     PluginScanner& pluginScanner;
     te::Edit& edit;

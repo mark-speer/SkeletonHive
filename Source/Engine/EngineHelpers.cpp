@@ -7,6 +7,7 @@ namespace arrange
 
 const juce::Identifier EngineHelpers::clipGroupProperty ("arrangeClipGroup");
 const juce::Identifier EngineHelpers::clipGroupColourProperty ("arrangeClipGroupColour");
+const juce::Identifier EngineHelpers::soloedPluginIdProperty ("arrangeSoloedPluginId");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
 {
@@ -129,6 +130,61 @@ te::AudioTrack* EngineHelpers::getOrCreateReturnTrack (te::Edit& edit, int busNu
     return track.get();
 }
 
+juce::String EngineHelpers::auxBusName (int busNumber)
+{
+    return juce::String::charToString ((juce::juce_wchar) ('A' + busNumber));
+}
+
+juce::Array<te::AuxSendPlugin*> EngineHelpers::getAllAuxSends (te::AudioTrack& track)
+{
+    juce::Array<te::AuxSendPlugin*> sends;
+    for (auto p : track.pluginList)
+        if (auto* send = dynamic_cast<te::AuxSendPlugin*> (p))
+            sends.add (send);
+
+    std::sort (sends.begin(), sends.end(), [] (const te::AuxSendPlugin* a, const te::AuxSendPlugin* b)
+    {
+        return a->getBusNumber() < b->getBusNumber();
+    });
+
+    return sends;
+}
+
+int EngineHelpers::getUserChainInsertIndex (te::AudioTrack& track)
+{
+    for (int i = 0; i < track.pluginList.size(); ++i)
+        if (dynamic_cast<te::VolumeAndPanPlugin*> (track.pluginList[i]) != nullptr)
+            return i;
+
+    return track.pluginList.size();
+}
+
+te::Plugin* EngineHelpers::insertPluginOnTrack (te::AudioTrack& track, te::Plugin::Ptr plugin, int index)
+{
+    if (plugin == nullptr)
+        return nullptr;
+
+    if (index < 0)
+        index = getUserChainInsertIndex (track);
+
+    track.pluginList.insertPlugin (plugin, index, nullptr);
+    return plugin.get();
+}
+
+juce::PluginDescription EngineHelpers::lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString)
+{
+    for (const auto& desc : engine.getPluginManager().knownPluginList.getTypes())
+        if (desc.createIdentifierString() == identifierString)
+            return desc;
+
+    return {};
+}
+
+te::AuxSendPlugin* EngineHelpers::addAuxSend (te::AudioTrack& track, int busNumber)
+{
+    return getOrCreateAuxSend (track, busNumber);
+}
+
 te::AuxSendPlugin* EngineHelpers::getOrCreateAuxSend (te::AudioTrack& track, int busNumber)
 {
     if (auto* existing = track.getAuxSendPlugin (busNumber))
@@ -138,24 +194,141 @@ te::AuxSendPlugin* EngineHelpers::getOrCreateAuxSend (te::AudioTrack& track, int
     if (plugin == nullptr)
         return nullptr;
 
-    // Post-fx / pre-fader: insert just before the volume plugin
-    int insertIndex = track.pluginList.size();
-    for (int i = 0; i < track.pluginList.size(); ++i)
-    {
-        if (dynamic_cast<te::VolumeAndPanPlugin*> (track.pluginList[i]) != nullptr)
-        {
-            insertIndex = i;
-            break;
-        }
-    }
-
-    track.pluginList.insertPlugin (plugin, insertIndex, nullptr);
+    track.pluginList.insertPlugin (plugin, getUserChainInsertIndex (track), nullptr);
 
     auto* send = dynamic_cast<te::AuxSendPlugin*> (plugin.get());
     if (send != nullptr)
         send->busNumber = busNumber;
 
     return send;
+}
+
+bool EngineHelpers::isSendPreFader (te::AudioTrack& track, const te::AuxSendPlugin& send)
+{
+    int volIndex = -1, sendIndex = -1;
+    for (int i = 0; i < track.pluginList.size(); ++i)
+    {
+        if (dynamic_cast<const te::VolumeAndPanPlugin*> (track.pluginList[i]) != nullptr)
+            volIndex = i;
+        if (track.pluginList[i] == &send)
+            sendIndex = i;
+    }
+
+    return volIndex >= 0 && sendIndex >= 0 && sendIndex < volIndex;
+}
+
+void EngineHelpers::setSendPreFader (te::AudioTrack& track, te::AuxSendPlugin& send, bool preFader)
+{
+    int volIndex = -1, sendIndex = track.pluginList.indexOf (&send);
+    for (int i = 0; i < track.pluginList.size(); ++i)
+        if (dynamic_cast<te::VolumeAndPanPlugin*> (track.pluginList[i]) != nullptr)
+            volIndex = i;
+
+    if (volIndex < 0 || sendIndex < 0)
+        return;
+
+    const int targetIndex = preFader ? volIndex : juce::jmin (volIndex + 1, track.pluginList.size() - 1);
+    if (sendIndex != targetIndex)
+        track.pluginList.state.moveChild (sendIndex, targetIndex, &track.edit.getUndoManager());
+}
+
+bool EngineHelpers::isFooterVisiblePlugin (const te::Plugin& plugin)
+{
+    if (dynamic_cast<const te::VolumeAndPanPlugin*> (&plugin) != nullptr
+        || dynamic_cast<const te::LevelMeterPlugin*> (&plugin) != nullptr
+        || dynamic_cast<const te::AuxSendPlugin*> (&plugin) != nullptr
+        || dynamic_cast<const te::AuxReturnPlugin*> (&plugin) != nullptr)
+        return false;
+
+    return true;
+}
+
+bool EngineHelpers::hasWetDryMix (const te::Plugin& plugin)
+{
+    return getDryParam (const_cast<te::Plugin&> (plugin)) != nullptr;
+}
+
+te::AutomatableParameter* EngineHelpers::getDryParam (te::Plugin& plugin)
+{
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        return ext->dryGain.get();
+
+    if (auto* rack = dynamic_cast<te::RackInstance*> (&plugin))
+        return rack->dryGain.get();
+
+    return nullptr;
+}
+
+te::AutomatableParameter* EngineHelpers::getWetParam (te::Plugin& plugin)
+{
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        return ext->wetGain.get();
+
+    if (auto* rack = dynamic_cast<te::RackInstance*> (&plugin))
+        return rack->wetGain.get();
+
+    return nullptr;
+}
+
+te::EditItemID EngineHelpers::getSoloedPluginId (const te::Track& track)
+{
+    return te::EditItemID::fromProperty (track.state, soloedPluginIdProperty);
+}
+
+void EngineHelpers::setSoloedPlugin (te::Track& track, te::Plugin* plugin)
+{
+    auto& um = track.edit.getUndoManager();
+    auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track);
+    if (audioTrack == nullptr || plugin == nullptr)
+        return;
+
+    const auto soloId = plugin->itemID;
+    soloId.setProperty (track.state, soloedPluginIdProperty, &um);
+
+    for (auto p : audioTrack->pluginList)
+    {
+        if (! isFooterVisiblePlugin (*p))
+            continue;
+
+        p->setEnabled (p->itemID == soloId);
+    }
+}
+
+void EngineHelpers::clearSoloedPlugin (te::Track& track)
+{
+    if (! track.state.hasProperty (soloedPluginIdProperty))
+        return;
+
+    track.state.removeProperty (soloedPluginIdProperty, &track.edit.getUndoManager());
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track))
+        for (auto p : audioTrack->pluginList)
+            if (isFooterVisiblePlugin (*p))
+                p->setEnabled (true);
+}
+
+bool EngineHelpers::isPluginSoloed (const te::Track& track, const te::Plugin& plugin)
+{
+    return getSoloedPluginId (track) == plugin.itemID;
+}
+
+te::RackInstance* EngineHelpers::wrapPluginsInRack (te::SelectionManager& selection)
+{
+    return te::Plugin::wrapSelectedPluginsInRack (selection);
+}
+
+te::RackInstance* EngineHelpers::insertEmptyRack (te::AudioTrack& track)
+{
+    auto rackType = track.edit.getRackList().addNewRack();
+    if (rackType == nullptr)
+        return nullptr;
+
+    rackType->rackName = "Rack";
+
+    if (auto plugin = track.edit.getPluginCache().createNewPlugin (te::RackInstance::create (*rackType)))
+        return dynamic_cast<te::RackInstance*> (insertPluginOnTrack (track, plugin));
+
+    return nullptr;
 }
 
 bool EngineHelpers::isMidiTrack (const te::Track& track)

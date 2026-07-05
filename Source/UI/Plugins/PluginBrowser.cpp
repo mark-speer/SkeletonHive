@@ -1,4 +1,6 @@
 #include "PluginBrowser.h"
+#include "UI/Arrangement/TrackComponents.h"
+#include "Engine/EngineHelpers.h"
 
 namespace arrange
 {
@@ -86,7 +88,7 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e)
                 }
             }
 
-            at->pluginList.insertPlugin (plugin, insertIndex, nullptr);
+            EngineHelpers::insertPluginOnTrack (*at, plugin, insertIndex);
         }
     };
 
@@ -146,6 +148,18 @@ void PluginBrowser::finishScan (int numFound)
         statusLabel.setText (juce::String (numFound) + " new, "
                              + juce::String (total) + " total",
                              juce::dontSendNotification);
+}
+
+void PluginBrowser::mouseDrag (const juce::MouseEvent& e)
+{
+    if (selectedPlugin.name.isEmpty() || e.getDistanceFromDragStart() < 6)
+        return;
+
+    if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+    {
+        const juce::String payload = juce::String (PluginDragTypes::browserInsert) + ":" + selectedPlugin.createIdentifierString();
+        container->startDragging (payload, this, juce::ScaledImage(), true, nullptr, &e.source);
+    }
 }
 
 void PluginBrowser::scanPlugins()

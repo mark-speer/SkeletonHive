@@ -520,8 +520,15 @@ void TimelineComponent::buildTracks()
                 if (onAddPlugin)
                     onAddPlugin (t);
             };
+            footer->createPlugin = createPlugin;
             headerContent.addAndMakeVisible (footer.get());
             trackFooters.add (footer.release());
+        }
+
+        if (auto* lanePtr = trackLanes.getLast())
+        {
+            lanePtr->createPlugin = createPlugin;
+            lanePtr->onAddPlugin = onAddPlugin;
         }
     }
 

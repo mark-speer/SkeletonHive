@@ -75,6 +75,39 @@ struct EngineHelpers
         the volume plugin if the track doesn't have one yet. */
     static te::AuxSendPlugin* getOrCreateAuxSend (te::AudioTrack& track, int busNumber = 0);
 
+    static constexpr int maxAuxBuses = 3;
+
+    static juce::String auxBusName (int busNumber);
+    static juce::Array<te::AuxSendPlugin*> getAllAuxSends (te::AudioTrack& track);
+    static te::AuxSendPlugin* addAuxSend (te::AudioTrack& track, int busNumber);
+    static bool isSendPreFader (te::AudioTrack& track, const te::AuxSendPlugin& send);
+    static void setSendPreFader (te::AudioTrack& track, te::AuxSendPlugin& send, bool preFader);
+
+    /** User-chain plugins shown in the track footer (excludes built-ins and aux). */
+    static bool isFooterVisiblePlugin (const te::Plugin& plugin);
+
+    /** Index in pluginList to insert before the volume plugin (end of user chain). */
+    static int getUserChainInsertIndex (te::AudioTrack& track);
+
+    static te::Plugin* insertPluginOnTrack (te::AudioTrack& track, te::Plugin::Ptr plugin, int index = -1);
+
+    static juce::PluginDescription lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString);
+
+    // Wet/dry mix (ExternalPlugin + RackInstance)
+    static bool hasWetDryMix (const te::Plugin& plugin);
+    static te::AutomatableParameter* getDryParam (te::Plugin& plugin);
+    static te::AutomatableParameter* getWetParam (te::Plugin& plugin);
+
+    // Solo-device monitoring (per-track ValueTree property)
+    static const juce::Identifier soloedPluginIdProperty;
+    static te::EditItemID getSoloedPluginId (const te::Track& track);
+    static void setSoloedPlugin (te::Track& track, te::Plugin* plugin);
+    static void clearSoloedPlugin (te::Track& track);
+    static bool isPluginSoloed (const te::Track& track, const te::Plugin& plugin);
+
+    static te::RackInstance* wrapPluginsInRack (te::SelectionManager& selection);
+    static te::RackInstance* insertEmptyRack (te::AudioTrack& track);
+
     static void togglePlay (te::Edit& edit, bool returnToStart = false);
 
     static void toggleRecord (te::Edit& edit);

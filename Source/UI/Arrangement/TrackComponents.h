@@ -6,6 +6,12 @@
 namespace arrange
 {
 
+namespace PluginDragTypes
+{
+inline constexpr const char* slotReorder = "arrangePluginSlot";
+inline constexpr const char* browserInsert = "arrangePluginBrowser";
+} // namespace PluginDragTypes
+
 class TrackLaneComponent;
 
 void showTimelineContextMenu (juce::Component& target,
@@ -63,21 +69,39 @@ public:
     te::Plugin::Ptr getPlugin() { return plugin; }
 
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
     std::function<void (te::Plugin&)> onRemove;
     std::function<void (te::Plugin&, int direction)> onMove;
+    std::function<void (te::Plugin&, int targetSlotIndex)> onDropAtSlot;
 
 private:
     void showSlotMenu();
+    void showWetDryDialog();
     void updateEnabledLook();
 
     EditViewState& editViewState;
     te::Plugin::Ptr plugin;
 };
 
+class RackMacroPanel : public juce::Component
+{
+public:
+    RackMacroPanel (EditViewState& evs, te::RackInstance& rack);
+    void resized() override;
+
+private:
+    EditViewState& editViewState;
+    te::RackInstance::Ptr rack;
+    juce::OwnedArray<juce::Slider> macroSliders;
+    juce::OwnedArray<juce::Label> macroLabels;
+};
+
 class TrackFooterComponent : public juce::Component,
                              private FlaggedAsyncUpdater,
-                             private te::ValueTreeAllEventListener
+                             private te::ValueTreeAllEventListener,
+                             public juce::DragAndDropTarget
 {
 public:
     TrackFooterComponent (EditViewState& evs, te::Track::Ptr t);
@@ -85,8 +109,19 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent& e) override;
 
     std::function<void (te::Track&)> onAddPlugin;
+    std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+
+    void setExpandedRack (te::RackInstance* rack);
+
+    // juce::DragAndDropTarget
+    bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
+    void itemDragEnter (const SourceDetails& dragSourceDetails) override;
+    void itemDragMove (const SourceDetails& dragSourceDetails) override;
+    void itemDragExit (const SourceDetails& dragSourceDetails) override;
+    void itemDropped (const SourceDetails& dragSourceDetails) override;
 
 private:
     void valueTreeChanged() override {}
@@ -98,18 +133,25 @@ private:
 
     void buildPlugins();
     void movePlugin (te::Plugin& plugin, int direction);
+    void movePluginToSlot (te::Plugin& plugin, int targetSlotIndex);
     void removePlugin (te::Plugin& plugin);
+    void insertBrowserPlugin (const juce::PluginDescription& desc, int slotIndex);
+    int slotIndexAtX (int x) const;
+    void showFooterContextMenu (const juce::MouseEvent& e);
+    void groupSelectedIntoRack();
 
     EditViewState& editViewState;
     te::Track::Ptr track;
     juce::TextButton addButton { "+" };
     juce::OwnedArray<PluginSlotButton> plugins;
+    int dropHighlightSlot = -1;
     bool updatePlugins = false;
 };
 
 class TrackLaneComponent : public juce::Component,
                            private te::ValueTreeAllEventListener,
-                           private FlaggedAsyncUpdater
+                           private FlaggedAsyncUpdater,
+                           public juce::DragAndDropTarget
 {
 public:
     TrackLaneComponent (EditViewState& evs, te::Track::Ptr t);
@@ -129,6 +171,12 @@ public:
     void refreshLayout();
 
     std::function<void (te::Clip&)> onClipDoubleClick;
+    std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (te::Track&)> onAddPlugin;
+
+    // juce::DragAndDropTarget — browser drop onto lane appends to chain
+    bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
+    void itemDropped (const SourceDetails& dragSourceDetails) override;
 
 private:
     void valueTreeChanged() override {}

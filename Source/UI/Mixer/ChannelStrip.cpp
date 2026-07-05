@@ -30,6 +30,60 @@ void LevelMeter::timerCallback()
 
 //==============================================================================
 
+class ChannelStrip::SendControlRow : public juce::Component
+{
+public:
+    SendControlRow (te::Edit& e, te::AudioTrack& at, te::AuxSendPlugin& s)
+        : edit (e), audioTrack (at), send (s)
+    {
+        busLabel.setText (EngineHelpers::auxBusName (send.getBusNumber()), juce::dontSendNotification);
+        busLabel.setJustificationType (juce::Justification::centred);
+
+        levelSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        levelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        levelSlider.setRange (-60.0, 6.0, 0.1);
+        levelSlider.setValue (send.getGainDb(), juce::dontSendNotification);
+        levelSlider.onValueChange = [this] { send.setGainDb ((float) levelSlider.getValue()); };
+
+        preFaderButton.setClickingTogglesState (true);
+        preFaderButton.setToggleState (EngineHelpers::isSendPreFader (audioTrack, send), juce::dontSendNotification);
+        preFaderButton.setTooltip ("Pre-fader (on) vs post-fader (off) send tap");
+        preFaderButton.onClick = [this]
+        {
+            EngineHelpers::setSendPreFader (audioTrack, send, preFaderButton.getToggleState());
+        };
+
+        muteButton.setClickingTogglesState (true);
+        muteButton.setToggleState (send.isMute(), juce::dontSendNotification);
+        muteButton.onClick = [this] { send.setMute (muteButton.getToggleState()); };
+
+        addAndMakeVisible (busLabel);
+        addAndMakeVisible (levelSlider);
+        addAndMakeVisible (preFaderButton);
+        addAndMakeVisible (muteButton);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (1);
+        busLabel.setBounds (r.removeFromLeft (14));
+        muteButton.setBounds (r.removeFromRight (18));
+        preFaderButton.setBounds (r.removeFromRight (28));
+        levelSlider.setBounds (r);
+    }
+
+private:
+    te::Edit& edit;
+    te::AudioTrack& audioTrack;
+    te::AuxSendPlugin& send;
+    juce::Label busLabel;
+    juce::Slider levelSlider;
+    juce::ToggleButton preFaderButton { "Pre" };
+    juce::TextButton muteButton { "M" };
+};
+
+//==============================================================================
+
 ChannelStrip::ChannelStrip (te::Track& t)
     : edit (t.edit), track (&t)
 {
@@ -39,14 +93,11 @@ ChannelStrip::ChannelStrip (te::Track& t)
 
         if (auto* lmPlugin = audioTrack->getLevelMeterPlugin())
             meter = std::make_unique<LevelMeter> (lmPlugin->measurer);
+
+        audioTrack->pluginList.state.addListener (this);
     }
     else if (auto* folderTrack = dynamic_cast<te::FolderTrack*> (track))
-    {
-        // Folders only get a working fader once the user has added a Volume &
-        // Pan plugin (i.e. turned it into a submix bus); otherwise this is null
-        // and the fader/pan controls stay inert, same as the master-less case.
         volumePlugin = folderTrack->getVolumePlugin();
-    }
 
     track->state.addListener (this);
     initialise();
@@ -72,7 +123,12 @@ ChannelStrip::~ChannelStrip()
     }
 
     if (track != nullptr)
+    {
         track->state.removeListener (this);
+
+        if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
+            audioTrack->pluginList.state.removeListener (this);
+    }
 }
 
 void ChannelStrip::initialise()
@@ -90,7 +146,6 @@ void ChannelStrip::initialise()
 
     if (volumePlugin != nullptr)
     {
-        // Sliders work in TE fader-position units, avoiding manual dB/gain conversion
         fader.onValueChange = [this] { volumePlugin->setSliderPos ((float) fader.getValue()); };
         panSlider.onValueChange = [this] { volumePlugin->setPan ((float) panSlider.getValue()); };
 
@@ -109,28 +164,8 @@ void ChannelStrip::initialise()
             track->setSolo (! track->isSolo (false));
     };
 
-    sendSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-    sendSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    sendSlider.setRange (-60.0, 6.0, 0.1);
-    sendSlider.setTooltip ("Send level (dB)");
-    sendSlider.onValueChange = [this]
-    {
-        if (auto* send = getSend())
-            send->setGainDb ((float) sendSlider.getValue());
-    };
-
-    addSendButton.setTooltip ("Add a send to the return bus");
-    addSendButton.onClick = [this]
-    {
-        if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
-        {
-            EngineHelpers::getOrCreateReturnTrack (edit, 0);
-            if (auto* send = EngineHelpers::getOrCreateAuxSend (*audioTrack, 0))
-                sendPlugin = send;
-
-            refreshSendControls();
-        }
-    };
+    addSendButton.setTooltip ("Add a send to a return bus (A/B/C)");
+    addSendButton.onClick = [this] { showAddSendMenu(); };
 
     addAndMakeVisible (nameLabel);
     addAndMakeVisible (fader);
@@ -145,39 +180,56 @@ void ChannelStrip::initialise()
     if (meter != nullptr)
         addAndMakeVisible (*meter);
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
-        if (auto* send = audioTrack->getAuxSendPlugin (0))
-            sendPlugin = send;
-
     refreshSendControls();
     updateFromModel();
 }
 
-te::AuxSendPlugin* ChannelStrip::getSend() const
+void ChannelStrip::showAddSendMenu()
 {
-    return dynamic_cast<te::AuxSendPlugin*> (sendPlugin.get());
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
+    {
+        juce::PopupMenu menu;
+        const auto existing = EngineHelpers::getAllAuxSends (*audioTrack);
+
+        for (int bus = 0; bus < EngineHelpers::maxAuxBuses; ++bus)
+        {
+            const bool inUse = existing.indexOf (audioTrack->getAuxSendPlugin (bus)) >= 0;
+            menu.addItem (bus + 1, "Send " + EngineHelpers::auxBusName (bus), ! inUse);
+        }
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                            [this, audioTrack] (int result)
+        {
+            if (result <= 0)
+                return;
+
+            const int bus = result - 1;
+            EngineHelpers::getOrCreateReturnTrack (edit, bus);
+            EngineHelpers::addAuxSend (*audioTrack, bus);
+            refreshSendControls();
+        });
+    }
 }
 
 void ChannelStrip::refreshSendControls()
 {
-    removeChildComponent (&sendSlider);
+    sendRows.clear();
     removeChildComponent (&addSendButton);
 
-    if (isMasterStrip())
+    if (isMasterStrip() || EngineHelpers::isReturnTrack (*track))
         return;
 
-    // Return tracks (hosting the AuxReturn) don't get a send on themselves
-    if (EngineHelpers::isReturnTrack (*track))
-        return;
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
+    {
+        for (auto* send : EngineHelpers::getAllAuxSends (*audioTrack))
+        {
+            auto* row = new SendControlRow (edit, *audioTrack, *send);
+            sendRows.add (row);
+            addAndMakeVisible (row);
+        }
 
-    if (auto* send = getSend())
-    {
-        sendSlider.setValue (send->getGainDb(), juce::dontSendNotification);
-        addAndMakeVisible (sendSlider);
-    }
-    else if (dynamic_cast<te::AudioTrack*> (track) != nullptr)
-    {
-        addAndMakeVisible (addSendButton);
+        if (sendRows.size() < EngineHelpers::maxAuxBuses)
+            addAndMakeVisible (addSendButton);
     }
 
     resized();
@@ -235,12 +287,16 @@ void ChannelStrip::resized()
         muteButton.setBounds (btnRow.removeFromLeft (btnRow.getWidth() / 2).reduced (1));
         soloButton.setBounds (btnRow.reduced (1));
 
-        if (sendSlider.isShowing() || sendSlider.getParentComponent() == this
-            || addSendButton.getParentComponent() == this)
+        if (addSendButton.isShowing() || ! sendRows.isEmpty())
         {
-            auto sendRow = r.removeFromBottom (20);
-            sendSlider.setBounds (sendRow.reduced (1));
-            addSendButton.setBounds (sendRow.reduced (1));
+            auto sendArea = r.removeFromBottom (juce::jmax (20, sendRows.size() * 22 + (addSendButton.isShowing() ? 22 : 0)));
+            auto addRow = sendArea.removeFromBottom (addSendButton.isShowing() ? 22 : 0);
+            addSendButton.setBounds (addRow.reduced (1));
+
+            for (auto* row : sendRows)
+            {
+                row->setBounds (sendArea.removeFromTop (22));
+            }
         }
     }
 

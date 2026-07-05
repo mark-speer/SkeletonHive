@@ -51,6 +51,7 @@ public:
 
     std::function<void (te::Clip&)> onClipDoubleClick;
     std::function<void (te::Track&)> onAddPlugin;
+    std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
 
     void rebuildTracks();
     void clearRangeSelectionsExcept (TrackLaneComponent* except);

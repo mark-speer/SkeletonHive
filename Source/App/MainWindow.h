@@ -13,6 +13,7 @@ namespace arrange
 {
 
 class MainContentComponent : public juce::Component,
+                             public juce::DragAndDropContainer,
                              private juce::KeyListener
 {
 public:

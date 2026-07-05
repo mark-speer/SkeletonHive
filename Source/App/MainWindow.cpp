@@ -131,6 +131,12 @@ void MainContentComponent::rebuildEditUI()
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
+    timeline->createPlugin = [this] (const juce::PluginDescription& desc)
+    {
+        if (auto* edit = projectManager.getEdit())
+            return pluginScanner->createPlugin (desc, *edit);
+        return te::Plugin::Ptr {};
+    };
 
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*timeline);
