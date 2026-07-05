@@ -116,6 +116,23 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
     scaleSnapButton.setTooltip ("Snap note pitch to the selected scale when creating/moving notes (S)");
 
+    drawButton.setTooltip ("Draw tool: click-drag on the grid to create a note of adjustable length (D)");
+    drawButton.onClick = [this]
+    {
+        if (drawButton.getToggleState())
+            stepButton.setToggleState (false, juce::dontSendNotification);
+    };
+
+    stepButton.setTooltip ("Step input: click a row (or play a MIDI chord) to insert notes at the cursor "
+                           "and advance. Shift-click the keyboard to stage a chord. Space = rest. (T)");
+    stepButton.onClick = [this]
+    {
+        if (stepButton.getToggleState())
+            drawButton.setToggleState (false, juce::dontSendNotification);
+        chordStagingPitches.clear();
+        repaint (gridBounds);
+    };
+
     for (int i = 0; i < 12; ++i)
         rootBox.addItem (noteNames[i], i + 1);
     rootBox.setSelectedId (1, juce::dontSendNotification);
@@ -138,8 +155,14 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
     addAndMakeVisible (grooveBox);
     addAndMakeVisible (foldButton);
     addAndMakeVisible (scaleSnapButton);
+    addAndMakeVisible (drawButton);
+    addAndMakeVisible (stepButton);
     addAndMakeVisible (rootBox);
     addAndMakeVisible (scaleBox);
+    addAndMakeVisible (hScrollBar);
+    hScrollBar.addListener (this);
+
+    currentNoteLengthBeats = TimelineGrid::gridIntervalBeats (edit, editViewState);
 
     setWantsKeyboardFocus (true);
     clip->state.addListener (this);
@@ -147,6 +170,7 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
 PianoRollEditor::~PianoRollEditor()
 {
+    hScrollBar.removeListener (this);
     midiKeyDispatcher->listeners.remove (this);
     stopAudition();
     clip->state.removeListener (this);
@@ -186,8 +210,10 @@ void PianoRollEditor::resized()
     toolbarBounds = r.removeFromTop (toolbarHeight);
     velocityBounds = r.removeFromBottom (velocityLaneHeight);
     keyboardBounds = r.removeFromLeft (keyboardWidth);
+    auto scrollBarStrip = r.removeFromBottom (scrollBarHeight);
     gridBounds = r;
     velocityBounds.removeFromLeft (keyboardWidth);
+    hScrollBar.setBounds (scrollBarStrip);
 
     auto tb = toolbarBounds.reduced (3);
     quantiseButton.setBounds (tb.removeFromLeft (72).reduced (1));
@@ -195,8 +221,20 @@ void PianoRollEditor::resized()
     grooveBox.setBounds (tb.removeFromLeft (86).reduced (1));
     foldButton.setBounds (tb.removeFromLeft (52).reduced (1));
     scaleSnapButton.setBounds (tb.removeFromLeft (78).reduced (1));
+    drawButton.setBounds (tb.removeFromLeft (52).reduced (1));
+    stepButton.setBounds (tb.removeFromLeft (52).reduced (1));
     rootBox.setBounds (tb.removeFromLeft (54).reduced (1));
     scaleBox.setBounds (tb.removeFromLeft (80).reduced (1));
+
+    if (! zoomInitialised && gridBounds.getWidth() > 0)
+    {
+        pixelsPerBeat = juce::jlimit (minPixelsPerBeat, maxPixelsPerBeat,
+                                      gridBounds.getWidth() / clipLengthBeats());
+        zoomInitialised = true;
+    }
+
+    clampScroll();
+    updateHorizontalScrollBar();
 }
 
 void PianoRollEditor::rebuildFoldedPitches()
@@ -270,13 +308,54 @@ double PianoRollEditor::clipLengthBeats() const
 
 double PianoRollEditor::xToBeat (int x) const
 {
-    const double proportion = (x - gridBounds.getX()) / (double) juce::jmax (1, gridBounds.getWidth());
-    return juce::jlimit (0.0, clipLengthBeats(), proportion * clipLengthBeats());
+    const double beat = scrollBeat + (x - gridBounds.getX()) / juce::jmax (0.0001, pixelsPerBeat);
+    return juce::jlimit (0.0, clipLengthBeats(), beat);
 }
 
 float PianoRollEditor::beatToX (double beat) const
 {
-    return gridBounds.getX() + (float) (beat / clipLengthBeats()) * (float) gridBounds.getWidth();
+    return gridBounds.getX() + (float) ((beat - scrollBeat) * pixelsPerBeat);
+}
+
+void PianoRollEditor::clampScroll()
+{
+    const double visibleBeats = gridBounds.getWidth() / juce::jmax (0.0001, pixelsPerBeat);
+    const double maxScroll = juce::jmax (0.0, clipLengthBeats() - visibleBeats);
+    scrollBeat = juce::jlimit (0.0, maxScroll, scrollBeat);
+}
+
+void PianoRollEditor::updateHorizontalScrollBar()
+{
+    const double visibleBeats = gridBounds.getWidth() / juce::jmax (0.0001, pixelsPerBeat);
+    hScrollBar.setRangeLimits (0.0, juce::jmax (clipLengthBeats(), scrollBeat + visibleBeats));
+    hScrollBar.setCurrentRange (scrollBeat, visibleBeats, juce::dontSendNotification);
+}
+
+void PianoRollEditor::zoomAt (int mouseX, double factor)
+{
+    const double beatAtMouse = xToBeat (mouseX);
+    const double newPixelsPerBeat = juce::jlimit (minPixelsPerBeat, maxPixelsPerBeat, pixelsPerBeat * factor);
+
+    if (newPixelsPerBeat == pixelsPerBeat)
+        return;
+
+    pixelsPerBeat = newPixelsPerBeat;
+    scrollBeat = beatAtMouse - (mouseX - gridBounds.getX()) / pixelsPerBeat;
+    clampScroll();
+    updateHorizontalScrollBar();
+    repaint (gridBounds);
+    repaint (velocityBounds);
+}
+
+void PianoRollEditor::scrollBarMoved (juce::ScrollBar* bar, double newRangeStart)
+{
+    if (bar != &hScrollBar)
+        return;
+
+    scrollBeat = newRangeStart;
+    clampScroll();
+    repaint (gridBounds);
+    repaint (velocityBounds);
 }
 
 double PianoRollEditor::gridIntervalBeats() const
@@ -349,6 +428,37 @@ juce::Array<te::MidiNote*> PianoRollEditor::getTargetNotes() const
     return clip->getSequence().getNotes();
 }
 
+void PianoRollEditor::commitStepNote (int pitch, int velocity, bool allowStaging)
+{
+    // Shift-click on the keyboard stages a chord pitch without committing yet.
+    if (allowStaging && juce::ModifierKeys::getCurrentModifiers().isShiftDown())
+    {
+        chordStagingPitches.addIfNotAlreadyThere (pitch);
+        auditionPitch (pitch, velocity);
+        repaint (gridBounds);
+        return;
+    }
+
+    chordStagingPitches.addIfNotAlreadyThere (pitch);
+
+    const double offsetBeats = clip->getOffsetInBeats().inBeats();
+    selection.clearQuick();
+
+    for (auto p : chordStagingPitches)
+        if (auto* note = clip->getSequence().addNote (p,
+                te::BeatPosition::fromBeats (stepCursorBeat + offsetBeats),
+                te::BeatDuration::fromBeats (currentNoteLengthBeats),
+                velocity, 0, getUndoManager()))
+            selection.add (note->state);
+
+    auditionPitch (pitch, velocity);
+    chordStagingPitches.clear();
+    stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
+
+    repaint (gridBounds);
+    repaint (velocityBounds);
+}
+
 void PianoRollEditor::captureDragOrigins()
 {
     dragOrigins.clear();
@@ -376,6 +486,13 @@ void PianoRollEditor::paint (juce::Graphics& g)
     paintGhostNotes (g);
     paintNotes (g);
     paintVelocityLane (g);
+
+    if (stepButton.getToggleState())
+    {
+        const float x = beatToX (stepCursorBeat);
+        g.setColour (juce::Colours::red.withAlpha (0.85f));
+        g.drawVerticalLine ((int) x, (float) gridBounds.getY(), (float) gridBounds.getBottom());
+    }
 
     if (dragMode == DragMode::marquee)
     {
@@ -576,7 +693,13 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
 
     if (keyboardBounds.contains (e.getPosition()))
     {
-        auditionPitch (pitchAtY (e.y), defaultVelocity);
+        const int pitch = pitchAtY (e.y);
+
+        if (stepButton.getToggleState())
+            commitStepNote (pitch, defaultVelocity, true);
+        else
+            auditionPitch (pitch, defaultVelocity);
+
         return;
     }
 
@@ -663,6 +786,40 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
         dragAnchorPitch = hitNote->getNoteNumber();
         captureDragOrigins();
         auditionPitch (hitNote->getNoteNumber(), hitNote->getVelocity());
+        repaint (gridBounds);
+        repaint (velocityBounds);
+        return;
+    }
+
+    if (stepButton.getToggleState())
+    {
+        commitStepNote (scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y));
+        return;
+    }
+
+    if (drawButton.getToggleState())
+    {
+        // Draw tool: create a note at the snapped beat/pitch, then reuse the resizeEnd
+        // drag machinery (as used by double-click-create) so it can be extended live.
+        const double startBeat = snapBeat (xToBeat (e.x));
+        const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
+        const double offsetBeats = clip->getOffsetInBeats().inBeats();
+
+        if (auto* note = clip->getSequence().addNote (pitch,
+                te::BeatPosition::fromBeats (startBeat + offsetBeats),
+                te::BeatDuration::fromBeats (currentNoteLengthBeats),
+                defaultVelocity, 0, getUndoManager()))
+        {
+            selection.clearQuick();
+            selection.add (note->state);
+            auditionPitch (pitch, defaultVelocity);
+
+            dragMode = DragMode::resizeEnd;
+            dragAnchorBeat = startBeat;
+            dragAnchorPitch = pitch;
+            captureDragOrigins();
+        }
+
         repaint (gridBounds);
         repaint (velocityBounds);
         return;
@@ -869,6 +1026,10 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
 
 void PianoRollEditor::mouseUp (const juce::MouseEvent&)
 {
+    if (dragMode == DragMode::resizeEnd && dragOrigins.size() == 1)
+        if (auto* n = clip->getSequence().getNoteFor (dragOrigins.getReference (0).state))
+            currentNoteLengthBeats = juce::jmax (minNoteLengthBeats, n->getLengthBeats().inBeats());
+
     dragMode = DragMode::none;
     velocityTargets.clear();
     stopAudition();
@@ -892,6 +1053,28 @@ void PianoRollEditor::mouseMove (const juce::MouseEvent& e)
     }
 
     setMouseCursor (juce::MouseCursor::NormalCursor);
+}
+
+void PianoRollEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (! gridBounds.contains (e.getPosition()) && ! keyboardBounds.contains (e.getPosition()))
+    {
+        juce::Component::mouseWheelMove (e, wheel);
+        return;
+    }
+
+    if (e.mods.isCtrlDown() || e.mods.isCommandDown())
+    {
+        zoomAt (e.x, wheel.deltaY > 0 ? 1.2 : 0.833);
+        return;
+    }
+
+    const double delta = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : -wheel.deltaY);
+    scrollBeat += delta * gridIntervalBeats() * 4.0;
+    clampScroll();
+    updateHorizontalScrollBar();
+    repaint (gridBounds);
+    repaint (velocityBounds);
 }
 
 //==============================================================================
@@ -938,6 +1121,24 @@ bool PianoRollEditor::keyPressed (const juce::KeyPress& key)
     if (key.getKeyCode() == 'S' || key.getKeyCode() == 's')
     {
         scaleSnapButton.setToggleState (! scaleSnapButton.getToggleState(), juce::dontSendNotification);
+        return true;
+    }
+    if (key.getKeyCode() == 'D' || key.getKeyCode() == 'd')
+    {
+        drawButton.setToggleState (! drawButton.getToggleState(), juce::sendNotification);
+        return true;
+    }
+    if (key.getKeyCode() == 'T' || key.getKeyCode() == 't')
+    {
+        stepButton.setToggleState (! stepButton.getToggleState(), juce::sendNotification);
+        return true;
+    }
+    if (key.getKeyCode() == juce::KeyPress::spaceKey && stepButton.getToggleState())
+    {
+        // Rest: advance the step cursor without inserting a note.
+        chordStagingPitches.clear();
+        stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
+        repaint (gridBounds);
         return true;
     }
     if (key.getKeyCode() == juce::KeyPress::escapeKey)
@@ -1122,6 +1323,38 @@ void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Ar
 {
     if (track != clip->getTrack())
         return;
+
+    if (stepButton.getToggleState())
+    {
+        // Step-record: a played chord (all notesOn in one callback) commits together at
+        // the cursor with a fixed length, then the cursor advances. Note-offs are ignored
+        // since the note length is controlled by currentNoteLengthBeats, not sustain time.
+        if (! notesOn.isEmpty())
+        {
+            const double offsetBeats = clip->getOffsetInBeats().inBeats();
+            selection.clearQuick();
+
+            for (int i = 0; i < notesOn.size(); ++i)
+            {
+                const int rawPitch = notesOn[i];
+                const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (rawPitch) : rawPitch;
+                const int velocity = i < vels.size() ? vels[i] : defaultVelocity;
+
+                if (auto* note = clip->getSequence().addNote (pitch,
+                        te::BeatPosition::fromBeats (stepCursorBeat + offsetBeats),
+                        te::BeatDuration::fromBeats (currentNoteLengthBeats),
+                        velocity, 0, getUndoManager()))
+                    selection.add (note->state);
+
+                auditionPitch (pitch, velocity);
+            }
+
+            stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
+            repaint (gridBounds);
+            repaint (velocityBounds);
+        }
+        return;
+    }
 
     const double nowBeat = liveInputBeatPosition();
 

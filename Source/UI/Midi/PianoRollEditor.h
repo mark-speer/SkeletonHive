@@ -13,7 +13,8 @@ namespace arrange
 */
 class PianoRollEditor : public juce::Component,
                         private te::ValueTreeAllEventListener,
-                        private te::MidiInputDevice::MidiKeyChangeDispatcher::Listener
+                        private te::MidiInputDevice::MidiKeyChangeDispatcher::Listener,
+                        private juce::ScrollBar::Listener
 {
 public:
     PianoRollEditor (te::MidiClip& clip, te::Edit& edit, EditViewState& viewState);
@@ -26,6 +27,7 @@ public:
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
     bool keyPressed (const juce::KeyPress& key) override;
 
     // Editing operations (also reachable via keyboard shortcuts)
@@ -63,6 +65,17 @@ private:
     void focusGained (FocusChangeType) override;
     void focusLost (FocusChangeType) override;
     double liveInputBeatPosition() const;
+
+    // Zoom / scroll (juce::ScrollBar::Listener)
+    void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override;
+    void zoomAt (int mouseX, double factor);
+    void clampScroll();
+    void updateHorizontalScrollBar();
+
+    // Step input: advances stepCursorBeat by one note-length per key/click, committing
+    // any chord pitches staged (via Shift-click on the keyboard) at the same start beat.
+    // allowStaging is true only for keyboard clicks, so a Shift-click on the grid still commits.
+    void commitStepNote (int pitch, int velocity = defaultVelocity, bool allowStaging = false);
 
     // Geometry / mapping
     void rebuildFoldedPitches();
@@ -112,7 +125,9 @@ private:
     // Toolbar
     juce::TextButton quantiseButton { "Quantize" }, humaniseButton { "Humanize" };
     juce::ToggleButton foldButton { "Fold" }, scaleSnapButton { "Snap Scale" };
+    juce::ToggleButton drawButton { "Draw" }, stepButton { "Step" };
     juce::ComboBox rootBox, scaleBox, grooveBox;
+    juce::ScrollBar hScrollBar { false };
 
     // Selection is stored as note state trees so it survives MidiNote reallocation
     juce::Array<juce::ValueTree> selection;
@@ -132,6 +147,19 @@ private:
 
     juce::Array<int> foldedPitches;   // descending, only used when folded
 
+    // Zoom / scroll viewport state (horizontal only; rows always fit gridBounds height)
+    double pixelsPerBeat = 40.0;
+    double scrollBeat = 0.0;
+    bool zoomInitialised = false;
+
+    // Note-length draw tool: remembers the last drawn/resized note's length so the
+    // next drawn or step-input note reuses it.
+    double currentNoteLengthBeats = 0.25;
+
+    // Step input
+    double stepCursorBeat = 0.0;
+    juce::Array<int> chordStagingPitches;   // pitches queued via Shift-click, not yet committed
+
     // Layout regions
     juce::Rectangle<int> toolbarBounds, keyboardBounds, gridBounds, velocityBounds;
 
@@ -140,9 +168,12 @@ private:
     static constexpr int keyboardWidth = 52;
     static constexpr int toolbarHeight = 30;
     static constexpr int velocityLaneHeight = 72;
+    static constexpr int scrollBarHeight = 14;
     static constexpr int resizeHandlePx = 5;
     static constexpr int defaultVelocity = 96;
     static constexpr double minNoteLengthBeats = 1.0 / 32.0;
+    static constexpr double minPixelsPerBeat = 8.0;
+    static constexpr double maxPixelsPerBeat = 400.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollEditor)
 };
