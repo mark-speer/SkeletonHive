@@ -1,0 +1,13 @@
+build/
+cmake-build-*/
+.vs/
+.vscode/
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+.DS_Store
+Thumbs.db
+*.tracktionedit
+*.tracktionedit.bak

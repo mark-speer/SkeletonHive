@@ -1,0 +1,5 @@
+# Arrange DAW
+
+Cross-platform arrangement-view DAW. See README.md for build instructions.
+
+This project fetches [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) at configure time via CMake FetchContent when the `external/tracktion_engine` submodule is not present.

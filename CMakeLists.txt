@@ -1,0 +1,126 @@
+cmake_minimum_required(VERSION 3.22)
+
+project(ArrangeDAW VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE INTERNAL "")
+endif()
+
+set_property(GLOBAL PROPERTY USE_FOLDERS YES)
+option(JUCE_ENABLE_MODULE_SOURCE_GROUPS "Enable Module Source Groups" ON)
+
+# Fetch Tracktion Engine (includes JUCE as submodule when using git submodule)
+set(TE_ADD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(JUCE_CPM_DEVELOP ON CACHE BOOL "" FORCE)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/tracktion_engine/CMakeLists.txt")
+    add_subdirectory(external/tracktion_engine)
+else()
+    include(FetchContent)
+    # Skip JUCE submodule (SSH); Tracktion fetches JUCE via CPM when JUCE_CPM_DEVELOP is ON
+    FetchContent_Declare(
+        tracktion_engine
+        GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
+        GIT_TAG        develop
+        GIT_SHALLOW    TRUE
+        GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(tracktion_engine)
+endif()
+
+juce_add_gui_app(ArrangeDAW
+    PRODUCT_NAME "Arrange DAW"
+    COMPANY_NAME "ArrangeDAW"
+    BUNDLE_ID "com.arrangedaw.app"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Audio recording requires microphone access"
+)
+
+juce_generate_juce_header(ArrangeDAW)
+
+target_sources(ArrangeDAW PRIVATE
+    Source/App/Main.cpp
+    Source/App/Application.h
+    Source/App/MainWindow.h
+    Source/App/MainWindow.cpp
+    Source/Engine/ProjectManager.h
+    Source/Engine/ProjectManager.cpp
+    Source/Engine/TransportController.h
+    Source/Engine/TransportController.cpp
+    Source/Engine/PluginScanner.h
+    Source/Engine/PluginScanner.cpp
+    Source/Engine/ExtendedUIBehaviour.h
+    Source/Engine/ExtendedEngineBehaviour.h
+    Source/Engine/EngineHelpers.h
+    Source/Engine/EngineHelpers.cpp
+    Source/UI/Arrangement/EditViewState.h
+    Source/UI/Arrangement/ClipComponents.h
+    Source/UI/Arrangement/ClipComponents.cpp
+    Source/UI/Arrangement/TrackComponents.h
+    Source/UI/Arrangement/TrackComponents.cpp
+    Source/UI/Arrangement/TimelineComponent.h
+    Source/UI/Arrangement/TimelineComponent.cpp
+    Source/UI/Arrangement/TimelineGrid.h
+    Source/UI/Arrangement/TimelineGrid.cpp
+    Source/UI/Transport/TransportBar.h
+    Source/UI/Transport/TransportBar.cpp
+    Source/UI/Mixer/MixerPanel.h
+    Source/UI/Mixer/MixerPanel.cpp
+    Source/UI/Mixer/ChannelStrip.h
+    Source/UI/Mixer/ChannelStrip.cpp
+    Source/UI/Plugins/PluginBrowser.h
+    Source/UI/Plugins/PluginBrowser.cpp
+    Source/UI/Plugins/PluginWindow.h
+    Source/UI/Plugins/PluginWindow.cpp
+    Source/UI/Midi/PianoRollEditor.h
+    Source/UI/Midi/PianoRollEditor.cpp
+    Source/UI/Automation/AutomationLaneComponent.h
+    Source/UI/Automation/AutomationLaneComponent.cpp
+)
+
+target_compile_definitions(ArrangeDAW PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_AU=1
+    JUCE_PLUGINHOST_LADSPA=1
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ArrangeDAW,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
+)
+
+target_link_libraries(ArrangeDAW PRIVATE
+    tracktion::tracktion_core
+    tracktion::tracktion_engine
+    tracktion::tracktion_graph
+    juce::juce_audio_devices
+    juce::juce_audio_processors
+    juce::juce_audio_utils
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
+)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(ArrangeDAW PRIVATE "-latomic")
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_options(ArrangeDAW PRIVATE -Wall -Wextra)
+elseif(MSVC)
+    target_compile_options(ArrangeDAW PRIVATE /W4)
+endif()
+
+target_include_directories(ArrangeDAW PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source
+)
