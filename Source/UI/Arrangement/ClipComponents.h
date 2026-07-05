@@ -22,7 +22,7 @@ public:
     std::function<void (te::Clip&)> onDoubleClick;
 
 protected:
-    enum class DragMode { none, move, resizeStart, resizeEnd };
+    enum class DragMode { none, move, resizeStart, resizeEnd, fadeIn, fadeOut };
 
     struct GroupDragItem
     {
@@ -46,10 +46,12 @@ protected:
     te::TimePosition dragAnchorTime;
     te::TimePosition originalStart;
     te::TimePosition originalEnd;
+    te::TimeDuration originalFadeIn, originalFadeOut;
     juce::Array<GroupDragItem> groupDragItems;
     juce::Array<RippleDragItem> rippleDragItems;
 
     static constexpr int resizeHandleWidth = 6;
+    static constexpr int fadeHandlePx = 10;
     static constexpr double minClipLengthSeconds = 0.05;
 };
 
@@ -61,6 +63,7 @@ public:
 
 private:
     void updateThumbnail();
+    void paintFadeOverlay (juce::Graphics& g) const;
     std::unique_ptr<te::SmartThumbnail> thumbnail;
 };
 

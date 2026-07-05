@@ -56,6 +56,16 @@ ClipComponent::DragMode ClipComponent::dragModeForEvent (const juce::MouseEvent&
     if (e.mods.isRightButtonDown())
         return DragMode::none;
 
+    // Fade handles live in the top corners, only on audio clips (TE fades are
+    // an AudioClipBase feature; MIDI clips have no equivalent).
+    if (dynamic_cast<te::AudioClipBase*> (clip.get()) != nullptr)
+    {
+        if (e.y <= fadeHandlePx && e.x <= fadeHandlePx * 2)
+            return DragMode::fadeIn;
+        if (e.y <= fadeHandlePx && e.x >= getWidth() - fadeHandlePx * 2)
+            return DragMode::fadeOut;
+    }
+
     if (getWidth() <= resizeHandleWidth * 2)
         return DragMode::move;
 
@@ -72,6 +82,8 @@ void ClipComponent::updateCursorForMode (DragMode mode)
 {
     if (mode == DragMode::resizeStart || mode == DragMode::resizeEnd)
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+    else if (mode == DragMode::fadeIn || mode == DragMode::fadeOut)
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
     else
         setMouseCursor (juce::MouseCursor::DraggingHandCursor);
 }
@@ -156,6 +168,14 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     else if (dragMode == DragMode::resizeEnd)
     {
         captureRippleDragItems (originalEnd);
+    }
+    else if (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut)
+    {
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
+        {
+            originalFadeIn = audioClip->getFadeIn();
+            originalFadeOut = audioClip->getFadeOut();
+        }
     }
 
     updateCursorForMode (dragMode);
@@ -254,11 +274,42 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
             }
         }
     }
+    else if (dragMode == DragMode::fadeIn)
+    {
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
+            audioClip->setFadeIn (juce::jmax (te::TimeDuration(), currentTime - originalStart));
+    }
+    else if (dragMode == DragMode::fadeOut)
+    {
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
+            audioClip->setFadeOut (juce::jmax (te::TimeDuration(), originalEnd - currentTime));
+    }
 }
 
 void ClipComponent::mouseUp (const juce::MouseEvent& e)
 {
     juce::ignoreUnused (e);
+
+    // If a move/resize left this clip overlapping a neighbour, let TE
+    // auto-crossfade the overlap instead of leaving a hard cut.
+    if (dragMode == DragMode::move || dragMode == DragMode::resizeStart || dragMode == DragMode::resizeEnd)
+    {
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
+        {
+            auto enableIfOverlapping = [] (te::AudioClipBase* a, te::AudioClipBase::ClipDirection dir)
+            {
+                if (auto* neighbour = a->getOverlappingClip (dir))
+                {
+                    a->setAutoCrossfade (true);
+                    neighbour->setAutoCrossfade (true);
+                }
+            };
+
+            enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::previous);
+            enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::next);
+        }
+    }
+
     dragMode = DragMode::none;
     groupDragItems.clear();
     rippleDragItems.clear();
@@ -273,6 +324,8 @@ void ClipComponent::mouseMove (const juce::MouseEvent& e)
     const auto mode = dragModeForEvent (e);
     if (mode == DragMode::resizeStart || mode == DragMode::resizeEnd)
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+    else if (mode == DragMode::fadeIn || mode == DragMode::fadeOut)
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
     else
         setMouseCursor (juce::MouseCursor::NormalCursor);
 }
@@ -313,9 +366,73 @@ void AudioClipComponent::paint (juce::Graphics& g)
         thumbnail->drawChannels (g, bounds, viewRange, 1.0f);
     }
 
+    paintFadeOverlay (g);
+
     g.setColour (juce::Colours::white.withAlpha (0.9f));
     g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
     paintSelectionAndGroupIndicators (g);
+}
+
+void AudioClipComponent::paintFadeOverlay (juce::Graphics& g) const
+{
+    auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get());
+    if (audioClip == nullptr)
+        return;
+
+    const auto bounds = getLocalBounds().toFloat();
+    const double lengthSeconds = clip->getPosition().getLength().inSeconds();
+    if (lengthSeconds <= 0.0 || bounds.getWidth() <= 0.0f)
+        return;
+
+    const float pxPerSecond = bounds.getWidth() / (float) lengthSeconds;
+
+    auto drawFade = [&] (float startX, float endX, bool isFadeIn, te::AudioFadeCurve::Type type)
+    {
+        if (endX - startX < 1.0f)
+            return;
+
+        const int steps = juce::jlimit (2, 64, (int) (endX - startX));
+        juce::Path shadow, curve;
+
+        for (int i = 0; i <= steps; ++i)
+        {
+            const float alpha = (float) i / (float) steps;
+            const float gain = te::AudioFadeCurve::alphaToGainForType (type, isFadeIn ? alpha : 1.0f - alpha);
+            const float x = startX + alpha * (endX - startX);
+            const float y = bounds.getY() + (1.0f - gain) * bounds.getHeight();
+
+            if (i == 0)
+            {
+                shadow.startNewSubPath (x, bounds.getY());
+                curve.startNewSubPath (x, y);
+            }
+            else
+            {
+                curve.lineTo (x, y);
+            }
+
+            shadow.lineTo (x, y);
+        }
+
+        shadow.lineTo (endX, bounds.getY());
+        shadow.closeSubPath();
+
+        g.setColour (juce::Colours::black.withAlpha (0.4f));
+        g.fillPath (shadow);
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.strokePath (curve, juce::PathStrokeType (1.5f));
+    };
+
+    const float fadeInPx = (float) audioClip->getFadeIn().inSeconds() * pxPerSecond;
+    const float fadeOutPx = (float) audioClip->getFadeOut().inSeconds() * pxPerSecond;
+
+    drawFade (bounds.getX(), bounds.getX() + fadeInPx, true, audioClip->getFadeInType());
+    drawFade (bounds.getRight() - fadeOutPx, bounds.getRight(), false, audioClip->getFadeOutType());
+
+    // Small grab-handle indicators in the top corners
+    g.setColour (juce::Colours::white.withAlpha (0.6f));
+    g.fillRect (bounds.getX(), bounds.getY(), (float) fadeHandlePx, 3.0f);
+    g.fillRect (bounds.getRight() - (float) fadeHandlePx, bounds.getY(), (float) fadeHandlePx, 3.0f);
 }
 
 MidiClipComponent::MidiClipComponent (EditViewState& evs, te::Clip::Ptr c)
