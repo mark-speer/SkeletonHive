@@ -5,7 +5,6 @@
 namespace arrange
 {
 
-const juce::Identifier EngineHelpers::trackKindProperty ("arrangeTrackKind");
 const juce::Identifier EngineHelpers::clipGroupProperty ("arrangeClipGroup");
 const juce::Identifier EngineHelpers::clipGroupColourProperty ("arrangeClipGroupColour");
 
@@ -159,19 +158,8 @@ te::AuxSendPlugin* EngineHelpers::getOrCreateAuxSend (te::AudioTrack& track, int
     return send;
 }
 
-void EngineHelpers::setTrackKind (te::Track& track, TrackKind kind)
+bool EngineHelpers::isMidiTrack (const te::Track& track)
 {
-    track.state.setProperty (trackKindProperty, kind == TrackKind::midi ? "midi" : "audio", nullptr);
-}
-
-TrackKind EngineHelpers::getTrackKind (const te::Track& track)
-{
-    const auto stored = track.state.getProperty (trackKindProperty).toString();
-    if (stored == "midi")
-        return TrackKind::midi;
-    if (stored == "audio")
-        return TrackKind::audio;
-
     if (auto* clipTrack = dynamic_cast<const te::ClipTrack*> (&track))
     {
         bool hasMidi = false, hasAudio = false;
@@ -182,11 +170,46 @@ TrackKind EngineHelpers::getTrackKind (const te::Track& track)
             else if (dynamic_cast<te::WaveAudioClip*> (c) != nullptr)
                 hasAudio = true;
         }
-        if (hasMidi && ! hasAudio)
-            return TrackKind::midi;
+        return hasMidi && ! hasAudio;
     }
 
-    return TrackKind::audio;
+    return false;
+}
+
+bool EngineHelpers::canHostMidiClips (const te::Track& track)
+{
+    if (auto* clipTrack = dynamic_cast<const te::ClipTrack*> (&track))
+    {
+        for (auto* c : clipTrack->getClips())
+            if (dynamic_cast<te::WaveAudioClip*> (c) != nullptr)
+                return false;
+
+        return true;
+    }
+
+    return false;
+}
+
+bool EngineHelpers::isReturnTrack (const te::Track& track)
+{
+    if (auto* audioTrack = dynamic_cast<const te::AudioTrack*> (&track))
+        return audioTrack->pluginList.findFirstPluginOfType<te::AuxReturnPlugin>() != nullptr;
+
+    return false;
+}
+
+int EngineHelpers::getTrackIndentLevel (const te::Track& track)
+{
+    int depth = 0;
+    for (auto* parent = track.getParentFolderTrack(); parent != nullptr; parent = parent->getParentFolderTrack())
+        ++depth;
+    return depth;
+}
+
+te::FolderTrack* EngineHelpers::createFolderTrack (te::Edit& edit, te::SelectionManager* selectionManager)
+{
+    auto folder = edit.insertNewFolderTrack (te::TrackInsertPoint::getEndOfTracks (edit), selectionManager, false);
+    return folder.get();
 }
 
 te::Project::Ptr EngineHelpers::createTempProject (te::Engine& engine)
@@ -237,18 +260,12 @@ te::AudioTrack* EngineHelpers::getOrInsertAudioTrackAt (te::Edit& edit, int inde
 
 te::AudioTrack* EngineHelpers::getOrInsertAudioTrack (te::Edit& edit)
 {
-    auto* track = getOrInsertAudioTrackAt (edit, (int) te::getAudioTracks (edit).size());
-    if (track != nullptr)
-        setTrackKind (*track, TrackKind::audio);
-    return track;
+    return getOrInsertAudioTrackAt (edit, (int) te::getAudioTracks (edit).size());
 }
 
 te::AudioTrack* EngineHelpers::getOrInsertTrackForMidi (te::Edit& edit, int index)
 {
-    auto* track = getOrInsertAudioTrackAt (edit, index);
-    if (track != nullptr)
-        setTrackKind (*track, TrackKind::midi);
-    return track;
+    return getOrInsertAudioTrackAt (edit, index);
 }
 
 te::WaveAudioClip::Ptr EngineHelpers::loadAudioFileAsClip (te::Edit& edit, const juce::File& file, int trackIndex)
@@ -348,8 +365,7 @@ void EngineHelpers::enableAllInputs (te::Edit& edit)
 void EngineHelpers::setupDefaultTracks (te::Edit& edit)
 {
     enableAllInputs (edit);
-    if (auto* t = getOrInsertAudioTrackAt (edit, 0))
-        setTrackKind (*t, TrackKind::audio);
+    getOrInsertAudioTrackAt (edit, 0);
     getOrInsertTrackForMidi (edit, 1);
     edit.getTransport().ensureContextAllocated();
 
@@ -360,7 +376,6 @@ void EngineHelpers::setupDefaultTracks (te::Edit& edit)
         {
             if (auto* t = getOrInsertAudioTrackAt (edit, audioTrackNum))
             {
-                setTrackKind (*t, TrackKind::audio);
                 [[maybe_unused]] const auto audioTargetResult = instance->setTarget (t->itemID, true, &edit.getUndoManager(), 0);
                 ++audioTrackNum;
             }

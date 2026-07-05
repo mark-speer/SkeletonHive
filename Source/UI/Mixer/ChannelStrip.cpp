@@ -40,6 +40,13 @@ ChannelStrip::ChannelStrip (te::Track& t)
         if (auto* lmPlugin = audioTrack->getLevelMeterPlugin())
             meter = std::make_unique<LevelMeter> (lmPlugin->measurer);
     }
+    else if (auto* folderTrack = dynamic_cast<te::FolderTrack*> (track))
+    {
+        // Folders only get a working fader once the user has added a Volume &
+        // Pan plugin (i.e. turned it into a submix bus); otherwise this is null
+        // and the fader/pan controls stay inert, same as the master-less case.
+        volumePlugin = folderTrack->getVolumePlugin();
+    }
 
     track->state.addListener (this);
     initialise();
@@ -160,8 +167,7 @@ void ChannelStrip::refreshSendControls()
         return;
 
     // Return tracks (hosting the AuxReturn) don't get a send on themselves
-    const bool isReturnTrack = track->pluginList.findFirstPluginOfType<te::AuxReturnPlugin>() != nullptr;
-    if (isReturnTrack)
+    if (EngineHelpers::isReturnTrack (*track))
         return;
 
     if (auto* send = getSend())

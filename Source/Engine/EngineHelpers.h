@@ -7,11 +7,8 @@ namespace arrange
 
 class ExtendedUIBehaviour;
 
-enum class TrackKind { audio, midi };
-
 struct EngineHelpers
 {
-    static const juce::Identifier trackKindProperty;
     static const juce::Identifier clipGroupProperty;
     static const juce::Identifier clipGroupColourProperty;
 
@@ -27,8 +24,21 @@ struct EngineHelpers
 
     static te::AudioTrack* getOrInsertTrackForMidi (te::Edit& edit, int index);
 
-    static void setTrackKind (te::Track& track, TrackKind kind);
-    static TrackKind getTrackKind (const te::Track& track);
+    // TE tracks are content-agnostic (arrangeTrackKind was a removed UI-only
+    // property); these infer the track's apparent kind purely from its clips
+    // so they never gate engine behaviour, only presentation.
+    /** True if the track has only MIDI clips (used for the header badge). */
+    static bool isMidiTrack (const te::Track& track);
+    /** True unless the track already has audio clips (used to gate MIDI
+        drag-to-create so an empty track can start out as either kind). */
+    static bool canHostMidiClips (const te::Track& track);
+    /** True if the track hosts an AuxReturnPlugin (see getOrCreateReturnTrack). */
+    static bool isReturnTrack (const te::Track& track);
+    /** Nesting depth under FolderTrack parents, for header indentation. */
+    static int getTrackIndentLevel (const te::Track& track);
+
+    /** Creates an empty folder track at the end of the track list. */
+    static te::FolderTrack* createFolderTrack (te::Edit& edit, te::SelectionManager* selectionManager = nullptr);
 
     static te::WaveAudioClip::Ptr loadAudioFileAsClip (te::Edit& edit, const juce::File& file, int trackIndex = 0);
 

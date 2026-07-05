@@ -14,7 +14,8 @@ enum class TimelineMenuResult
     cut = 1,
     copy,
     paste,
-    createMidiClip
+    createMidiClip,
+    newFolderTrack
 };
 
 void setInsertPoint (EditViewState& editViewState, te::Track* track, te::TimePosition time)
@@ -48,6 +49,9 @@ void showTimelineContextMenu (juce::Component& target,
         menu.addItem ((int) TimelineMenuResult::createMidiClip, "Create MIDI Clip");
     }
 
+    menu.addSeparator();
+    menu.addItem ((int) TimelineMenuResult::newFolderTrack, "New Folder Track");
+
     // Anchor at the click point, not the target's full screen bounds. Lanes can be
     // tens of thousands of pixels wide inside a scrolled viewport, so using
     // withTargetComponent alone places the menu on the wrong monitor.
@@ -71,6 +75,9 @@ void showTimelineContextMenu (juce::Component& target,
                 if (onCreateMidiClip)
                     onCreateMidiClip();
                 break;
+            case TimelineMenuResult::newFolderTrack:
+                EngineHelpers::createFolderTrack (editViewState.edit, &editViewState.selectionManager);
+                break;
             default:
                 break;
         }
@@ -88,6 +95,9 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     kindBadge.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.95f));
     kindBadge.setInterceptsMouseClicks (false, false);
     updateKindBadge();
+
+    // Recording arm only makes sense for AudioTrack; folders/returns hide it.
+    armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr);
 
     armButton.onClick = [this]
     {
@@ -141,9 +151,13 @@ void TrackHeaderComponent::resized()
     const int btnW = 22;
     soloButton.setBounds (r.removeFromRight (btnW));
     muteButton.setBounds (r.removeFromRight (btnW));
-    armButton.setBounds (r.removeFromRight (btnW));
+    if (armButton.isVisible())
+        armButton.setBounds (r.removeFromRight (btnW));
     kindBadge.setBounds (r.removeFromLeft (42).reduced (0, 3));
     r.removeFromLeft (4);
+
+    // Indent nested tracks under their FolderTrack parent(s).
+    r.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
     trackName.setBounds (r);
 }
 
@@ -151,13 +165,25 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
 {
     if (id == te::IDs::name)
         trackName.setText (track->getName(), juce::dontSendNotification);
-    else if (id == EngineHelpers::trackKindProperty)
-        updateKindBadge();
 }
 
 void TrackHeaderComponent::updateKindBadge()
 {
-    const bool isMidi = EngineHelpers::getTrackKind (*track) == TrackKind::midi;
+    if (track->isFolderTrack())
+    {
+        kindBadge.setText ("FOLDER", juce::dontSendNotification);
+        kindBadge.setColour (juce::Label::backgroundColourId, juce::Colour (0xff7209b7));
+        return;
+    }
+
+    if (EngineHelpers::isReturnTrack (*track))
+    {
+        kindBadge.setText ("RETURN", juce::dontSendNotification);
+        kindBadge.setColour (juce::Label::backgroundColourId, juce::Colour (0xffe63946));
+        return;
+    }
+
+    const bool isMidi = EngineHelpers::isMidiTrack (*track);
     kindBadge.setText (isMidi ? "MIDI" : "AUDIO", juce::dontSendNotification);
     kindBadge.setColour (juce::Label::backgroundColourId,
                         isMidi ? juce::Colour (0xff4361ee) : juce::Colour (0xff2d6a4f));
@@ -344,6 +370,17 @@ TrackLaneComponent::~TrackLaneComponent()
 
 void TrackLaneComponent::paint (juce::Graphics& g)
 {
+    // Folder tracks are pure organisation: no clips, so no grid/lane content,
+    // just a distinct divider band matching the header's FOLDER badge colour.
+    if (track->isFolderTrack())
+    {
+        g.fillAll (juce::Colour (0xff2a1a3e));
+        g.setColour (juce::Colour (0xff7209b7).withAlpha (0.5f));
+        g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+        g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+        return;
+    }
+
     g.fillAll (juce::Colour (0xff0f0f23));
     g.setColour (juce::Colours::white.withAlpha (0.08f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
@@ -387,7 +424,7 @@ void TrackLaneComponent::paintRangeSelection (juce::Graphics& g, te::TimePositio
 
 bool TrackLaneComponent::canDragCreateClips() const
 {
-    return EngineHelpers::getTrackKind (*track) == TrackKind::midi;
+    return EngineHelpers::canHostMidiClips (*track);
 }
 
 void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
