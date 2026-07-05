@@ -1,11 +1,13 @@
 #include "EngineHelpers.h"
 #include "TracktionCommon.h"
+#include <algorithm>
 
 namespace arrange
 {
 
 const juce::Identifier EngineHelpers::trackKindProperty ("arrangeTrackKind");
 const juce::Identifier EngineHelpers::clipGroupProperty ("arrangeClipGroup");
+const juce::Identifier EngineHelpers::clipGroupColourProperty ("arrangeClipGroupColour");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
 {
@@ -34,9 +36,14 @@ juce::String EngineHelpers::getClipGroup (const te::Clip& clip)
 void EngineHelpers::setClipGroup (te::Clip& clip, const juce::String& groupId)
 {
     if (groupId.isEmpty())
+    {
         clip.state.removeProperty (clipGroupProperty, &clip.edit.getUndoManager());
+        clip.state.removeProperty (clipGroupColourProperty, &clip.edit.getUndoManager());
+    }
     else
+    {
         clip.state.setProperty (clipGroupProperty, groupId, &clip.edit.getUndoManager());
+    }
 }
 
 juce::Array<te::Clip*> EngineHelpers::getClipsInGroup (te::Edit& edit, const juce::String& groupId)
@@ -53,6 +60,51 @@ juce::Array<te::Clip*> EngineHelpers::getClipsInGroup (te::Edit& edit, const juc
                     result.add (c);
 
     return result;
+}
+
+juce::Array<te::Clip*> EngineHelpers::getClipsStartingAfter (te::ClipTrack& track, te::TimePosition anchor)
+{
+    juce::Array<te::Clip*> result;
+
+    for (auto* c : track.getClips())
+        if (c->getPosition().getStart() > anchor)
+            result.add (c);
+
+    std::sort (result.begin(), result.end(), [] (const te::Clip* a, const te::Clip* b)
+    {
+        return a->getPosition().getStart() < b->getPosition().getStart();
+    });
+
+    return result;
+}
+
+juce::Colour EngineHelpers::colourForGroupId (const juce::String& groupId)
+{
+    static const juce::Colour palette[] =
+    {
+        juce::Colour (0xffffd166), juce::Colour (0xff06d6a0), juce::Colour (0xff118ab2),
+        juce::Colour (0xffef476f), juce::Colour (0xffc77dff), juce::Colour (0xfff4a261),
+    };
+
+    if (groupId.isEmpty())
+        return palette[0];
+
+    const auto index = (juce::uint32) groupId.hashCode() % (juce::uint32) juce::numElementsInArray (palette);
+    return palette[index];
+}
+
+juce::Colour EngineHelpers::getClipGroupColour (const te::Clip& clip)
+{
+    const auto stored = clip.state.getProperty (clipGroupColourProperty).toString();
+    if (stored.isNotEmpty())
+        return juce::Colour::fromString (stored);
+
+    return colourForGroupId (getClipGroup (clip));
+}
+
+void EngineHelpers::setClipGroupColour (te::Clip& clip, juce::Colour colour)
+{
+    clip.state.setProperty (clipGroupColourProperty, colour.toString(), &clip.edit.getUndoManager());
 }
 
 te::AudioTrack* EngineHelpers::getOrCreateReturnTrack (te::Edit& edit, int busNumber)

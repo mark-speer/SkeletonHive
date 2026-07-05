@@ -31,6 +31,7 @@ namespace IDs
     DECLARE_ID (snapToGrid)
     DECLARE_ID (gridDivision)
     DECLARE_ID (pixelsPerBeat)
+    DECLARE_ID (rippleMode)
     #undef DECLARE_ID
 }
 
@@ -47,6 +48,7 @@ public:
         showFooters.referTo (state, IDs::showFooters, um, true);
         showGrid.referTo (state, IDs::showGrid, um, true);
         snapToGrid.referTo (state, IDs::snapToGrid, um, true);
+        rippleMode.referTo (state, IDs::rippleMode, um, false);
         gridDivision.referTo (state, IDs::gridDivision, um, (int) GridDivision::Auto);
         pixelsPerBeat.referTo (state, IDs::pixelsPerBeat, um, 24.0);
         viewX1.referTo (state, IDs::viewX1, um, 0s);
@@ -142,7 +144,7 @@ public:
     te::SelectionManager& selectionManager;
     te::EditInsertPoint* insertPoint = nullptr;
 
-    juce::CachedValue<bool> drawWaveforms, showFooters, showGrid, snapToGrid;
+    juce::CachedValue<bool> drawWaveforms, showFooters, showGrid, snapToGrid, rippleMode;
     juce::CachedValue<int> gridDivision;
     juce::CachedValue<double> pixelsPerBeat;
     juce::CachedValue<te::TimePosition> viewX1, viewX2;

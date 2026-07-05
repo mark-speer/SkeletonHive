@@ -78,6 +78,9 @@ private:
     void duplicateSelectedClips();
     bool deleteSelectedClips();
     void groupSelectedClips (bool group);
+    void toggleRippleMode();
+    void rippleAfterInsert (te::Clip& originalClip, te::Clip& insertedCopy);
+    void rippleAfterDelete (te::ClipTrack& track, te::TimePosition removedStart, te::TimeDuration removedLength);
 
     te::Edit& edit;
     EditViewState editViewState;
@@ -85,9 +88,10 @@ private:
     TimelineRulerComponent ruler;
     juce::ToggleButton gridButton { "Grid" };
     juce::ToggleButton snapButton { "Snap" };
+    juce::ToggleButton rippleButton { "Ripple" };
     juce::ComboBox gridDivisionBox;
 
-    static constexpr int headerWidth = 160;
+    static constexpr int headerWidth = 190;
     static constexpr int rulerHeight = 24;
     static constexpr int footerHeight = 28;
     static constexpr int minTrackHeight = 36;

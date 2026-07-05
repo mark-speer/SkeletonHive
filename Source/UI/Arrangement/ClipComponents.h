@@ -29,12 +29,14 @@ protected:
         te::Clip::Ptr clip;
         te::TimePosition originalStart;
     };
+    using RippleDragItem = GroupDragItem;
 
     te::TimePosition timeAtLaneX (int laneX) const;
     te::TimePosition snapTime (te::TimePosition time) const;
     DragMode dragModeForEvent (const juce::MouseEvent& e) const;
     void updateCursorForMode (DragMode mode);
     void captureGroupDragItems();
+    void captureRippleDragItems (te::TimePosition anchor);
     void paintSelectionAndGroupIndicators (juce::Graphics& g) const;
 
     EditViewState& editViewState;
@@ -45,6 +47,7 @@ protected:
     te::TimePosition originalStart;
     te::TimePosition originalEnd;
     juce::Array<GroupDragItem> groupDragItems;
+    juce::Array<RippleDragItem> rippleDragItems;
 
     static constexpr int resizeHandleWidth = 6;
     static constexpr double minClipLengthSeconds = 0.05;

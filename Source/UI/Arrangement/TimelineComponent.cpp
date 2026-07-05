@@ -152,6 +152,7 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
     addAndMakeVisible (ruler);
     addAndMakeVisible (gridButton);
     addAndMakeVisible (snapButton);
+    addAndMakeVisible (rippleButton);
     addAndMakeVisible (gridDivisionBox);
 
     headerViewport.setViewedComponent (&headerContent, false);
@@ -179,6 +180,15 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
     snapButton.onClick = [this]
     {
         editViewState.snapToGrid = snapButton.getToggleState();
+    };
+
+    rippleButton.setClickingTogglesState (true);
+    rippleButton.setToggleState (editViewState.rippleMode.get(), juce::dontSendNotification);
+    rippleButton.setTooltip ("Ripple edit: moving/resizing/duplicating/deleting a clip "
+                             "shifts every later clip on the same track (Ctrl+R)");
+    rippleButton.onClick = [this]
+    {
+        editViewState.rippleMode = rippleButton.getToggleState();
     };
 
     gridDivisionBox.addItem ("Auto", (int) GridDivision::Auto + 1);
@@ -248,19 +258,71 @@ bool TimelineComponent::handleKeyPress (const juce::KeyPress& key)
         groupSelectedClips (false);
         return true;
     }
+    if (key == juce::KeyPress ('r', juce::ModifierKeys::ctrlModifier, 0)
+        || key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
+    {
+        toggleRippleMode();
+        return true;
+    }
     if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
         return deleteSelectedClips();
 
     return false;
 }
 
+void TimelineComponent::toggleRippleMode()
+{
+    editViewState.rippleMode = ! editViewState.rippleMode.get();
+    rippleButton.setToggleState (editViewState.rippleMode.get(), juce::dontSendNotification);
+}
+
 void TimelineComponent::duplicateSelectedClips()
 {
     const auto clips = editViewState.selectionManager.getItemsOfType<te::Clip>();
+    if (clips.isEmpty())
+        return;
+
+    // Copies of a grouped selection form their own new group(s) rather than
+    // merging into the source group; every source group id seen is remapped
+    // once and reused for every copy of that group's members.
+    juce::StringArray oldGroupIds, newGroupIds;
+    auto remapGroupId = [&oldGroupIds, &newGroupIds] (const juce::String& oldId)
+    {
+        const int idx = oldGroupIds.indexOf (oldId);
+        if (idx >= 0)
+            return newGroupIds[idx];
+
+        const auto newId = juce::Uuid().toString();
+        oldGroupIds.add (oldId);
+        newGroupIds.add (newId);
+        return newId;
+    };
+
+    juce::Array<te::Clip*> newClips;
 
     for (auto* clip : clips)
+    {
         if (auto* copy = EngineHelpers::duplicateClip (*clip, true))
-            editViewState.selectionManager.selectOnly (copy);
+        {
+            rippleAfterInsert (*clip, *copy);
+
+            const auto originalGroupId = EngineHelpers::getClipGroup (*clip);
+            if (originalGroupId.isNotEmpty())
+            {
+                EngineHelpers::setClipGroup (*copy, remapGroupId (originalGroupId));
+                EngineHelpers::setClipGroupColour (*copy, EngineHelpers::getClipGroupColour (*clip));
+            }
+
+            newClips.add (copy);
+        }
+    }
+
+    if (newClips.isEmpty())
+        return;
+
+    editViewState.selectionManager.selectOnly (newClips.getFirst());
+    for (int i = 1; i < newClips.size(); ++i)
+        editViewState.selectionManager.addToSelection (newClips[i]);
 }
 
 bool TimelineComponent::deleteSelectedClips()
@@ -271,10 +333,68 @@ bool TimelineComponent::deleteSelectedClips()
 
     editViewState.selectionManager.deselectAll();
 
+    juce::StringArray affectedGroups;
     for (auto* clip : clips)
+    {
+        const auto groupId = EngineHelpers::getClipGroup (*clip);
+        if (groupId.isNotEmpty())
+            affectedGroups.addIfNotAlreadyThere (groupId);
+    }
+
+    for (auto* clip : clips)
+    {
+        auto* track = clip->getClipTrack();
+        const auto position = clip->getPosition();
+
         clip->removeFromParent();
 
+        if (track != nullptr)
+            rippleAfterDelete (*track, position.getStart(), position.getLength());
+    }
+
+    // A group left with exactly one member is no longer a group.
+    for (const auto& groupId : affectedGroups)
+    {
+        const auto remaining = EngineHelpers::getClipsInGroup (editViewState.edit, groupId);
+        if (remaining.size() == 1)
+            EngineHelpers::setClipGroup (*remaining.getFirst(), {});
+    }
+
     return true;
+}
+
+void TimelineComponent::rippleAfterInsert (te::Clip& originalClip, te::Clip& insertedCopy)
+{
+    if (! editViewState.rippleMode.get())
+        return;
+
+    auto* track = originalClip.getClipTrack();
+    if (track == nullptr)
+        return;
+
+    const auto shiftAmount = insertedCopy.getPosition().getLength();
+    if (shiftAmount <= 0s)
+        return;
+
+    for (auto* c : EngineHelpers::getClipsStartingAfter (*track, originalClip.getPosition().getStart()))
+    {
+        if (c == &originalClip || c == &insertedCopy)
+            continue;
+
+        c->setStart (c->getPosition().getStart() + shiftAmount, false, true);
+    }
+}
+
+void TimelineComponent::rippleAfterDelete (te::ClipTrack& track, te::TimePosition removedStart, te::TimeDuration removedLength)
+{
+    if (! editViewState.rippleMode.get() || removedLength <= 0s)
+        return;
+
+    for (auto* c : EngineHelpers::getClipsStartingAfter (track, removedStart))
+    {
+        const auto newStart = juce::jmax (te::TimePosition(), c->getPosition().getStart() - removedLength);
+        c->setStart (newStart, false, true);
+    }
 }
 
 void TimelineComponent::groupSelectedClips (bool group)
@@ -284,9 +404,14 @@ void TimelineComponent::groupSelectedClips (bool group)
         return;
 
     const auto groupId = group ? juce::Uuid().toString() : juce::String();
+    const auto colour = EngineHelpers::colourForGroupId (groupId);
 
     for (auto* clip : clips)
+    {
         EngineHelpers::setClipGroup (*clip, groupId);
+        if (group)
+            EngineHelpers::setClipGroupColour (*clip, colour);
+    }
 
     repaintGrid();
 }
@@ -441,8 +566,9 @@ void TimelineComponent::resized()
     auto topRow = r.removeFromTop (rulerHeight);
 
     auto gridControls = topRow.removeFromLeft (headerWidth).reduced (2);
-    gridButton.setBounds (gridControls.removeFromLeft (42));
-    snapButton.setBounds (gridControls.removeFromLeft (42));
+    gridButton.setBounds (gridControls.removeFromLeft (40));
+    snapButton.setBounds (gridControls.removeFromLeft (40));
+    rippleButton.setBounds (gridControls.removeFromLeft (48));
     gridDivisionBox.setBounds (gridControls);
 
     ruler.setBounds (topRow);

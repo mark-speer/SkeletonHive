@@ -13,6 +13,7 @@ struct EngineHelpers
 {
     static const juce::Identifier trackKindProperty;
     static const juce::Identifier clipGroupProperty;
+    static const juce::Identifier clipGroupColourProperty;
 
     static te::Project::Ptr createTempProject (te::Engine& engine);
 
@@ -45,6 +46,16 @@ struct EngineHelpers
     static juce::String getClipGroup (const te::Clip& clip);
     static void setClipGroup (te::Clip& clip, const juce::String& groupId);
     static juce::Array<te::Clip*> getClipsInGroup (te::Edit& edit, const juce::String& groupId);
+
+    /** Clips on the given track starting strictly after the anchor time, sorted by start time.
+        The ordering primitive ripple editing shifts to make/close room. */
+    static juce::Array<te::Clip*> getClipsStartingAfter (te::ClipTrack& track, te::TimePosition anchor);
+
+    /** Deterministic colour for a group id, used as the fallback when a clip has no
+        explicit stored colour (e.g. groups created before this property existed). */
+    static juce::Colour colourForGroupId (const juce::String& groupId);
+    static juce::Colour getClipGroupColour (const te::Clip& clip);
+    static void setClipGroupColour (te::Clip& clip, juce::Colour colour);
 
     /** Finds the audio track hosting an AuxReturnPlugin for the given bus,
         creating a new return track (with the return plugin at chain start) if needed. */

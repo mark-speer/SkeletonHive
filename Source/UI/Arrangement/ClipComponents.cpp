@@ -96,8 +96,8 @@ void ClipComponent::paintSelectionAndGroupIndicators (juce::Graphics& g) const
 
     if (EngineHelpers::getClipGroup (*clip).isNotEmpty())
     {
-        // Small corner tag marking grouped clips
-        g.setColour (juce::Colour (0xffffd166));
+        // Small corner tag marking grouped clips, coloured per-group
+        g.setColour (EngineHelpers::getClipGroupColour (*clip));
         g.fillRect (getWidth() - 10, 0, 10, 6);
     }
 }
@@ -127,9 +127,21 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     if (dragMode == DragMode::none)
         return;
 
-    // Ctrl-drag: leave a duplicate at the original position and move this clip
+    // Ctrl-drag: leave a duplicate at the original position and move this clip.
+    // The duplicate left behind is no longer part of the original's group (which
+    // continues to move together) — it becomes its own single-member group.
     if (dragMode == DragMode::move && (e.mods.isCtrlDown() || e.mods.isCommandDown()))
-        EngineHelpers::duplicateClip (*clip, false);
+    {
+        if (auto* leftBehind = EngineHelpers::duplicateClip (*clip, false))
+        {
+            const auto originalGroupId = EngineHelpers::getClipGroup (*clip);
+            if (originalGroupId.isNotEmpty())
+            {
+                EngineHelpers::setClipGroup (*leftBehind, juce::Uuid().toString());
+                EngineHelpers::setClipGroupColour (*leftBehind, EngineHelpers::getClipGroupColour (*clip));
+            }
+        }
+    }
 
     const auto pos = clip->getPosition();
     originalStart = pos.getStart();
@@ -137,7 +149,14 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     dragAnchorTime = timeAtLaneX (getX() + e.x);
 
     if (dragMode == DragMode::move)
+    {
         captureGroupDragItems();
+        captureRippleDragItems (originalStart);
+    }
+    else if (dragMode == DragMode::resizeEnd)
+    {
+        captureRippleDragItems (originalEnd);
+    }
 
     updateCursorForMode (dragMode);
 }
@@ -153,6 +172,31 @@ void ClipComponent::captureGroupDragItems()
     for (auto* member : EngineHelpers::getClipsInGroup (editViewState.edit, groupId))
         if (member != clip.get())
             groupDragItems.add ({ member, member->getPosition().getStart() });
+}
+
+void ClipComponent::captureRippleDragItems (te::TimePosition anchor)
+{
+    rippleDragItems.clear();
+
+    if (! editViewState.rippleMode.get())
+        return;
+
+    auto* track = clip->getClipTrack();
+    if (track == nullptr)
+        return;
+
+    // Clips already moving together as part of this clip's group are excluded
+    // here so they aren't shifted twice.
+    const auto groupId = EngineHelpers::getClipGroup (*clip);
+
+    for (auto* c : EngineHelpers::getClipsStartingAfter (*track, anchor))
+    {
+        if (c == clip.get())
+            continue;
+        if (groupId.isNotEmpty() && EngineHelpers::getClipGroup (*c) == groupId)
+            continue;
+        rippleDragItems.add ({ c, c->getPosition().getStart() });
+    }
 }
 
 void ClipComponent::mouseDrag (const juce::MouseEvent& e)
@@ -176,6 +220,13 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
             const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
             item.clip->setStart (memberStart, false, true);
         }
+
+        // Ripple mode: shift every later clip on this track by the same amount
+        for (auto& item : rippleDragItems)
+        {
+            const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
+            item.clip->setStart (memberStart, false, true);
+        }
     }
     else if (dragMode == DragMode::resizeStart)
     {
@@ -190,7 +241,18 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
     {
         const auto newEnd = snapTime (currentTime);
         if (newEnd - originalStart >= minLength)
+        {
             clip->setEnd (newEnd, false);
+
+            // Ripple mode: resizing changes the clip's length, so shift
+            // everything after it by the same change in length.
+            const auto effectiveDelta = newEnd - originalEnd;
+            for (auto& item : rippleDragItems)
+            {
+                const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
+                item.clip->setStart (memberStart, false, true);
+            }
+        }
     }
 }
 
@@ -199,6 +261,7 @@ void ClipComponent::mouseUp (const juce::MouseEvent& e)
     juce::ignoreUnused (e);
     dragMode = DragMode::none;
     groupDragItems.clear();
+    rippleDragItems.clear();
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
