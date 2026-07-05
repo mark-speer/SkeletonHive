@@ -5,16 +5,20 @@
 namespace arrange
 {
 
-class LevelMeter : public juce::Component,
-                   private juce::Timer
+class UiTelemetryHub;
+
+class LevelMeter : public juce::Component
 {
 public:
-    explicit LevelMeter (te::LevelMeasurer& measurer);
+    LevelMeter (te::LevelMeasurer& measurer, UiTelemetryHub* telemetryHub = nullptr);
+    ~LevelMeter() override;
+
     void paint (juce::Graphics& g) override;
+    void updateFromMeasurer();
 
 private:
-    void timerCallback() override;
     te::LevelMeasurer& levelMeasurer;
+    UiTelemetryHub* telemetryHub = nullptr;
     float level = 0.0f;
 };
 
@@ -29,11 +33,12 @@ class ChannelStrip : public juce::Component,
                      private juce::ValueTree::Listener
 {
 public:
-    explicit ChannelStrip (te::Track& track);
-    explicit ChannelStrip (te::Edit& edit);   // master strip
+    explicit ChannelStrip (te::Track& track, UiTelemetryHub* telemetryHub = nullptr);
+    explicit ChannelStrip (te::Edit& edit, UiTelemetryHub* telemetryHub = nullptr);   // master strip
     ~ChannelStrip() override;
 
     bool isMasterStrip() const { return track == nullptr; }
+    te::Track* getTrack() const { return track; }
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -49,6 +54,7 @@ private:
     te::Edit& edit;
     te::Track* track = nullptr;   // nullptr for the master strip
     te::VolumeAndPanPlugin::Ptr volumePlugin;
+    UiTelemetryHub* telemetryHub = nullptr;
 
     juce::Slider fader, panSlider;
     juce::TextButton muteButton { "M" }, soloButton { "S" }, addSendButton { "+Send" };

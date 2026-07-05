@@ -1,99 +1,115 @@
 #include "PluginBrowser.h"
-#include "UI/Arrangement/TrackComponents.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/PluginDragManager.h"
+#include "Engine/TrackPluginChainModel.h"
 
 namespace arrange
 {
 
-PluginBrowser::RootItem::RootItem (PluginBrowser& owner)
-    : browser (owner)
+class PluginBrowser::PluginListModel : public juce::ListBoxModel
 {
-}
+public:
+    explicit PluginListModel (PluginBrowser& owner) : browser (owner) {}
 
-void PluginBrowser::RootItem::itemOpennessChanged (bool isOpen)
-{
-    if (isOpen)
+    int getNumRows() override { return (int) browser.getFilteredPlugins().size(); }
+
+    void paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool selected) override
     {
-        clearSubItems();
-        for (const auto& desc : browser.pluginScanner.getKnownPluginList().getTypes())
-            addSubItem (new PluginBrowser::PluginTreeItem (browser, desc));
+        const auto plugins = browser.getFilteredPlugins();
+        if (! juce::isPositiveAndBelow (row, plugins.size()))
+            return;
+
+        const auto& desc = plugins[(size_t) row];
+        if (selected)
+            g.fillAll (juce::Colours::white.withAlpha (0.15f));
+
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setFont (juce::FontOptions ((float) height * 0.65f));
+
+        juce::String line = desc.name;
+        if (desc.manufacturerName.isNotEmpty())
+            line << "  ·  " << desc.manufacturerName;
+
+        g.drawText (line, 6, 0, width - 12, height, juce::Justification::centredLeft, true);
+
+        if (desc.isInstrument)
+        {
+            g.setColour (juce::Colour (0xff5a189a).withAlpha (0.8f));
+            g.fillRoundedRectangle ((float) width - 56.0f, 4.0f, 48.0f, (float) height - 8.0f, 3.0f);
+            g.setColour (juce::Colours::white);
+            g.drawText ("INST", width - 56, 0, 48, height, juce::Justification::centred, false);
+        }
     }
-}
 
-PluginBrowser::PluginTreeItem::PluginTreeItem (PluginBrowser& o, juce::PluginDescription d)
-    : browser (o), desc (std::move (d))
+    void listBoxItemClicked (int row, const juce::MouseEvent& e) override
+    {
+        const auto plugins = browser.getFilteredPlugins();
+        if (! juce::isPositiveAndBelow (row, plugins.size()))
+            return;
+
+        browser.selectedPlugin = plugins[(size_t) row];
+
+        if (e.getNumberOfClicks() >= 2)
+            browser.insertButton.triggerClick();
+    }
+
+    PluginBrowser& browser;
+};
+
+PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateManager& sm)
+    : pluginScanner (scanner), edit (e), pluginStateManager (sm)
 {
-}
+    searchBox.setTextToShowWhenEmpty ("Search plugins...", juce::Colours::grey);
+    searchBox.addListener (this);
 
-void PluginBrowser::PluginTreeItem::paintItem (juce::Graphics& g, int width, int height)
-{
-    auto& lf = juce::LookAndFeel::getDefaultLookAndFeel();
+    categoryFilter.addItem ("All", (int) PluginBrowserFilter::All + 1);
+    categoryFilter.addItem ("Instruments", (int) PluginBrowserFilter::Instruments + 1);
+    categoryFilter.addItem ("Effects", (int) PluginBrowserFilter::Effects + 1);
+    categoryFilter.addItem ("Favorites", (int) PluginBrowserFilter::Favorites + 1);
+    categoryFilter.addItem ("Recent", (int) PluginBrowserFilter::Recent + 1);
+    categoryFilter.setSelectedId ((int) PluginBrowserFilter::All + 1, juce::dontSendNotification);
+    categoryFilter.addListener (this);
 
-    if (isSelected())
-        g.fillAll (lf.findColour (juce::TextEditor::highlightColourId));
+    vendorFilter.addItem ("All vendors", 1);
+    vendorFilter.setSelectedId (1, juce::dontSendNotification);
+    vendorFilter.addListener (this);
 
-    g.setColour (lf.findColour (juce::Label::textColourId));
-    g.setFont (juce::FontOptions ((float) height * 0.7f));
-
-    auto text = desc.name;
-    if (desc.manufacturerName.isNotEmpty())
-        text << " - " << desc.manufacturerName;
-
-    g.drawText (text, 4, 0, width - 8, height, juce::Justification::centredLeft, true);
-}
-
-void PluginBrowser::PluginTreeItem::itemClicked (const juce::MouseEvent& e)
-{
-    browser.selectedPlugin = desc;
-    setSelected (true, true);
-
-    if (e.getNumberOfClicks() >= 2)
-        browser.insertButton.triggerClick();
-}
-
-PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e)
-    : pluginScanner (scanner), edit (e)
-{
-    rootItem = std::make_unique<RootItem> (*this);
-    tree.setRootItem (rootItem.get());
-    tree.setRootItemVisible (false);
-    tree.setDefaultOpenness (true);
+    listModel = std::make_unique<PluginListModel> (*this);
+    pluginList.setModel (listModel.get());
+    pluginList.setRowHeight (24);
 
     scanButton.onClick = [this] { scanPlugins(); };
     insertButton.onClick = [this]
     {
         if (selectedTrack == nullptr || ! selectedPlugin.name.isNotEmpty())
         {
-            statusLabel.setText ("Select a track and a plugin first", juce::dontSendNotification);
+            statusLabel.setText ("Select a track and plugin", juce::dontSendNotification);
             return;
         }
 
-        auto* at = dynamic_cast<te::AudioTrack*> (selectedTrack);
-        if (at == nullptr)
+        if (auto* at = dynamic_cast<te::AudioTrack*> (selectedTrack))
         {
-            statusLabel.setText ("Selected track can't host plugins", juce::dontSendNotification);
-            return;
-        }
-
-        if (auto plugin = pluginScanner.createPlugin (selectedPlugin, edit))
-        {
-            // Insert at the end of the user chain, just before the built-in volume plugin
-            int insertIndex = at->pluginList.size();
-            for (int i = 0; i < at->pluginList.size(); ++i)
+            if (auto plugin = pluginScanner.createPlugin (selectedPlugin, edit))
             {
-                if (dynamic_cast<te::VolumeAndPanPlugin*> (at->pluginList[i]) != nullptr)
+                TrackPluginChainModel model (*at);
+                const int index = model.resolveInsertIndex (model.getUserChainSize(),
+                                                            EngineHelpers::isInstrumentDescription (selectedPlugin),
+                                                            nullptr);
+                if (index >= 0)
                 {
-                    insertIndex = i;
-                    break;
+                    EngineHelpers::insertPluginOnTrack (*at, plugin, index);
+                    pluginStateManager.recordRecentUse (selectedPlugin.createIdentifierString());
                 }
             }
-
-            EngineHelpers::insertPluginOnTrack (*at, plugin, insertIndex);
         }
     };
 
     statusLabel.setText ("Ready", juce::dontSendNotification);
-    addAndMakeVisible (tree);
+
+    addAndMakeVisible (searchBox);
+    addAndMakeVisible (categoryFilter);
+    addAndMakeVisible (vendorFilter);
+    addAndMakeVisible (pluginList);
     addAndMakeVisible (scanButton);
     addAndMakeVisible (insertButton);
     addAndMakeVisible (statusLabel);
@@ -104,24 +120,102 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e)
 void PluginBrowser::resized()
 {
     auto r = getLocalBounds().reduced (4);
-    auto top = r.removeFromTop (28);
-    scanButton.setBounds (top.removeFromLeft (100).reduced (1));
-    insertButton.setBounds (top.removeFromLeft (120).reduced (1));
-    statusLabel.setBounds (top);
-    tree.setBounds (r);
+    auto top = r.removeFromTop (26);
+    scanButton.setBounds (top.removeFromRight (52).reduced (1));
+    insertButton.setBounds (top.removeFromRight (64).reduced (1));
+
+    auto filters = r.removeFromTop (26);
+    categoryFilter.setBounds (filters.removeFromLeft (110).reduced (1));
+    vendorFilter.setBounds (filters.removeFromLeft (120).reduced (1));
+    searchBox.setBounds (filters.reduced (1));
+
+    statusLabel.setBounds (r.removeFromBottom (18));
+    pluginList.setBounds (r);
 }
 
 void PluginBrowser::refreshList()
 {
-    if (rootItem != nullptr)
-    {
-        rootItem->clearSubItems();
-        for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
-            rootItem->addSubItem (new PluginTreeItem (*this, desc));
+    juce::StringArray vendors;
+    for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
+        if (desc.manufacturerName.isNotEmpty() && ! vendors.contains (desc.manufacturerName))
+            vendors.add (desc.manufacturerName);
 
-        rootItem->setOpen (true);
-        tree.repaint();
+    vendors.sort (true);
+    vendorFilter.clear (juce::dontSendNotification);
+    vendorFilter.addItem ("All vendors", 1);
+    int id = 2;
+    for (const auto& v : vendors)
+        vendorFilter.addItem (v, id++);
+
+    vendorFilter.setSelectedId (1, juce::dontSendNotification);
+    rebuildListBox();
+}
+
+juce::Array<juce::PluginDescription> PluginBrowser::getFilteredPlugins() const
+{
+    const auto filter = static_cast<PluginBrowserFilter> (categoryFilter.getSelectedId() - 1);
+    const auto search = searchBox.getText().trim().toLowerCase();
+    const auto vendor = vendorFilter.getSelectedId() > 1 ? vendorFilter.getText() : juce::String {};
+
+    juce::Array<juce::PluginDescription> result;
+
+    auto addIfMatch = [&] (const juce::PluginDescription& desc)
+    {
+        if (filter == PluginBrowserFilter::Instruments && ! desc.isInstrument)
+            return;
+        if (filter == PluginBrowserFilter::Effects && desc.isInstrument)
+            return;
+        if (filter == PluginBrowserFilter::Favorites
+            && ! pluginStateManager.isFavorite (desc.createIdentifierString()))
+            return;
+        if (filter == PluginBrowserFilter::Recent
+            && ! pluginStateManager.getRecentlyUsed().contains (desc.createIdentifierString()))
+            return;
+
+        if (vendor.isNotEmpty() && desc.manufacturerName != vendor)
+            return;
+
+        if (search.isNotEmpty())
+        {
+            const auto hay = (desc.name + " " + desc.manufacturerName + " " + desc.category).toLowerCase();
+            if (! hay.contains (search))
+                return;
+        }
+
+        result.add (desc);
+    };
+
+    if (filter == PluginBrowserFilter::Recent)
+    {
+        for (const auto& id : pluginStateManager.getRecentlyUsed())
+        {
+            const auto desc = EngineHelpers::lookupKnownPlugin (edit.engine, id);
+            if (desc.name.isNotEmpty())
+                addIfMatch (desc);
+        }
+        return result;
     }
+
+    for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
+        addIfMatch (desc);
+
+    return result;
+}
+
+void PluginBrowser::rebuildListBox()
+{
+    pluginList.updateContent();
+    pluginList.repaint();
+}
+
+void PluginBrowser::textEditorTextChanged (juce::TextEditor&)
+{
+    rebuildListBox();
+}
+
+void PluginBrowser::comboBoxChanged (juce::ComboBox*)
+{
+    rebuildListBox();
 }
 
 void PluginBrowser::timerCallback()
@@ -141,13 +235,8 @@ void PluginBrowser::finishScan (int numFound)
     refreshList();
 
     const int total = pluginScanner.getKnownPluginList().getNumTypes();
-
-    if (numFound < 0)
-        statusLabel.setText ("No plugin formats available", juce::dontSendNotification);
-    else
-        statusLabel.setText (juce::String (numFound) + " new, "
-                             + juce::String (total) + " total",
-                             juce::dontSendNotification);
+    statusLabel.setText (juce::String (numFound) + " new, " + juce::String (total) + " total",
+                         juce::dontSendNotification);
 }
 
 void PluginBrowser::mouseDrag (const juce::MouseEvent& e)
@@ -157,8 +246,10 @@ void PluginBrowser::mouseDrag (const juce::MouseEvent& e)
 
     if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
     {
-        const juce::String payload = juce::String (PluginDragTypes::browserInsert) + ":" + selectedPlugin.createIdentifierString();
-        container->startDragging (payload, this, juce::ScaledImage(), true, nullptr, &e.source);
+        PluginDragPayload payload;
+        payload.kind = PluginDragPayload::Kind::browserInsert;
+        payload.pluginIdentifier = selectedPlugin.createIdentifierString();
+        container->startDragging (payload.encode(), this, juce::ScaledImage(), true, nullptr, &e.source);
     }
 }
 
@@ -181,7 +272,7 @@ void PluginBrowser::scanPlugins()
     {
         stopTimer();
         scanButton.setEnabled (true);
-        statusLabel.setText ("A scan is already in progress", juce::dontSendNotification);
+        statusLabel.setText ("Scan already in progress", juce::dontSendNotification);
     }
 }
 

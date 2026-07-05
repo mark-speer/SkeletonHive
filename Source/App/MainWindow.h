@@ -5,9 +5,12 @@
 #include "UI/Arrangement/TimelineComponent.h"
 #include "UI/Mixer/MixerPanel.h"
 #include "UI/Plugins/PluginBrowser.h"
+#include "UI/Plugins/PluginTrayComponent.h"
+#include "Engine/PluginStateManager.h"
 #include "UI/Midi/PianoRollEditor.h"
 #include "UI/Automation/AutomationLaneComponent.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/UiTelemetryHub.h"
 
 namespace arrange
 {
@@ -47,11 +50,14 @@ private:
     ProjectManager& projectManager;
     std::unique_ptr<TransportController> transportController;
     std::unique_ptr<PluginScanner> pluginScanner;
+    std::unique_ptr<PluginStateManager> pluginStateManager;
+    std::unique_ptr<UiTelemetryHub> telemetryHub;
 
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<TimelineComponent> timeline;
     std::unique_ptr<MixerPanel> mixerPanel;
     std::unique_ptr<PluginBrowser> pluginBrowser;
+    std::unique_ptr<PluginTrayComponent> pluginTray;
 
     std::unique_ptr<juce::DocumentWindow> pianoRollWindow;
     juce::OwnedArray<AutomationLaneComponent> automationLanes;

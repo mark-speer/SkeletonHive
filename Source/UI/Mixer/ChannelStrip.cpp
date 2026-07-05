@@ -1,13 +1,21 @@
 #include "ChannelStrip.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/UiTelemetryHub.h"
 
 namespace arrange
 {
 
-LevelMeter::LevelMeter (te::LevelMeasurer& m)
-    : levelMeasurer (m)
+LevelMeter::LevelMeter (te::LevelMeasurer& m, UiTelemetryHub* hub)
+    : levelMeasurer (m), telemetryHub (hub)
 {
-    startTimerHz (30);
+    if (telemetryHub != nullptr)
+        telemetryHub->registerMeter (this);
+}
+
+LevelMeter::~LevelMeter()
+{
+    if (telemetryHub != nullptr)
+        telemetryHub->unregisterMeter (this);
 }
 
 void LevelMeter::paint (juce::Graphics& g)
@@ -21,11 +29,17 @@ void LevelMeter::paint (juce::Graphics& g)
     g.fillRect (bounds.getX(), bounds.getBottom() - h, bounds.getWidth(), h);
 }
 
-void LevelMeter::timerCallback()
+void LevelMeter::updateFromMeasurer()
 {
     const auto [left, right] = levelMeasurer.getLevelCache();
-    level = juce::jmax (left, right);
-    repaint();
+    const float db = juce::jmax (left, right);
+    const float newLevel = juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db));
+
+    if (newLevel != level)
+    {
+        level = newLevel;
+        repaint();
+    }
 }
 
 //==============================================================================
@@ -84,15 +98,15 @@ private:
 
 //==============================================================================
 
-ChannelStrip::ChannelStrip (te::Track& t)
-    : edit (t.edit), track (&t)
+ChannelStrip::ChannelStrip (te::Track& t, UiTelemetryHub* hub)
+    : edit (t.edit), track (&t), telemetryHub (hub)
 {
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
     {
         volumePlugin = audioTrack->getVolumePlugin();
 
         if (auto* lmPlugin = audioTrack->getLevelMeterPlugin())
-            meter = std::make_unique<LevelMeter> (lmPlugin->measurer);
+            meter = std::make_unique<LevelMeter> (lmPlugin->measurer, telemetryHub);
 
         audioTrack->pluginList.state.addListener (this);
     }
@@ -103,13 +117,13 @@ ChannelStrip::ChannelStrip (te::Track& t)
     initialise();
 }
 
-ChannelStrip::ChannelStrip (te::Edit& e)
-    : edit (e), track (nullptr)
+ChannelStrip::ChannelStrip (te::Edit& e, UiTelemetryHub* hub)
+    : edit (e), track (nullptr), telemetryHub (hub)
 {
     volumePlugin = edit.getMasterVolumePlugin();
 
     if (auto* lmPlugin = edit.getMasterPluginList().findFirstPluginOfType<te::LevelMeterPlugin>())
-        meter = std::make_unique<LevelMeter> (lmPlugin->measurer);
+        meter = std::make_unique<LevelMeter> (lmPlugin->measurer, telemetryHub);
 
     initialise();
 }

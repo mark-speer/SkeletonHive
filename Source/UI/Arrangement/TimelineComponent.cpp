@@ -141,10 +141,12 @@ void TimelineRulerComponent::mouseMove (const juce::MouseEvent& e)
 //==============================================================================
 // TimelineComponent
 
-TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te::EditInsertPoint* ip)
+TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te::EditInsertPoint* ip,
+                                      UiTelemetryHub* hub)
     : edit (e),
       editViewState (edit, sm, ip),
-      playhead (edit, editViewState),
+      telemetryHub (hub),
+      playhead (edit, editViewState, hub),
       ruler (edit, editViewState)
 {
     addAndMakeVisible (headerViewport);
@@ -207,6 +209,7 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
     };
 
     edit.state.addListener (this);
+
     buildTracks();
 }
 
@@ -443,6 +446,7 @@ void TimelineComponent::scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, 
         const int y = timelineViewport.getViewPositionY();
         headerViewport.setViewPosition (0, y);
         editViewState.viewY = y;
+        refreshVisibleTracks();
     }
 }
 
@@ -450,6 +454,16 @@ void TimelineComponent::handleAsyncUpdate()
 {
     if (compareAndReset (updateTracks))
         buildTracks();
+    else if (compareAndReset (relayoutTracks))
+    {
+        rebuildTrackRowList();
+        refreshVisibleTracks();
+    }
+}
+
+void TimelineComponent::invalidateLaneBackgrounds()
+{
+    editViewState.laneBackgroundCache.invalidateAll();
 }
 
 void TimelineComponent::syncVisibleRange()
@@ -474,17 +488,20 @@ void TimelineComponent::updateTimelineWidth()
     timelineContent.setSize (width, timelineContent.getHeight());
     playhead.setSize (width, playhead.getHeight());
     syncVisibleRange();
+    invalidateLaneBackgrounds();
     refreshLaneLayouts();
 }
 
 void TimelineComponent::repaintGrid()
 {
+    invalidateLaneBackgrounds();
     ruler.repaint();
+
     for (auto* lane : trackLanes)
         lane->repaint();
 }
 
-void TimelineComponent::buildTracks()
+void TimelineComponent::destroyAllVisibleTracks()
 {
     trackLanes.clear();
     trackHeaders.clear();
@@ -492,6 +509,48 @@ void TimelineComponent::buildTracks()
     timelineContent.removeAllChildren();
     headerContent.removeAllChildren();
     timelineContent.addAndMakeVisible (playhead);
+}
+
+void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
+{
+    auto lane = std::make_unique<TrackLaneComponent> (editViewState, row.track);
+    lane->onClipDoubleClick = [this] (te::Clip& c)
+    {
+        if (onClipDoubleClick)
+            onClipDoubleClick (c);
+    };
+    lane->createPlugin = createPlugin;
+    lane->onAddPlugin = onAddPlugin;
+    trackLanes.add (lane.release());
+
+    auto header = std::make_unique<TrackHeaderComponent> (editViewState, row.track);
+    header->onTrackSelected = [this] (te::Track& t)
+    {
+        if (onTrackSelected)
+            onTrackSelected (t);
+    };
+    trackHeaders.add (header.release());
+
+    if (editViewState.showFooters)
+    {
+        auto footer = std::make_unique<TrackFooterComponent> (editViewState, row.track);
+        footer->onAddPlugin = [this] (te::Track& t)
+        {
+            if (onAddPlugin)
+                onAddPlugin (t);
+        };
+        footer->createPlugin = createPlugin;
+        trackFooters.add (footer.release());
+    }
+}
+
+void TimelineComponent::rebuildTrackRowList()
+{
+    trackRows.clear();
+
+    const int trackH = juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get());
+    const int width = editViewState.getTimelineWidthPx();
+    int y = 0;
 
     for (auto track : te::getAllTracks (edit))
     {
@@ -499,64 +558,7 @@ void TimelineComponent::buildTracks()
             || track->isMasterTrack() || track->isArrangerTrack())
             continue;
 
-        auto lane = std::make_unique<TrackLaneComponent> (editViewState, track);
-        lane->onClipDoubleClick = [this] (te::Clip& c)
-        {
-            if (onClipDoubleClick)
-                onClipDoubleClick (c);
-        };
-        timelineContent.addAndMakeVisible (lane.get());
-        trackLanes.add (lane.release());
-
-        auto header = std::make_unique<TrackHeaderComponent> (editViewState, track);
-        headerContent.addAndMakeVisible (header.get());
-        trackHeaders.add (header.release());
-
-        if (editViewState.showFooters)
-        {
-            auto footer = std::make_unique<TrackFooterComponent> (editViewState, track);
-            footer->onAddPlugin = [this] (te::Track& t)
-            {
-                if (onAddPlugin)
-                    onAddPlugin (t);
-            };
-            footer->createPlugin = createPlugin;
-            headerContent.addAndMakeVisible (footer.get());
-            trackFooters.add (footer.release());
-        }
-
-        if (auto* lanePtr = trackLanes.getLast())
-        {
-            lanePtr->createPlugin = createPlugin;
-            lanePtr->onAddPlugin = onAddPlugin;
-        }
-    }
-
-    layoutTracks();
-    repaintGrid();
-
-    // Restore vertical scroll position
-    timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), editViewState.viewY.get());
-    headerViewport.setViewPosition (0, timelineViewport.getViewPositionY());
-}
-
-void TimelineComponent::layoutTracks()
-{
-    const int trackH = juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get());
-    const int width = editViewState.getTimelineWidthPx();
-    int y = 0;
-
-    for (int i = 0; i < trackLanes.size(); ++i)
-    {
-        trackLanes[i]->setBounds (0, y, width, trackH);
-
-        if (auto* header = trackHeaders[i])
-            header->setBounds (0, y, headerWidth, trackH);
-
-        if (i < trackFooters.size())
-            if (auto* footer = trackFooters[i])
-                footer->setBounds (0, y + trackH - footerHeight, headerWidth, footerHeight);
-
+        trackRows.add ({ track, y, trackH });
         y += trackH;
     }
 
@@ -564,7 +566,122 @@ void TimelineComponent::layoutTracks()
     headerContent.setSize (headerWidth, y);
     playhead.setBounds (0, 0, width, y);
     playhead.toFront (false);
-    resized();
+}
+
+void TimelineComponent::refreshVisibleTracks()
+{
+    if (trackRows.isEmpty())
+    {
+        destroyAllVisibleTracks();
+        return;
+    }
+
+    const int viewY = timelineViewport.getViewPositionY();
+    const int viewH = juce::jmax (1, timelineViewport.getHeight());
+    const int margin = juce::jmax (verticalVirtualizationMargin, viewH / 2);
+    const int visibleStartY = viewY - margin;
+    const int visibleEndY = viewY + viewH + margin;
+    const int width = editViewState.getTimelineWidthPx();
+
+    juce::Array<te::EditItemID> desiredIds;
+
+    for (const auto& row : trackRows)
+    {
+        if (row.y + row.height >= visibleStartY && row.y <= visibleEndY)
+            desiredIds.add (row.track->itemID);
+    }
+
+    for (int i = trackLanes.size(); --i >= 0;)
+    {
+        if (! desiredIds.contains (trackLanes[i]->getTrack().itemID))
+        {
+            trackLanes.remove (i);
+            trackHeaders.remove (i);
+            if (i < trackFooters.size())
+                trackFooters.remove (i);
+        }
+    }
+
+    for (const auto& row : trackRows)
+    {
+        if (! desiredIds.contains (row.track->itemID))
+            continue;
+
+        bool found = false;
+        for (auto* lane : trackLanes)
+        {
+            if (lane->getTrack().itemID == row.track->itemID)
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (! found)
+            createVisibleTrackUI (row);
+    }
+
+    timelineContent.removeAllChildren();
+    headerContent.removeAllChildren();
+    timelineContent.addAndMakeVisible (playhead);
+
+    for (int i = 0; i < trackLanes.size(); ++i)
+    {
+        const auto trackId = trackLanes[i]->getTrack().itemID;
+        const TrackRowInfo* row = nullptr;
+
+        for (const auto& candidate : trackRows)
+        {
+            if (candidate.track->itemID == trackId)
+            {
+                row = &candidate;
+                break;
+            }
+        }
+
+        if (row == nullptr)
+            continue;
+
+        trackLanes[i]->setBounds (0, row->y, width, row->height);
+        timelineContent.addAndMakeVisible (trackLanes[i]);
+
+        if (auto* header = trackHeaders[i])
+        {
+            header->setBounds (0, row->y, headerWidth, row->height);
+            headerContent.addAndMakeVisible (header);
+        }
+
+        if (i < trackFooters.size())
+        {
+            if (auto* footer = trackFooters[i])
+            {
+                footer->setBounds (0, row->y + row->height - footerHeight, headerWidth, footerHeight);
+                headerContent.addAndMakeVisible (footer);
+            }
+        }
+    }
+
+    playhead.toFront (false);
+    refreshLaneLayouts();
+}
+
+void TimelineComponent::buildTracks()
+{
+    editViewState.waveformCache.clear();
+    invalidateLaneBackgrounds();
+    destroyAllVisibleTracks();
+    rebuildTrackRowList();
+    refreshVisibleTracks();
+
+    timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), editViewState.viewY.get());
+    headerViewport.setViewPosition (0, timelineViewport.getViewPositionY());
+}
+
+void TimelineComponent::layoutTracks()
+{
+    rebuildTrackRowList();
+    invalidateLaneBackgrounds();
+    refreshVisibleTracks();
 }
 
 void TimelineComponent::resized()
@@ -651,6 +768,7 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
             timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), newY);
             headerViewport.setViewPosition (0, newY);
             editViewState.viewY = newY;
+            refreshVisibleTracks();
         }
     }
 }

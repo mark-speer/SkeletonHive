@@ -1,16 +1,13 @@
 #pragma once
 
 #include "ClipComponents.h"
+#include "Engine/PluginDragManager.h"
 #include <functional>
 
 namespace arrange
 {
 
-namespace PluginDragTypes
-{
-inline constexpr const char* slotReorder = "arrangePluginSlot";
-inline constexpr const char* browserInsert = "arrangePluginBrowser";
-} // namespace PluginDragTypes
+class UiTelemetryHub;
 
 class TrackLaneComponent;
 
@@ -41,11 +38,13 @@ public:
     ~TrackHeaderComponent() override;
 
     void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
     void resized() override;
 
     std::function<void (te::Track&)> onArmChanged;
     std::function<void (te::Track&)> onMuteChanged;
     std::function<void (te::Track&)> onSoloChanged;
+    std::function<void (te::Track&)> onTrackSelected;
 
 private:
     void valueTreeChanged() override {}
@@ -170,6 +169,8 @@ public:
     /** Re-applies clip bounds and visibility culling for the current view. */
     void refreshLayout();
 
+    te::Track& getTrack() { return *track; }
+
     std::function<void (te::Clip&)> onClipDoubleClick;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (te::Track&)> onAddPlugin;
@@ -206,22 +207,23 @@ private:
     te::TimePosition rangeSelectionEnd;
 };
 
-class PlayheadOverlay : public juce::Component,
-                        private juce::Timer
+class PlayheadOverlay : public juce::Component
 {
 public:
-    PlayheadOverlay (te::Edit& edit, EditViewState& evs);
+    PlayheadOverlay (te::Edit& edit, EditViewState& evs, UiTelemetryHub* telemetryHub = nullptr);
+    ~PlayheadOverlay() override;
 
     void paint (juce::Graphics& g) override;
     bool hitTest (int x, int y) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
 
-private:
-    void timerCallback() override;
+    void updateFromTransport();
 
+private:
     te::Edit& edit;
     EditViewState& editViewState;
+    UiTelemetryHub* telemetryHub = nullptr;
     int xPosition = 0;
 };
 

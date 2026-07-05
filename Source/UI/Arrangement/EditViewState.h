@@ -1,6 +1,8 @@
 #pragma once
 
 #include "TracktionCommon.h"
+#include "Engine/WaveformCache.h"
+#include "LaneBackgroundCache.h"
 
 namespace arrange
 {
@@ -150,6 +152,9 @@ public:
     juce::CachedValue<te::TimePosition> viewX1, viewX2;
     juce::CachedValue<int> viewY, trackHeight;
     juce::ValueTree state;
+
+    WaveformCache waveformCache;
+    LaneBackgroundCache laneBackgroundCache;
 };
 
 } // namespace arrange

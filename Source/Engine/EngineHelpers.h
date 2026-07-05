@@ -91,6 +91,16 @@ struct EngineHelpers
 
     static te::Plugin* insertPluginOnTrack (te::AudioTrack& track, te::Plugin::Ptr plugin, int index = -1);
 
+    static juce::PluginDescription getPluginDescription (const te::Plugin& plugin);
+    static bool isInstrumentDescription (const juce::PluginDescription& desc);
+    static bool isInstrumentPlugin (const te::Plugin& plugin);
+    static int findInstrumentSlot (te::AudioTrack& track);
+
+    static bool movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot);
+    static bool movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destTrack, int userSlot);
+    static te::Plugin* duplicatePluginOnTrack (te::Plugin& source, te::AudioTrack& track, int userSlot = -1);
+    static void renamePlugin (te::Plugin& plugin, const juce::String& newName);
+
     static juce::PluginDescription lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString);
 
     // Wet/dry mix (ExternalPlugin + RackInstance)
@@ -107,6 +117,11 @@ struct EngineHelpers
 
     static te::RackInstance* wrapPluginsInRack (te::SelectionManager& selection);
     static te::RackInstance* insertEmptyRack (te::AudioTrack& track);
+
+    static juce::Array<te::Plugin*> getRackInternalPlugins (te::RackInstance& rack);
+    static int rackSlotForPlugin (te::RackInstance& rack, const te::Plugin& plugin);
+    static bool movePluginInRack (te::RackInstance& rack, te::Plugin& plugin, int targetSlot);
+    static te::RackInstance* findRackOnTrack (te::AudioTrack& track, te::EditItemID rackInstanceId);
 
     static void togglePlay (te::Edit& edit, bool returnToStart = false);
 

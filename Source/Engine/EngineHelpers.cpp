@@ -1,4 +1,6 @@
 #include "EngineHelpers.h"
+#include "TrackPluginChainModel.h"
+#include "PluginPresetManager.h"
 #include "TracktionCommon.h"
 #include <algorithm>
 
@@ -171,6 +173,139 @@ te::Plugin* EngineHelpers::insertPluginOnTrack (te::AudioTrack& track, te::Plugi
     return plugin.get();
 }
 
+juce::PluginDescription EngineHelpers::getPluginDescription (const te::Plugin& plugin)
+{
+    for (const auto& desc : plugin.edit.engine.getPluginManager().knownPluginList.getTypes())
+    {
+        if (desc.name == plugin.getName())
+            return desc;
+    }
+
+    juce::PluginDescription fallback;
+    fallback.name = plugin.getName();
+    return fallback;
+}
+
+bool EngineHelpers::isInstrumentDescription (const juce::PluginDescription& desc)
+{
+    return desc.isInstrument;
+}
+
+bool EngineHelpers::isInstrumentPlugin (const te::Plugin& plugin)
+{
+    if (auto* ext = dynamic_cast<const te::ExternalPlugin*> (&plugin))
+    {
+        const auto desc = getPluginDescription (plugin);
+        if (desc.name.isNotEmpty() && desc.isInstrument)
+            return true;
+    }
+
+    return false;
+}
+
+int EngineHelpers::findInstrumentSlot (te::AudioTrack& track)
+{
+    int slot = 0;
+    for (auto p : track.pluginList)
+    {
+        if (! isFooterVisiblePlugin (*p))
+            continue;
+
+        if (isInstrumentPlugin (*p))
+            return slot;
+
+        ++slot;
+    }
+
+    return -1;
+}
+
+bool EngineHelpers::movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot)
+{
+    TrackPluginChainModel model (track);
+    const int targetListIndex = model.resolveInsertIndex (userSlot,
+                                                          isInstrumentPlugin (plugin),
+                                                          &plugin);
+    if (targetListIndex < 0)
+        return false;
+
+    const int fromIndex = track.pluginList.indexOf (&plugin);
+    if (fromIndex < 0 || fromIndex == targetListIndex)
+        return false;
+
+    track.pluginList.state.moveChild (fromIndex, targetListIndex, &track.edit.getUndoManager());
+    return true;
+}
+
+bool EngineHelpers::movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destTrack, int userSlot)
+{
+    if (auto* srcTrack = dynamic_cast<te::AudioTrack*> (te::getTrackContainingPlugin (plugin.edit, &plugin)))
+    {
+        if (srcTrack == &destTrack)
+            return movePluginToUserSlot (destTrack, plugin, userSlot);
+    }
+
+    const auto state = PluginPresetManager::capturePluginState (plugin);
+    const auto desc = getPluginDescription (plugin);
+    const bool instrument = isInstrumentPlugin (plugin) || isInstrumentDescription (desc);
+
+    TrackPluginChainModel destModel (destTrack);
+    const int insertIndex = destModel.resolveInsertIndex (userSlot, instrument, nullptr);
+    if (insertIndex < 0)
+        return false;
+
+    auto& um = plugin.edit.getUndoManager();
+    juce::ignoreUnused (um);
+
+    if (EngineHelpers::isPluginSoloed (*te::getTrackContainingPlugin (plugin.edit, &plugin), plugin))
+        clearSoloedPlugin (*te::getTrackContainingPlugin (plugin.edit, &plugin));
+
+    plugin.deleteFromParent();
+
+    if (desc.name.isEmpty())
+        return false;
+
+    if (auto newPlugin = plugin.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+    {
+        insertPluginOnTrack (destTrack, newPlugin, insertIndex);
+        PluginPresetManager::applyPluginState (*newPlugin, state);
+        return true;
+    }
+
+    return false;
+}
+
+te::Plugin* EngineHelpers::duplicatePluginOnTrack (te::Plugin& source, te::AudioTrack& track, int userSlot)
+{
+    const auto state = PluginPresetManager::capturePluginState (source);
+    const auto desc = getPluginDescription (source);
+    if (desc.name.isEmpty())
+        return nullptr;
+
+    TrackPluginChainModel model (track);
+    const int slot = userSlot < 0 ? model.userSlotForPlugin (source) + 1 : userSlot;
+    const int insertIndex = model.resolveInsertIndex (slot,
+                                                      isInstrumentPlugin (source),
+                                                      nullptr);
+    if (insertIndex < 0)
+        return nullptr;
+
+    if (auto newPlugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+    {
+        auto* inserted = insertPluginOnTrack (track, newPlugin, insertIndex);
+        PluginPresetManager::applyPluginState (*newPlugin, state);
+        return inserted;
+    }
+
+    return nullptr;
+}
+
+void EngineHelpers::renamePlugin (te::Plugin& plugin, const juce::String& newName)
+{
+    if (newName.isNotEmpty())
+        plugin.state.setProperty (te::IDs::name, newName, &plugin.edit.getUndoManager());
+}
+
 juce::PluginDescription EngineHelpers::lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString)
 {
     for (const auto& desc : engine.getPluginManager().knownPluginList.getTypes())
@@ -327,6 +462,104 @@ te::RackInstance* EngineHelpers::insertEmptyRack (te::AudioTrack& track)
 
     if (auto plugin = track.edit.getPluginCache().createNewPlugin (te::RackInstance::create (*rackType)))
         return dynamic_cast<te::RackInstance*> (insertPluginOnTrack (track, plugin));
+
+    return nullptr;
+}
+
+namespace
+{
+int rackPluginStateIndex (te::RackType& type, const te::Plugin& plugin)
+{
+    for (int i = 0; i < type.state.getNumChildren(); ++i)
+    {
+        const auto child = type.state.getChild (i);
+        if (! child.hasType (te::IDs::PLUGININSTANCE))
+            continue;
+
+        const auto pluginTree = child.getChildWithName (te::IDs::PLUGIN);
+        if (pluginTree.isValid()
+            && te::EditItemID::fromProperty (pluginTree, te::IDs::id) == plugin.itemID)
+            return i;
+    }
+
+    return -1;
+}
+} // namespace
+
+juce::Array<te::Plugin*> EngineHelpers::getRackInternalPlugins (te::RackInstance& rack)
+{
+    return rack.type->getPlugins();
+}
+
+int EngineHelpers::rackSlotForPlugin (te::RackInstance& rack, const te::Plugin& plugin)
+{
+    const auto plugins = getRackInternalPlugins (rack);
+    for (int i = 0; i < plugins.size(); ++i)
+        if (plugins[i] == &plugin)
+            return i;
+
+    return -1;
+}
+
+bool EngineHelpers::movePluginInRack (te::RackInstance& rack, te::Plugin& plugin, int targetSlot)
+{
+    auto& type = *rack.type;
+    const auto plugins = type.getPlugins();
+    const int fromSlot = rackSlotForPlugin (rack, plugin);
+
+    if (fromSlot < 0)
+        return false;
+
+    const int clampedTarget = juce::jlimit (0, plugins.size(), targetSlot);
+    int destSlot = clampedTarget;
+
+    if (destSlot > fromSlot)
+        --destSlot;
+
+    if (fromSlot == destSlot)
+        return false;
+
+    const int fromIndex = rackPluginStateIndex (type, plugin);
+
+    if (fromIndex < 0)
+        return false;
+
+    int toIndex = fromIndex;
+
+    if (destSlot >= plugins.size())
+    {
+        for (int i = type.state.getNumChildren(); --i >= 0;)
+        {
+            if (type.state.getChild (i).hasType (te::IDs::PLUGININSTANCE))
+            {
+                toIndex = i + 1;
+                break;
+            }
+        }
+    }
+    else if (auto* destPlugin = plugins[destSlot])
+    {
+        toIndex = rackPluginStateIndex (type, *destPlugin);
+        if (toIndex < 0)
+            return false;
+    }
+
+    if (fromIndex == toIndex)
+        return false;
+
+    type.state.moveChild (fromIndex, toIndex, type.getUndoManager());
+    return true;
+}
+
+te::RackInstance* EngineHelpers::findRackOnTrack (te::AudioTrack& track, te::EditItemID rackInstanceId)
+{
+    if (rackInstanceId.isInvalid())
+        return nullptr;
+
+    for (auto p : track.pluginList)
+        if (auto* rack = dynamic_cast<te::RackInstance*> (p))
+            if (rack->itemID == rackInstanceId)
+                return rack;
 
     return nullptr;
 }

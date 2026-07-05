@@ -1,11 +1,13 @@
 #pragma once
 
 #include "EditViewState.h"
+#include "TimelineLOD.h"
 
 namespace arrange
 {
 
 void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle<int> area, te::TimeRange viewRange);
+void drawMidiClipDensity (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle<int> area);
 
 class ClipComponent : public juce::Component
 {
@@ -38,6 +40,7 @@ protected:
     void captureGroupDragItems();
     void captureRippleDragItems (te::TimePosition anchor);
     void paintSelectionAndGroupIndicators (juce::Graphics& g) const;
+    TimelineClipDetailLevel getDetailLevel() const;
 
     EditViewState& editViewState;
     te::Clip::Ptr clip;
@@ -61,17 +64,38 @@ public:
     AudioClipComponent (EditViewState& evs, te::Clip::Ptr c);
     void paint (juce::Graphics& g) override;
 
+    void ensureThumbnail();
+    void releaseThumbnail();
+
 private:
-    void updateThumbnail();
+    void refreshThumbnailSource();
     void paintFadeOverlay (juce::Graphics& g) const;
-    std::unique_ptr<te::SmartThumbnail> thumbnail;
+
+    std::shared_ptr<te::SmartThumbnail> thumbnail;
+    juce::int64 cachedFileKey = 0;
+    bool thumbnailHeld = false;
 };
 
-class MidiClipComponent : public ClipComponent
+class MidiClipComponent : public ClipComponent,
+                          private te::ValueTreeAllEventListener
 {
 public:
     MidiClipComponent (EditViewState& evs, te::Clip::Ptr c);
+    ~MidiClipComponent() override;
     void paint (juce::Graphics& g) override;
+
+    void releasePreview();
+
+private:
+    void valueTreeChanged() override {}
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { previewDirty = true; }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { previewDirty = true; }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { previewDirty = true; }
+
+    void rebuildPreviewIfNeeded();
+
+    juce::Image previewImage;
+    bool previewDirty = true;
 };
 
 } // namespace arrange

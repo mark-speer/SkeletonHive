@@ -1,15 +1,27 @@
 #pragma once
 
 #include "Engine/PluginScanner.h"
+#include "Engine/PluginStateManager.h"
 
 namespace arrange
 {
 
+enum class PluginBrowserFilter
+{
+    All,
+    Instruments,
+    Effects,
+    Favorites,
+    Recent
+};
+
 class PluginBrowser : public juce::Component,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::TextEditor::Listener,
+                      private juce::ComboBox::Listener
 {
 public:
-    PluginBrowser (PluginScanner& scanner, te::Edit& edit);
+    PluginBrowser (PluginScanner& scanner, te::Edit& edit, PluginStateManager& stateManager);
 
     te::Track* selectedTrack = nullptr;
 
@@ -18,43 +30,28 @@ public:
     void resized() override;
 
 private:
-    class PluginTreeItem : public juce::TreeViewItem
-    {
-    public:
-        PluginTreeItem (PluginBrowser& owner, juce::PluginDescription desc);
-        juce::String getUniqueName() const override { return desc.createIdentifierString(); }
-        bool mightContainSubItems() override { return false; }
-        int getItemHeight() const override { return 22; }
-        void paintItem (juce::Graphics& g, int width, int height) override;
-        void itemClicked (const juce::MouseEvent& e) override;
-
-    private:
-        PluginBrowser& browser;
-        juce::PluginDescription desc;
-    };
-
-    class RootItem : public juce::TreeViewItem
-    {
-    public:
-        explicit RootItem (PluginBrowser& owner);
-        juce::String getUniqueName() const override { return "root"; }
-        bool mightContainSubItems() override { return true; }
-        void itemOpennessChanged (bool) override;
-
-    private:
-        PluginBrowser& browser;
-    };
+    class PluginListModel;
 
     void timerCallback() override;
     void finishScan (int numFound);
+    void textEditorTextChanged (juce::TextEditor&) override;
+    void comboBoxChanged (juce::ComboBox*) override;
     void mouseDrag (const juce::MouseEvent& e) override;
+
+    juce::Array<juce::PluginDescription> getFilteredPlugins() const;
+    void rebuildListBox();
 
     PluginScanner& pluginScanner;
     te::Edit& edit;
-    juce::TreeView tree;
-    juce::TextButton scanButton { "Scan Plugins" }, insertButton { "Insert on Track" };
+    PluginStateManager& pluginStateManager;
+
+    juce::TextEditor searchBox;
+    juce::ComboBox categoryFilter;
+    juce::ComboBox vendorFilter;
+    juce::ListBox pluginList;
+    juce::TextButton scanButton { "Scan" }, insertButton { "Insert" };
     juce::Label statusLabel;
-    std::unique_ptr<RootItem> rootItem;
+    std::unique_ptr<PluginListModel> listModel;
     juce::PluginDescription selectedPlugin;
 };
 

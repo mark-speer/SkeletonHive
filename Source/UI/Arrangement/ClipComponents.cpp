@@ -36,6 +36,52 @@ void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle
     }
 }
 
+void drawMidiClipDensity (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle<int> area)
+{
+    if (area.isEmpty())
+        return;
+
+    const int numNotes = clip.getSequence().getNumNotes();
+    if (numNotes == 0)
+        return;
+
+    static constexpr int buckets = 12;
+    float density[buckets] {};
+    const double clipLength = clip.getPosition().getLength().inSeconds();
+
+    if (clipLength <= 0.0)
+        return;
+
+    for (int i = 0; i < numNotes; ++i)
+    {
+        const auto* note = clip.getSequence().getNote (i);
+        const double rel = (note->getEditStartTime (clip) - clip.getPosition().getStart()).inSeconds() / clipLength;
+        const int bucket = juce::jlimit (0, buckets - 1, (int) (rel * buckets));
+        density[bucket] += 1.0f;
+    }
+
+    float maxDensity = 0.0f;
+    for (float d : density)
+        maxDensity = juce::jmax (maxDensity, d);
+
+    if (maxDensity <= 0.0f)
+        return;
+
+    const float bucketWidth = (float) area.getWidth() / (float) buckets;
+    g.setColour (juce::Colours::white.withAlpha (0.55f));
+
+    for (int i = 0; i < buckets; ++i)
+    {
+        const float normalised = density[i] / maxDensity;
+        const float barHeight = juce::jmax (2.0f, normalised * (float) area.getHeight() * 0.75f);
+        const float x = (float) area.getX() + bucketWidth * (float) i;
+        g.fillRect (x + 1.0f,
+                    (float) area.getBottom() - barHeight,
+                    juce::jmax (1.0f, bucketWidth - 2.0f),
+                    barHeight);
+    }
+}
+
 ClipComponent::ClipComponent (EditViewState& evs, te::Clip::Ptr c)
     : editViewState (evs), clip (std::move (c))
 {
@@ -44,6 +90,11 @@ ClipComponent::ClipComponent (EditViewState& evs, te::Clip::Ptr c)
 te::TimePosition ClipComponent::timeAtLaneX (int laneX) const
 {
     return editViewState.xToTime (laneX);
+}
+
+TimelineClipDetailLevel ClipComponent::getDetailLevel() const
+{
+    return getClipDetailLevel (editViewState.getPixelsPerBeat(), getWidth());
 }
 
 te::TimePosition ClipComponent::snapTime (te::TimePosition time) const
@@ -58,12 +109,15 @@ ClipComponent::DragMode ClipComponent::dragModeForEvent (const juce::MouseEvent&
 
     // Fade handles live in the top corners, only on audio clips (TE fades are
     // an AudioClipBase feature; MIDI clips have no equivalent).
-    if (dynamic_cast<te::AudioClipBase*> (clip.get()) != nullptr)
+    if (shouldShowFadeHandles (getDetailLevel()))
     {
-        if (e.y <= fadeHandlePx && e.x <= fadeHandlePx * 2)
-            return DragMode::fadeIn;
-        if (e.y <= fadeHandlePx && e.x >= getWidth() - fadeHandlePx * 2)
-            return DragMode::fadeOut;
+        if (dynamic_cast<te::AudioClipBase*> (clip.get()) != nullptr)
+        {
+            if (e.y <= fadeHandlePx && e.x <= fadeHandlePx * 2)
+                return DragMode::fadeIn;
+            if (e.y <= fadeHandlePx && e.x >= getWidth() - fadeHandlePx * 2)
+                return DragMode::fadeOut;
+        }
     }
 
     if (getWidth() <= resizeHandleWidth * 2)
@@ -90,11 +144,22 @@ void ClipComponent::updateCursorForMode (DragMode mode)
 
 void ClipComponent::paint (juce::Graphics& g)
 {
+    const auto detail = getDetailLevel();
     g.setColour (juce::Colours::darkgrey);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
-    g.setColour (juce::Colours::white);
-    g.drawRoundedRectangle (getLocalBounds().toFloat(), 4.0f, 1.0f);
-    g.drawText (clip->getName(), getLocalBounds().reduced (4), juce::Justification::centredLeft, true);
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f);
+
+    if (detail != TimelineClipDetailLevel::Summary)
+    {
+        g.setColour (juce::Colours::white);
+        g.drawRoundedRectangle (getLocalBounds().toFloat(), 4.0f, 1.0f);
+    }
+
+    if (shouldShowClipLabel (detail, getWidth()))
+    {
+        g.setColour (juce::Colours::white);
+        g.drawText (clip->getName(), getLocalBounds().reduced (4), juce::Justification::centredLeft, true);
+    }
+
     paintSelectionAndGroupIndicators (g);
 }
 
@@ -340,36 +405,85 @@ void ClipComponent::mouseDoubleClick (const juce::MouseEvent& e)
 AudioClipComponent::AudioClipComponent (EditViewState& evs, te::Clip::Ptr c)
     : ClipComponent (evs, std::move (c))
 {
-    updateThumbnail();
 }
 
-void AudioClipComponent::updateThumbnail()
+void AudioClipComponent::ensureThumbnail()
+{
+    if (thumbnailHeld)
+        return;
+
+    refreshThumbnailSource();
+    thumbnailHeld = true;
+}
+
+void AudioClipComponent::releaseThumbnail()
+{
+    if (! thumbnailHeld)
+        return;
+
+    if (auto* waveClip = dynamic_cast<te::WaveAudioClip*> (clip.get()))
+        editViewState.waveformCache.suggestEviction (waveClip->getAudioFile());
+
+    thumbnail.reset();
+    thumbnailHeld = false;
+}
+
+void AudioClipComponent::refreshThumbnailSource()
 {
     if (auto* waveClip = dynamic_cast<te::WaveAudioClip*> (clip.get()))
     {
-        thumbnail = std::make_unique<te::SmartThumbnail> (editViewState.edit.engine,
-                                                            waveClip->getAudioFile(),
-                                                            *this, nullptr);
+        const auto file = waveClip->getAudioFile();
+        const auto fileKey = (juce::int64) file.getHash();
+
+        if (thumbnail != nullptr && cachedFileKey == fileKey)
+            return;
+
+        if (thumbnail != nullptr && cachedFileKey != fileKey)
+            thumbnail->setNewFile (file);
+
+        cachedFileKey = fileKey;
+        thumbnail = editViewState.waveformCache.acquire (editViewState.edit.engine,
+                                                         file,
+                                                         *this,
+                                                         &editViewState.edit);
+    }
+    else
+    {
+        thumbnail.reset();
+        cachedFileKey = 0;
     }
 }
 
 void AudioClipComponent::paint (juce::Graphics& g)
 {
+    const auto detail = getDetailLevel();
     auto bounds = getLocalBounds();
-    g.setColour (juce::Colour (0xff2d6a4f));
-    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
 
-    if (editViewState.drawWaveforms && thumbnail != nullptr)
+    g.setColour (juce::Colour (0xff2d6a4f));
+    g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
+
+    if (shouldShowWaveforms (detail, editViewState.drawWaveforms.get()) && isVisible())
     {
-        g.setColour (juce::Colours::white.withAlpha (0.7f));
-        const te::TimeRange viewRange { editViewState.viewX1, editViewState.viewX2 };
-        thumbnail->drawChannels (g, bounds, viewRange, 1.0f);
+        ensureThumbnail();
+
+        if (thumbnail != nullptr)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            const te::TimeRange viewRange { editViewState.viewX1, editViewState.viewX2 };
+            thumbnail->drawChannels (g, bounds, viewRange, 1.0f);
+        }
     }
 
-    paintFadeOverlay (g);
+    if (shouldShowFadeCurves (detail))
+        paintFadeOverlay (g);
 
-    g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
+    if (shouldShowClipLabel (detail, bounds.getWidth()))
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
+    }
+
     paintSelectionAndGroupIndicators (g);
 }
 
@@ -438,22 +552,80 @@ void AudioClipComponent::paintFadeOverlay (juce::Graphics& g) const
 MidiClipComponent::MidiClipComponent (EditViewState& evs, te::Clip::Ptr c)
     : ClipComponent (evs, std::move (c))
 {
+    clip->state.addListener (this);
 }
 
-void MidiClipComponent::paint (juce::Graphics& g)
+MidiClipComponent::~MidiClipComponent()
 {
-    auto bounds = getLocalBounds();
-    g.setColour (juce::Colour (0xff4361ee));
-    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    clip->state.removeListener (this);
+}
+
+void MidiClipComponent::releasePreview()
+{
+    previewImage = {};
+    previewDirty = true;
+}
+
+void MidiClipComponent::rebuildPreviewIfNeeded()
+{
+    if (! previewDirty && previewImage.isValid())
+        return;
+
+    auto bounds = getLocalBounds().reduced (2);
+    if (bounds.isEmpty())
+        return;
+
+    previewImage = juce::Image (juce::Image::ARGB, bounds.getWidth(), bounds.getHeight(), true);
+    juce::Graphics g (previewImage);
+    g.fillAll (juce::Colours::transparentBlack);
 
     if (auto* midiClip = dynamic_cast<te::MidiClip*> (clip.get()))
     {
         const te::TimeRange viewRange { editViewState.viewX1, editViewState.viewX2 };
-        drawMidiClipPreview (g, *midiClip, bounds.reduced (2), viewRange);
+        drawMidiClipPreview (g, *midiClip, bounds.withPosition (0, 0), viewRange);
     }
 
-    g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
+    previewDirty = false;
+}
+
+void MidiClipComponent::paint (juce::Graphics& g)
+{
+    const auto detail = getDetailLevel();
+    auto bounds = getLocalBounds();
+    const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
+
+    g.setColour (juce::Colour (0xff4361ee));
+    g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
+
+    if (isVisible())
+    {
+        auto previewArea = bounds.reduced (2);
+
+        if (shouldShowMidiPreview (detail))
+        {
+            rebuildPreviewIfNeeded();
+
+            if (previewImage.isValid())
+            {
+                g.drawImage (previewImage,
+                             previewArea.getX(), previewArea.getY(),
+                             previewArea.getWidth(), previewArea.getHeight(),
+                             0, 0, previewImage.getWidth(), previewImage.getHeight());
+            }
+        }
+        else if (shouldShowMidiDensity (detail))
+        {
+            if (auto* midiClip = dynamic_cast<te::MidiClip*> (clip.get()))
+                drawMidiClipDensity (g, *midiClip, previewArea);
+        }
+    }
+
+    if (shouldShowClipLabel (detail, bounds.getWidth()))
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
+    }
+
     paintSelectionAndGroupIndicators (g);
 }
 

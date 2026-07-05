@@ -60,6 +60,20 @@ target_sources(ArrangeDAW PRIVATE
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
     Source/Engine/EngineHelpers.cpp
+    Source/Engine/MultiOutputRouting.h
+    Source/Engine/MultiOutputRouting.cpp
+    Source/Engine/WaveformCache.h
+    Source/Engine/WaveformCache.cpp
+    Source/Engine/PluginDragManager.h
+    Source/Engine/PluginDragManager.cpp
+    Source/Engine/TrackPluginChainModel.h
+    Source/Engine/TrackPluginChainModel.cpp
+    Source/Engine/PluginStateManager.h
+    Source/Engine/PluginStateManager.cpp
+    Source/Engine/PluginPresetManager.h
+    Source/Engine/PluginPresetManager.cpp
+    Source/Engine/UiTelemetryHub.h
+    Source/Engine/UiTelemetryHub.cpp
     Source/UI/Arrangement/EditViewState.h
     Source/UI/Arrangement/ClipComponents.h
     Source/UI/Arrangement/ClipComponents.cpp
@@ -69,6 +83,11 @@ target_sources(ArrangeDAW PRIVATE
     Source/UI/Arrangement/TimelineComponent.cpp
     Source/UI/Arrangement/TimelineGrid.h
     Source/UI/Arrangement/TimelineGrid.cpp
+    Source/UI/Arrangement/LaneBackgroundCache.h
+    Source/UI/Arrangement/LaneBackgroundCache.cpp
+    Source/UI/Arrangement/TimelineTypes.h
+    Source/UI/Arrangement/TimelineOpenGLRenderer.h
+    Source/UI/Arrangement/TimelineOpenGLRenderer.cpp
     Source/UI/Transport/TransportBar.h
     Source/UI/Transport/TransportBar.cpp
     Source/UI/Mixer/MixerPanel.h
@@ -77,6 +96,12 @@ target_sources(ArrangeDAW PRIVATE
     Source/UI/Mixer/ChannelStrip.cpp
     Source/UI/Plugins/PluginBrowser.h
     Source/UI/Plugins/PluginBrowser.cpp
+    Source/UI/Plugins/PluginSlotComponent.h
+    Source/UI/Plugins/PluginSlotComponent.cpp
+    Source/UI/Plugins/PluginTrayComponent.h
+    Source/UI/Plugins/PluginTrayComponent.cpp
+    Source/UI/Plugins/MultiOutputConfigDialog.h
+    Source/UI/Plugins/MultiOutputConfigDialog.cpp
     Source/UI/Plugins/PluginWindow.h
     Source/UI/Plugins/PluginWindow.cpp
     Source/UI/Midi/PianoRollEditor.h
@@ -106,6 +131,7 @@ target_link_libraries(ArrangeDAW PRIVATE
     juce::juce_audio_processors
     juce::juce_audio_utils
     juce::juce_gui_extra
+    juce::juce_opengl
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags

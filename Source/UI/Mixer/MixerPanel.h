@@ -1,16 +1,19 @@
 #pragma once
 
 #include "ChannelStrip.h"
+#include "UI/Arrangement/TrackComponents.h"
 
 namespace arrange
 {
 
+class UiTelemetryHub;
+
 class MixerPanel : public juce::Component,
                    private te::ValueTreeAllEventListener,
-                   private juce::AsyncUpdater
+                   private FlaggedAsyncUpdater
 {
 public:
-    explicit MixerPanel (te::Edit& edit);
+    MixerPanel (te::Edit& edit, UiTelemetryHub* telemetryHub = nullptr);
     ~MixerPanel() override;
 
     void rebuild();
@@ -21,13 +24,24 @@ private:
     void valueTreeChanged() override {}
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree& child) override;
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree& child, int) override;
-    void handleAsyncUpdate() override { rebuild(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override;
+    void handleAsyncUpdate() override;
+
+    static bool isMixerTrack (const juce::ValueTree& child);
+    juce::Array<te::Track*> collectMixerTracks() const;
+    ChannelStrip* findStripForTrack (te::Track& track) const;
+    void syncTrackStrips();
+    void layoutStrips();
 
     te::Edit& edit;
+    UiTelemetryHub* telemetryHub = nullptr;
     juce::Viewport viewport;
     juce::Component stripContainer;
     juce::OwnedArray<ChannelStrip> strips;
     std::unique_ptr<ChannelStrip> masterStrip;
+
+    bool rebuildTrackList = false;
+    bool relayoutStrips = false;
 };
 
 } // namespace arrange

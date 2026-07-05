@@ -1,6 +1,8 @@
 #include "TrackComponents.h"
 #include "TimelineComponent.h"
+#include "TimelineLOD.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/UiTelemetryHub.h"
 #include "TracktionCommon.h"
 #include "TimelineGrid.h"
 
@@ -159,6 +161,16 @@ void TrackHeaderComponent::resized()
     // Indent nested tracks under their FolderTrack parent(s).
     r.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
     trackName.setBounds (r);
+}
+
+void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isLeftButtonDown() && ! e.mods.isPopupMenu())
+    {
+        editViewState.selectionManager.selectOnly (track.get());
+        if (onTrackSelected)
+            onTrackSelected (*track);
+    }
 }
 
 void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier& id)
@@ -782,12 +794,8 @@ void TrackLaneComponent::paint (juce::Graphics& g)
     g.fillAll (juce::Colour (0xff0f0f23));
     g.setColour (juce::Colours::white.withAlpha (0.08f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
-
-    // Only paint the dirty region: keeps grid painting O(visible) instead of
-    // O(timeline width) as the canvas grows.
-    const auto dirtyArea = g.getClipBounds().getIntersection (getLocalBounds());
-    TimelineGrid::drawBarBackground (g, editViewState.edit, editViewState, dirtyArea);
-    TimelineGrid::drawGridLines (g, editViewState.edit, editViewState, dirtyArea);
+    editViewState.laneBackgroundCache.renderOrFetch (g, editViewState.edit, editViewState,
+                                                     track->itemID, getLocalBounds());
 
     if (dragCreateActive)
         paintRangeSelection (g, dragCreateAnchor, dragCreateCurrent);
@@ -998,8 +1006,25 @@ void TrackLaneComponent::updateClipBounds()
         const bool visible = x2 >= visibleStartX - margin && x <= visibleEndX + margin;
         cc->setVisible (visible);
 
+        const int clipWidth = juce::jmax (4, x2 - x);
+        const auto detail = getClipDetailLevel (editViewState.getPixelsPerBeat(), clipWidth);
+
+        if (auto* audioClip = dynamic_cast<AudioClipComponent*> (cc))
+        {
+            if (visible && shouldHoldWaveformThumbnail (detail, editViewState.drawWaveforms.get()))
+                audioClip->ensureThumbnail();
+            else
+                audioClip->releaseThumbnail();
+        }
+
+        if (auto* midiClip = dynamic_cast<MidiClipComponent*> (cc))
+        {
+            if (! visible || ! shouldShowMidiPreview (detail))
+                midiClip->releasePreview();
+        }
+
         if (visible)
-            cc->setBounds (x, 2, juce::jmax (4, x2 - x), height - 4);
+            cc->setBounds (x, 2, clipWidth, height - 4);
     }
 }
 
@@ -1025,11 +1050,19 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
             EngineHelpers::insertPluginOnTrack (*audioTrack, plugin);
 }
 
-PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs)
-    : edit (e), editViewState (evs)
+PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHub* hub)
+    : edit (e), editViewState (evs), telemetryHub (hub)
 {
-    startTimerHz (30);
     setInterceptsMouseClicks (true, false);
+
+    if (telemetryHub != nullptr)
+        telemetryHub->registerPlayhead (this);
+}
+
+PlayheadOverlay::~PlayheadOverlay()
+{
+    if (telemetryHub != nullptr)
+        telemetryHub->unregisterPlayhead (this);
 }
 
 void PlayheadOverlay::paint (juce::Graphics& g)
@@ -1055,7 +1088,7 @@ void PlayheadOverlay::mouseDrag (const juce::MouseEvent& e)
     edit.getTransport().setPosition (TimelineGrid::snapTime (edit, editViewState, time));
 }
 
-void PlayheadOverlay::timerCallback()
+void PlayheadOverlay::updateFromTransport()
 {
     if (getWidth() <= 0)
         return;

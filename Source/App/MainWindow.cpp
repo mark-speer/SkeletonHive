@@ -37,6 +37,8 @@ MainContentComponent::MainContentComponent (ArrangeApplication& app)
       projectManager (app.getProjectManager())
 {
     pluginScanner = std::make_unique<PluginScanner> (engine);
+    pluginStateManager = std::make_unique<PluginStateManager>();
+    telemetryHub = std::make_unique<UiTelemetryHub>();
     createDefaultProject();
     rebuildEditUI();
 
@@ -93,6 +95,7 @@ void MainContentComponent::releaseEditUI()
     automationPanel.removeAllChildren();
 
     pluginBrowser = nullptr;
+    pluginTray = nullptr;
     mixerPanel = nullptr;
     timeline = nullptr;
     transportBar = nullptr;
@@ -109,9 +112,11 @@ void MainContentComponent::rebuildEditUI()
     transportController = std::make_unique<TransportController> (*edit);
     transportBar = std::make_unique<TransportBar> (*edit, *transportController);
     timeline = std::make_unique<TimelineComponent> (*edit, projectManager.getSelectionManager(),
-                                                    projectManager.getInsertPoint());
-    mixerPanel = std::make_unique<MixerPanel> (*edit);
-    pluginBrowser = std::make_unique<PluginBrowser> (*pluginScanner, *edit);
+                                                    projectManager.getInsertPoint(),
+                                                    telemetryHub.get());
+    mixerPanel = std::make_unique<MixerPanel> (*edit, telemetryHub.get());
+    pluginBrowser = std::make_unique<PluginBrowser> (*pluginScanner, *edit, *pluginStateManager);
+    pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager);
 
     transportBar->onNewProject = [this] { handleNewProject(); };
     transportBar->onOpenProject = [this] { handleOpenProject(); };
@@ -131,6 +136,11 @@ void MainContentComponent::rebuildEditUI()
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
+    timeline->onTrackSelected = [this] (te::Track& t)
+    {
+        if (pluginTray != nullptr)
+            pluginTray->setTrack (&t);
+    };
     timeline->createPlugin = [this] (const juce::PluginDescription& desc)
     {
         if (auto* edit = projectManager.getEdit())
@@ -138,8 +148,17 @@ void MainContentComponent::rebuildEditUI()
         return te::Plugin::Ptr {};
     };
 
+    pluginTray->setCreatePlugin ([this] (const juce::PluginDescription& desc)
+    {
+        if (auto* edit = projectManager.getEdit())
+            return pluginScanner->createPlugin (desc, *edit);
+        return te::Plugin::Ptr {};
+    });
+    pluginTray->setOnAddPlugin ([this] (te::Track& t) { handleAddPlugin (t); });
+
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*timeline);
+    addAndMakeVisible (*pluginTray);
     pluginBrowser->setVisible (false);
 
     if (mixerVisible)
@@ -202,7 +221,6 @@ void MainContentComponent::handleAddAudioTrack()
 {
     EngineHelpers::getOrInsertAudioTrack (*projectManager.getEdit());
     timeline->rebuildTracks();
-    mixerPanel->rebuild();
 }
 
 void MainContentComponent::handleAddMidiTrack()
@@ -210,7 +228,6 @@ void MainContentComponent::handleAddMidiTrack()
     const int idx = (int) te::getAudioTracks (*projectManager.getEdit()).size();
     EngineHelpers::getOrInsertTrackForMidi (*projectManager.getEdit(), idx);
     timeline->rebuildTracks();
-    mixerPanel->rebuild();
 }
 
 void MainContentComponent::handleAddMidiClip()
@@ -230,6 +247,8 @@ void MainContentComponent::handleClipDoubleClick (te::Clip& clip)
 void MainContentComponent::handleAddPlugin (te::Track& track)
 {
     pluginBrowser->selectedTrack = &track;
+    if (pluginTray != nullptr)
+        pluginTray->setTrack (&track);
     if (! pluginBrowser->isVisible())
         addAndMakeVisible (*pluginBrowser);
     pluginBrowser->toFront (true);
@@ -298,6 +317,9 @@ void MainContentComponent::resized()
     if (mixerVisible)
         mixerPanel->setBounds (r.removeFromBottom (200));
 
+    if (pluginTray != nullptr)
+        pluginTray->setBounds (r.removeFromBottom (148));
+
     if (pluginBrowser != nullptr && pluginBrowser->isVisible())
     {
         auto pluginArea = r.removeFromRight (250);
@@ -312,6 +334,9 @@ void MainContentComponent::resized()
 
 bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
+    if (pluginTray != nullptr && pluginTray->handleKeyPress (key))
+        return true;
+
     if (timeline != nullptr && timeline->handleKeyPress (key))
         return true;
 

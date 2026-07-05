@@ -3,8 +3,8 @@
 namespace arrange
 {
 
-MixerPanel::MixerPanel (te::Edit& e)
-    : edit (e)
+MixerPanel::MixerPanel (te::Edit& e, UiTelemetryHub* hub)
+    : edit (e), telemetryHub (hub)
 {
     addAndMakeVisible (viewport);
     viewport.setViewedComponent (&stripContainer, false);
@@ -19,27 +19,39 @@ MixerPanel::~MixerPanel()
     edit.state.removeListener (this);
 }
 
+bool MixerPanel::isMixerTrack (const juce::ValueTree& child)
+{
+    return te::TrackList::isTrack (child);
+}
+
 void MixerPanel::valueTreeChildAdded (juce::ValueTree&, juce::ValueTree& child)
 {
-    if (te::TrackList::isTrack (child))
-        triggerAsyncUpdate();
+    if (isMixerTrack (child))
+        markAndUpdate (rebuildTrackList);
 }
 
 void MixerPanel::valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree& child, int)
 {
-    if (te::TrackList::isTrack (child))
-        triggerAsyncUpdate();
+    if (isMixerTrack (child))
+        markAndUpdate (rebuildTrackList);
 }
 
-void MixerPanel::rebuild()
+void MixerPanel::valueTreeChildOrderChanged (juce::ValueTree&, int, int)
 {
-    strips.clear();
-    masterStrip = nullptr;
-    stripContainer.removeAllChildren();
+    markAndUpdate (relayoutStrips);
+}
 
-    const int stripWidth = 80;
-    const int stripHeight = juce::jmax (200, getHeight());
-    int x = 0;
+void MixerPanel::handleAsyncUpdate()
+{
+    if (compareAndReset (rebuildTrackList))
+        syncTrackStrips();
+    else if (compareAndReset (relayoutStrips))
+        layoutStrips();
+}
+
+juce::Array<te::Track*> MixerPanel::collectMixerTracks() const
+{
+    juce::Array<te::Track*> tracks;
 
     for (auto track : te::getAllTracks (edit))
     {
@@ -47,20 +59,80 @@ void MixerPanel::rebuild()
             || track->isMasterTrack() || track->isArrangerTrack())
             continue;
 
-        auto* strip = new ChannelStrip (*track);
+        tracks.add (track);
+    }
+
+    return tracks;
+}
+
+ChannelStrip* MixerPanel::findStripForTrack (te::Track& track) const
+{
+    for (auto* strip : strips)
+        if (strip->getTrack() == &track)
+            return strip;
+
+    return nullptr;
+}
+
+void MixerPanel::syncTrackStrips()
+{
+    const auto desiredTracks = collectMixerTracks();
+    juce::OwnedArray<ChannelStrip> nextStrips;
+
+    for (auto* track : desiredTracks)
+    {
+        if (auto* existing = findStripForTrack (*track))
+        {
+            nextStrips.add (existing);
+            strips.removeObject (existing, false);
+        }
+        else
+        {
+            nextStrips.add (new ChannelStrip (*track, telemetryHub));
+        }
+    }
+
+    strips.clear();
+    strips.swapWith (nextStrips);
+
+    if (masterStrip == nullptr)
+        masterStrip = std::make_unique<ChannelStrip> (edit, telemetryHub);
+
+    layoutStrips();
+}
+
+void MixerPanel::layoutStrips()
+{
+    const int stripWidth = 80;
+    const int stripHeight = juce::jmax (200, getHeight());
+    int x = 0;
+
+    stripContainer.removeAllChildren();
+
+    for (auto* strip : strips)
+    {
         strip->setBounds (x, 0, stripWidth, stripHeight);
         stripContainer.addAndMakeVisible (strip);
-        strips.add (strip);
         x += stripWidth;
     }
 
-    x += 8;   // gap before the master bus
-    masterStrip = std::make_unique<ChannelStrip> (edit);
-    masterStrip->setBounds (x, 0, stripWidth + 10, stripHeight);
-    stripContainer.addAndMakeVisible (*masterStrip);
-    x += stripWidth + 10;
+    x += 8;
+
+    if (masterStrip != nullptr)
+    {
+        masterStrip->setBounds (x, 0, stripWidth + 10, stripHeight);
+        stripContainer.addAndMakeVisible (*masterStrip);
+        x += stripWidth + 10;
+    }
 
     stripContainer.setSize (x, stripHeight);
+}
+
+void MixerPanel::rebuild()
+{
+    strips.clear();
+    masterStrip = nullptr;
+    syncTrackStrips();
 }
 
 void MixerPanel::paint (juce::Graphics& g)
@@ -71,6 +143,7 @@ void MixerPanel::paint (juce::Graphics& g)
 void MixerPanel::resized()
 {
     viewport.setBounds (getLocalBounds());
+    layoutStrips();
 }
 
 } // namespace arrange

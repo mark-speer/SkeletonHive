@@ -2,9 +2,12 @@
 
 #include "TrackComponents.h"
 #include "TimelineGrid.h"
+#include "TimelineTypes.h"
 
 namespace arrange
 {
+
+class UiTelemetryHub;
 
 /** Bar/beat ruler with a draggable loop brace bound to the transport's loop range. */
 class TimelineRulerComponent : public juce::Component
@@ -44,13 +47,15 @@ class TimelineComponent : public juce::Component,
 {
 public:
     TimelineComponent (te::Edit& edit, te::SelectionManager& selectionManager,
-                       te::EditInsertPoint* insertPoint);
+                       te::EditInsertPoint* insertPoint,
+                       UiTelemetryHub* telemetryHub = nullptr);
     ~TimelineComponent() override;
 
     EditViewState& getEditViewState() { return editViewState; }
 
     std::function<void (te::Clip&)> onClipDoubleClick;
     std::function<void (te::Track&)> onAddPlugin;
+    std::function<void (te::Track&)> onTrackSelected;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
 
     void rebuildTracks();
@@ -62,16 +67,22 @@ private:
     void valueTreeChanged() override {}
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { markAndUpdate (updateTracks); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { markAndUpdate (updateTracks); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { markAndUpdate (relayoutTracks); }
     void handleAsyncUpdate() override;
     void resized() override;
 
     void scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
 
     void buildTracks();
+    void rebuildTrackRowList();
+    void refreshVisibleTracks();
+    void destroyAllVisibleTracks();
+    void createVisibleTrackUI (const struct TrackRowInfo& row);
     void layoutTracks();
     void updateTimelineWidth();
     void refreshLaneLayouts();
     void syncVisibleRange();
+    void invalidateLaneBackgrounds();
     void repaintGrid();
     void toggleShowGrid();
     void syncGridControls();
@@ -85,6 +96,7 @@ private:
 
     te::Edit& edit;
     EditViewState editViewState;
+    UiTelemetryHub* telemetryHub = nullptr;
     PlayheadOverlay playhead;
     TimelineRulerComponent ruler;
     juce::ToggleButton gridButton { "Grid" };
@@ -102,11 +114,15 @@ private:
     juce::Component timelineContent;
     juce::Viewport headerViewport;
     juce::Component headerContent;
+    static constexpr int verticalVirtualizationMargin = 200;
+
+    juce::Array<TrackRowInfo> trackRows;
     juce::OwnedArray<TrackLaneComponent> trackLanes;
     juce::OwnedArray<TrackHeaderComponent> trackHeaders;
     juce::OwnedArray<TrackFooterComponent> trackFooters;
 
     bool updateTracks = false;
+    bool relayoutTracks = false;
 };
 
 } // namespace arrange

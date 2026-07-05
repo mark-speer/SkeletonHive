@@ -45,8 +45,8 @@ Mapping to the target subsystem names from the design brief:
 | TrackManager              | TE's `TrackList`; `EngineHelpers::getOrInsert…` helpers |
 | MidiEditor                | `PianoRollEditor` (notes edited via `te::MidiList`)  |
 | RoutingGraph              | TE plugin graph; `AuxSendPlugin`/`AuxReturnPlugin` via `EngineHelpers` |
-| PluginRack                | Track footer plugin slots + `PluginBrowser`/`PluginScanner` |
-| WaveformCache             | `te::SmartThumbnail` (dedicated LRU cache deferred to Phase 2) |
+| PluginRack                | Track footer slots + **PluginTrayComponent** (bottom device chain) + `PluginBrowser`/`PluginScanner` |
+| WaveformCache             | `WaveformCache` LRU service sharing `te::SmartThumbnail` per `AudioFile` hash |
 | UndoRedoSystem            | `te::Edit::getUndoManager()` — single source of truth |
 | ProjectPersistenceLayer   | `ProjectManager` over `te::EditFileOperations`       |
 
@@ -226,74 +226,137 @@ Current state and the reasoning behind it:
   TE's own thread-safe APIs (`TransportControl`, `AutomatableParameter`,
   `LevelMeasurer::getLevelCache`). Keep it that way: never add locks,
   allocations, or `ValueTree` access on the audio thread.
-- **Paint cost**: grid drawing is clipped to `Graphics::getClipBounds`;
-  off-screen clip components are `setVisible(false)` so they neither paint
-  nor hit-test. Waveforms use `te::SmartThumbnail` (background-generated,
-  cached).
-- **Change coalescing**: `ValueTree` bursts (e.g. drag = many property
-  changes) are coalesced by `FlaggedAsyncUpdater` into one rebuild/layout on
-  the message thread.
-- **Timers**: playhead 30 Hz, meters 30 Hz, transport readout 15 Hz. These
-  repaint tiny regions (`PlayheadOverlay` repaints a 2 px strip).
-- Known remaining costs (acceptable at current scale, tracked for Phase 2):
-  full lane `repaint()` on zoom, `MixerPanel` full rebuild on any track
-  add/remove, `MidiClipComponent` re-renders its note preview every paint.
+- **UI telemetry (lock-free audit)**: a single `UiTelemetryHub` timer (30 Hz)
+  drives playhead position updates and level-meter repaints. Meters read
+  `LevelMeasurer::getLevelCache()` (dB → gain conversion in `LevelMeter`);
+  playhead reads `transport.getPosition()`. No custom queues or atomics —
+  TE owns thread safety on the audio side.
+- **WaveformCache**: `AudioClipComponent` acquires shared `SmartThumbnail`
+  instances from an LRU cache keyed by `AudioFile` hash. Thumbnails are held
+  only while clips are visible (horizontal culling releases them; cache evicts
+  LRU entries with ref-count 1).
+- **Lane backgrounds**: `LaneBackgroundCache` rasterises grid/bar backgrounds
+  into `juce::Image` tiles keyed by zoom/view/track height. Zoom invalidates
+  the cache instead of repainting every clip. `TimelineOpenGLRenderer` can blit
+  the same cached images via OpenGL textures when attached.
+- **Track virtualization**: `TimelineComponent` keeps a lightweight
+  `TrackRowInfo` list for all tracks but only instantiates lane/header/footer
+  components for rows intersecting the vertical viewport (± margin).
+- **Mixer**: `MixerPanel` incrementally adds/removes/reorders `ChannelStrip`
+  instances on track list changes (`FlaggedAsyncUpdater`); master strip persists.
+- **Clip paint**: horizontal clip culling unchanged; `MidiClipComponent` caches
+  note previews to an `Image` invalidated on note `ValueTree` changes.
+- **Change coalescing**: `ValueTree` bursts are coalesced by
+  `FlaggedAsyncUpdater` into one rebuild/layout on the message thread.
+- **Timers**: transport readout remains 15 Hz in `TransportBar`; playhead and
+  meters share the 30 Hz `UiTelemetryHub`.
 
 ---
 
-## 5. Phase 2 backlog (documented, not implemented)
+## 5. Phase 2 status
 
-Workflow / editing:
-- **Ripple editing** across all clips on a track (foundation: clip grouping
-  and `EngineHelpers::duplicateClip` already exist).
-- Clip **fade handles** and crossfades (TE `fadeIn`/`fadeOut` properties).
-- **Folder/Group/Return track types** surfaced as distinct wrappers
-  (`te::FolderTrack` exists; return tracks currently plain audio tracks with
-  an `AuxReturnPlugin`). Remove the `arrangeTrackKind` property in favour of
-  pure clip-type inference at the same time.
-- Clip grouping **persistence semantics** (group-aware duplicate/delete,
-  nested groups) and group colour.
-- **Scale-aware MIDI input** and highlight-scale note entry in the piano
-  roll; groove/humanize templates beyond uniform jitter.
-- Piano roll: horizontal zoom/scroll within long clips, note-length
-  drawing tools, chord/step input.
+### Implemented (workflow / routing — prior commits + this pass)
 
-Routing / devices:
-- **Macro system** via `te::RackType` macro parameters; instrument and audio
-  effect **racks** (device containers).
-- **Drag-and-drop plugin reordering** (slots are click/menu only today) and
-  drag from browser onto tracks/clips.
-- Multiple send buses (A/B/C…), pre/post fader toggle per send
-  (`AuxPosition`), sidechain source pickers (TE supports sidechain inputs on
-  plugins).
-- Wet/dry on device chain, solo-device monitoring.
+- Ripple editing, clip fade handles, folder/return tracks, clip grouping with
+  colour, scale-aware MIDI input, piano roll zoom/draw/step/chord tools,
+  multi-send buses, plugin DnD, racks/macros, sidechain picker, wet/dry,
+  solo-device monitoring.
 
-Performance / infrastructure:
-- Dedicated **WaveformCache** LRU layer above `SmartThumbnail` for very
-  large projects.
-- Audit and formalize **lock-free UI↔engine messaging** for meters/positions
-  (currently TE's built-ins; fine, but should be measured at 200+ tracks).
-- **OpenGL-accelerated timeline** rendering; cached lane images invalidated
-  by dirty time-ranges instead of full repaints on zoom.
-- Track virtualization (lanes are laid out but all created; cull lane
-  *components* for 500+ track sessions).
-- Incremental `MixerPanel` updates instead of full rebuilds.
+### Implemented (performance / infrastructure — this pass)
+
+- **`WaveformCache`** — LRU shared `SmartThumbnail` layer (`Source/Engine/WaveformCache.*`).
+- **`LaneBackgroundCache`** — CPU grid/bar tile cache (`Source/UI/Arrangement/LaneBackgroundCache.*`).
+- **`TimelineOpenGLRenderer`** — optional OpenGL blit of lane cache textures (`juce_opengl`).
+- **Vertical track virtualization** — visible-range lane pooling in `TimelineComponent`.
+- **Incremental `MixerPanel`** — per-track strip add/remove/reorder without full rebuild.
+- **`UiTelemetryHub`** — consolidated 30 Hz playhead + meter polling.
+
+### Remaining Phase 2 polish (optional)
+
+- Nested clip groups, grouped resize, fade curve type UI, cross-track clip moves.
+- Nested folder drag/reparent UI.
+- Measure UI telemetry at 200+ tracks; lane-level LOD at extreme zoom (see Phase 3).
+
+---
 
 ## 6. Phase 3 backlog
+
+### Implemented (this pass)
+
+- **Adaptive timeline clip LOD** (`TimelineLOD.h`) — three detail levels driven by
+  `pixelsPerBeat` and on-screen clip width:
+  - **Summary** (far zoom): solid clip blocks; no waveforms, MIDI previews, fade
+    curves, or thumbnail retention.
+  - **Overview**: clip name + MIDI note-density bars; waveforms/fades deferred.
+  - **Detail** (near zoom): full waveforms, MIDI note previews, fade curves.
+  Wired through `AudioClipComponent`, `MidiClipComponent`, and
+  `TrackLaneComponent::updateClipBounds` (thumbnail/preview release at coarse LOD).
+- **Multi-output instrument routing** (`MultiOutputRouting`, `MultiOutputConfigDialog`)
+  — instrument slot → **Configure Outputs…**; TE `ExternalPlugin::setBusLayout`,
+  child tracks, `assignTrackAsInput` / `InputDeviceInstance::setTarget`.
+
+### Remaining
 
 - VST3-specific sandboxing / quirks handling (out-of-process scanning is
   already in place via TE's child-process scanner).
 - Sidechain routing UI with full source matrix.
-- Multi-output instrument routing (drum-sampler style output pairs to child
-  tracks).
-- Adaptive timeline level-of-detail (LOD) rendering: summaries at far zoom,
-  full detail near.
+- Lane-level LOD (bar summaries drawn in lane paint instead of per-clip components
+  at extreme zoom).
 - Collaborative / session-safe persistence (edit-file merge strategy,
   autosave versioning).
 
 ---
 
-## 7. Conventions for contributors
+## 7. Plugin Tray / Device Chain (Phase 3)
+
+Bottom-panel device chain aligned with Ableton Live workflow patterns (not visual
+copy). All model state lives in TE `PluginList` / `ValueTree`; UI is a thin view.
+
+```
+PluginTrayComponent          ← selected track's user chain (horizontal viewport)
+ ├─ PluginSlotComponent × N  ← bypass, drag, context menu, collapse
+ └─ Output node label
+
+PluginBrowserComponent       ← search, category/vendor filters, favorites/recent
+PluginDragManager            ← cross-track + reorder + browser payloads
+TrackPluginChainModel        ← user-chain indices, instrument-first validation
+PluginStateManager           ← favorites, recent, copy/paste clipboard (user data)
+PluginPresetManager          ← ValueTree preset save/load
+EngineHelpers                ← insert/move/duplicate/cross-track chain ops
+MultiOutputRouting           ← multi-out bus detect, child tracks, TE input routing
+MultiOutputConfigDialog      ← Configure Outputs… panel (instrument slots)
+```
+
+**Workflow:** click track header → tray shows chain; double-click slot → plugin
+editor; drag slot/browser → reorder or move between tracks; Delete/Ctrl+D/C/V
+when tray focused; instrument plugins forced to chain start on MIDI tracks.
+
+**Rack chains:** rack slots show an expand chevron (or context menu) to inline
+nested devices from `RackType::getPlugins()` in ValueTree order. Internal slots
+support bypass, remove, and drag-reorder via `RackType` state `moveChild` with
+undo. Rack `ValueTree` listeners on expanded racks coalesce tray rebuilds.
+Macro knobs remain in a `RackMacroPanel` CallOutBox. TE rack audio routing is
+connection-based; reordering updates display/ValueTree order but does not
+automatically rewire serial connections (limitation of TE's graph model).
+
+**Undo:** reorder uses `pluginList.state.moveChild` with `Edit::getUndoManager()`.
+Rack-internal reorder uses `RackType::getUndoManager()`. Rename uses
+`plugin.state.setProperty`. TE owns plugin add/remove undo. Multi-out route
+changes use the Edit `UndoManager` on plugin/track `ValueTree` properties and
+`InputDeviceInstance::setTarget`.
+
+**Multi-output limitations:** TE's `TrackWaveInputDeviceNode` forwards stereo
+(ch 0–1) from the source track post-chain; `targetIndex` on input destinations
+is persisted but not yet honoured in TE's playback graph for per-bus taps. Bus
+layout activation and child-track wiring are in place; per-pair audio separation
+depends on TE graph support or future channel-matrix work.
+
+**Performance:** tray rebuild coalesced via `AsyncUpdater`; only selected track
+is built; horizontal scroll for long chains.
+
+---
+
+## 8. Conventions for contributors
 
 - UI code lives under `Source/UI/…`, engine-facing helpers under
   `Source/Engine/…`. UI never talks to `juce::AudioDeviceManager` or the
