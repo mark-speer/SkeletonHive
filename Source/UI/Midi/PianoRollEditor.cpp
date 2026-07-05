@@ -2,6 +2,7 @@
 #include "UI/Arrangement/TimelineGrid.h"
 #include "TracktionCommon.h"
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -44,6 +45,57 @@ juce::String quantiseTypeNameForInterval (double intervalBeats)
 
     return best->name;
 }
+
+//==============================================================================
+// Groove templates: per-16th-note-step timing/velocity offsets applied by Humanize.
+// "Random" is kept as a special case reproducing the original uniform-jitter behaviour.
+
+struct GrooveTemplate
+{
+    juce::String name;
+    // Offsets indexed by position-within-bar in 16th notes (16 steps = one 4/4 bar).
+    // Timing is a fraction of a 16th-note grid interval; velocity is an absolute delta.
+    std::array<double, 16> timing {};
+    std::array<int, 16> velocity {};
+};
+
+constexpr int randomGrooveIndex = 3;
+
+const std::array<GrooveTemplate, 4>& grooveTemplates()
+{
+    static const std::array<GrooveTemplate, 4> templates { {
+        { "Straight", {}, {} },
+        { "MPC Swing",
+          { 0,0.12,0,0.12, 0,0.12,0,0.12, 0,0.12,0,0.12, 0,0.12,0,0.12 },
+          {} },
+        { "Laid Back",
+          { 0,0.06,0.03,0.06, 0,0.06,0.03,0.06, 0,0.06,0.03,0.06, 0,0.06,0.03,0.06 },
+          { 0,-8,-4,-8, 0,-8,-4,-8, 0,-8,-4,-8, 0,-8,-4,-8 } },
+        { "Random", {}, {} }
+    } };
+    return templates;
+}
+
+/** Shifts each note's timing/velocity by its groove template's offset for the
+    16th-note step it falls on (looping every bar). */
+void applyGroove (const juce::Array<te::MidiNote*>& notes, const GrooveTemplate& groove,
+                  double offsetBeats, juce::UndoManager* um)
+{
+    constexpr double sixteenthBeats = 0.25;
+
+    for (auto* n : notes)
+    {
+        const double startBeat = n->getStartBeat().inBeats() - offsetBeats;
+        const int rawStep = (int) std::floor (startBeat / sixteenthBeats);
+        const size_t step = (size_t) (((rawStep % 16) + 16) % 16);
+
+        const double newStart = juce::jmax (0.0, startBeat + groove.timing[step] * sixteenthBeats);
+        n->setStartAndLength (te::BeatPosition::fromBeats (newStart + offsetBeats), n->getLengthBeats(), um);
+
+        if (groove.velocity[step] != 0)
+            n->setVelocity (juce::jlimit (1, 127, n->getVelocity() + groove.velocity[step]), um);
+    }
+}
 } // namespace
 
 PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& evs)
@@ -52,7 +104,7 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
     quantiseButton.setTooltip ("Quantize selected notes to the grid (Q)");
     quantiseButton.onClick = [this] { quantiseNotes(); };
 
-    humaniseButton.setTooltip ("Randomise timing/velocity of selected notes (H)");
+    humaniseButton.setTooltip ("Apply the selected groove template to selected notes (H)");
     humaniseButton.onClick = [this] { humaniseNotes(); };
 
     foldButton.setTooltip ("Show only pitches used in this clip (F)");
@@ -61,6 +113,8 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
         rebuildFoldedPitches();
         repaint();
     };
+
+    scaleSnapButton.setTooltip ("Snap note pitch to the selected scale when creating/moving notes (S)");
 
     for (int i = 0; i < 12; ++i)
         rootBox.addItem (noteNames[i], i + 1);
@@ -73,9 +127,17 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
     scaleBox.setSelectedId (1, juce::dontSendNotification);
     scaleBox.onChange = [this] { repaint (gridBounds); repaint (keyboardBounds); };
 
+    int grooveId = 1;
+    for (const auto& groove : grooveTemplates())
+        grooveBox.addItem (groove.name, grooveId++);
+    grooveBox.setSelectedId (randomGrooveIndex + 1, juce::dontSendNotification);   // matches legacy default
+    grooveBox.setTooltip ("Groove template applied by Humanize");
+
     addAndMakeVisible (quantiseButton);
     addAndMakeVisible (humaniseButton);
+    addAndMakeVisible (grooveBox);
     addAndMakeVisible (foldButton);
+    addAndMakeVisible (scaleSnapButton);
     addAndMakeVisible (rootBox);
     addAndMakeVisible (scaleBox);
 
@@ -85,6 +147,7 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
 PianoRollEditor::~PianoRollEditor()
 {
+    midiKeyDispatcher->listeners.remove (this);
     stopAudition();
     clip->state.removeListener (this);
 }
@@ -127,11 +190,13 @@ void PianoRollEditor::resized()
     velocityBounds.removeFromLeft (keyboardWidth);
 
     auto tb = toolbarBounds.reduced (3);
-    quantiseButton.setBounds (tb.removeFromLeft (76).reduced (1));
-    humaniseButton.setBounds (tb.removeFromLeft (80).reduced (1));
-    foldButton.setBounds (tb.removeFromLeft (60).reduced (1));
-    rootBox.setBounds (tb.removeFromLeft (58).reduced (1));
-    scaleBox.setBounds (tb.removeFromLeft (86).reduced (1));
+    quantiseButton.setBounds (tb.removeFromLeft (72).reduced (1));
+    humaniseButton.setBounds (tb.removeFromLeft (72).reduced (1));
+    grooveBox.setBounds (tb.removeFromLeft (86).reduced (1));
+    foldButton.setBounds (tb.removeFromLeft (52).reduced (1));
+    scaleSnapButton.setBounds (tb.removeFromLeft (78).reduced (1));
+    rootBox.setBounds (tb.removeFromLeft (54).reduced (1));
+    scaleBox.setBounds (tb.removeFromLeft (80).reduced (1));
 }
 
 void PianoRollEditor::rebuildFoldedPitches()
@@ -329,6 +394,22 @@ bool PianoRollEditor::isPitchInScale (int pitch) const
 
     const int root = rootBox.getSelectedId() - 1;
     return scaleMasks[scaleIdx][((pitch - root) % 12 + 12) % 12] != 0;
+}
+
+int PianoRollEditor::nearestInScalePitch (int pitch) const
+{
+    if (scaleBox.getSelectedId() <= 1 || isPitchInScale (pitch))
+        return pitch;
+
+    for (int delta = 1; delta <= 6; ++delta)
+    {
+        if (isPitchInScale (pitch - delta))
+            return juce::jlimit (0, 127, pitch - delta);
+        if (isPitchInScale (pitch + delta))
+            return juce::jlimit (0, 127, pitch + delta);
+    }
+
+    return pitch;
 }
 
 void PianoRollEditor::paintKeyboard (juce::Graphics& g) const
@@ -609,7 +690,7 @@ void PianoRollEditor::mouseDoubleClick (const juce::MouseEvent& e)
     // Create a note one grid interval long
     const double interval = gridIntervalBeats();
     const double startBeat = snapBeat (xToBeat (e.x));
-    const int pitch = pitchAtY (e.y);
+    const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
     const double offsetBeats = clip->getOffsetInBeats().inBeats();
 
     auto* note = clip->getSequence().addNote (pitch,
@@ -719,6 +800,9 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
                     const int originRow = rowForPitch (origin.pitch);
                     if (originRow >= 0)
                         newPitch = pitchForRow (juce::jlimit (0, numVisibleRows() - 1, originRow + rowDelta));
+
+                    if (scaleSnapButton.getToggleState())
+                        newPitch = nearestInScalePitch (newPitch);
                 }
 
                 n->setStartAndLength (te::BeatPosition::fromBeats (newStart + offsetBeats),
@@ -851,6 +935,11 @@ bool PianoRollEditor::keyPressed (const juce::KeyPress& key)
         repaint();
         return true;
     }
+    if (key.getKeyCode() == 'S' || key.getKeyCode() == 's')
+    {
+        scaleSnapButton.setToggleState (! scaleSnapButton.getToggleState(), juce::dontSendNotification);
+        return true;
+    }
     if (key.getKeyCode() == juce::KeyPress::escapeKey)
     {
         selection.clearQuick();
@@ -901,17 +990,29 @@ void PianoRollEditor::quantiseNotes()
 
 void PianoRollEditor::humaniseNotes()
 {
-    auto& rng = juce::Random::getSystemRandom();
-    const double maxTimeJitter = gridIntervalBeats() * 0.1;
+    const int grooveIdx = juce::jlimit (0, (int) grooveTemplates().size() - 1, grooveBox.getSelectedId() - 1);
 
-    for (auto* n : getTargetNotes())
+    if (grooveIdx == randomGrooveIndex)
     {
-        const double jitter = (rng.nextDouble() * 2.0 - 1.0) * maxTimeJitter;
-        const double newStart = juce::jmax (0.0, n->getStartBeat().inBeats() + jitter);
-        n->setStartAndLength (te::BeatPosition::fromBeats (newStart), n->getLengthBeats(), getUndoManager());
+        // Legacy behaviour: uniform random jitter, kept as the "Random" template
+        // since it can't be expressed as a fixed per-step offset table.
+        auto& rng = juce::Random::getSystemRandom();
+        const double maxTimeJitter = gridIntervalBeats() * 0.1;
 
-        const int newVelocity = juce::jlimit (1, 127, n->getVelocity() + rng.nextInt ({ -10, 11 }));
-        n->setVelocity (newVelocity, getUndoManager());
+        for (auto* n : getTargetNotes())
+        {
+            const double jitter = (rng.nextDouble() * 2.0 - 1.0) * maxTimeJitter;
+            const double newStart = juce::jmax (0.0, n->getStartBeat().inBeats() + jitter);
+            n->setStartAndLength (te::BeatPosition::fromBeats (newStart), n->getLengthBeats(), getUndoManager());
+
+            const int newVelocity = juce::jlimit (1, 127, n->getVelocity() + rng.nextInt ({ -10, 11 }));
+            n->setVelocity (newVelocity, getUndoManager());
+        }
+    }
+    else
+    {
+        applyGroove (getTargetNotes(), grooveTemplates()[(size_t) grooveIdx],
+                    clip->getOffsetInBeats().inBeats(), getUndoManager());
     }
 
     repaint (gridBounds);
@@ -987,6 +1088,88 @@ void PianoRollEditor::nudgeSelectedNotes (double beatDelta, int pitchDelta)
 
     repaint (gridBounds);
     repaint (velocityBounds);
+}
+
+//==============================================================================
+// Live MIDI input
+//
+// Reuses TE's existing input-device routing (MidiInputDevice::MidiKeyChangeDispatcher,
+// already fed by whichever physical MIDI device targets this clip's track) rather than
+// opening a second, competing connection to the hardware. Notes are only captured while
+// this editor has keyboard focus, so playing the keyboard elsewhere doesn't leak in here.
+
+double PianoRollEditor::liveInputBeatPosition() const
+{
+    const auto& ts = edit.tempoSequence;
+    const double editBeats = ts.toBeats (edit.getTransport().getPosition()).inBeats();
+    const double clipStartBeats = ts.toBeats (clip->getPosition().getStart()).inBeats();
+    return juce::jlimit (0.0, clipLengthBeats(), editBeats - clipStartBeats);
+}
+
+void PianoRollEditor::focusGained (juce::Component::FocusChangeType)
+{
+    midiKeyDispatcher->listeners.add (this);
+}
+
+void PianoRollEditor::focusLost (juce::Component::FocusChangeType)
+{
+    midiKeyDispatcher->listeners.remove (this);
+    pendingLiveNotes.clear();
+}
+
+void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Array<int>& notesOn,
+                                           const juce::Array<int>& vels, const juce::Array<int>& notesOff)
+{
+    if (track != clip->getTrack())
+        return;
+
+    const double nowBeat = liveInputBeatPosition();
+
+    for (int i = 0; i < notesOn.size(); ++i)
+    {
+        const int pitch = notesOn[i];
+        const int velocity = i < vels.size() ? vels[i] : defaultVelocity;
+
+        // A missed note-off (e.g. retrigger) shouldn't leave a stale pending note.
+        for (int j = pendingLiveNotes.size(); --j >= 0;)
+            if (pendingLiveNotes.getReference (j).pitch == pitch)
+                pendingLiveNotes.remove (j);
+
+        pendingLiveNotes.add ({ pitch, velocity, nowBeat });
+        auditionPitch (pitch, velocity);
+    }
+
+    for (auto offPitch : notesOff)
+    {
+        for (int j = pendingLiveNotes.size(); --j >= 0;)
+        {
+            const auto pending = pendingLiveNotes.getReference (j);
+            if (pending.pitch != offPitch)
+                continue;
+
+            const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pending.pitch) : pending.pitch;
+            const double lengthBeats = juce::jmax (minNoteLengthBeats, nowBeat - pending.startBeat);
+            const double offsetBeats = clip->getOffsetInBeats().inBeats();
+
+            if (auto* note = clip->getSequence().addNote (pitch,
+                    te::BeatPosition::fromBeats (pending.startBeat + offsetBeats),
+                    te::BeatDuration::fromBeats (lengthBeats),
+                    pending.velocity, 0, getUndoManager()))
+            {
+                selection.clearQuick();
+                selection.add (note->state);
+            }
+
+            pendingLiveNotes.remove (j);
+            break;
+        }
+    }
+
+    if (! notesOn.isEmpty() || ! notesOff.isEmpty())
+    {
+        repaint (gridBounds);
+        repaint (velocityBounds);
+    }
 }
 
 //==============================================================================

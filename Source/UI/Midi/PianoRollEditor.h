@@ -12,7 +12,8 @@ namespace arrange
     alongside the rest of the project.
 */
 class PianoRollEditor : public juce::Component,
-                        private te::ValueTreeAllEventListener
+                        private te::ValueTreeAllEventListener,
+                        private te::MidiInputDevice::MidiKeyChangeDispatcher::Listener
 {
 public:
     PianoRollEditor (te::MidiClip& clip, te::Edit& edit, EditViewState& viewState);
@@ -46,8 +47,22 @@ private:
         int pitch = 60;
     };
 
+    struct PendingLiveNote
+    {
+        int pitch = 0;
+        int velocity = 0;
+        double startBeat = 0.0;   // clip-visible-relative, same frame as xToBeat()
+    };
+
     // ValueTree listener (external edits, undo/redo)
     void valueTreeChanged() override;
+
+    // Live MIDI input (te::MidiInputDevice::MidiKeyChangeDispatcher::Listener)
+    void midiKeyStateChanged (te::AudioTrack*, const juce::Array<int>& notesOn,
+                              const juce::Array<int>& vels, const juce::Array<int>& notesOff) override;
+    void focusGained (FocusChangeType) override;
+    void focusLost (FocusChangeType) override;
+    double liveInputBeatPosition() const;
 
     // Geometry / mapping
     void rebuildFoldedPitches();
@@ -80,6 +95,8 @@ private:
     void paintNotes (juce::Graphics& g) const;
     void paintVelocityLane (juce::Graphics& g) const;
     bool isPitchInScale (int pitch) const;
+    /** Nearest pitch that's in the current scale (returns pitch unchanged if no scale is selected). */
+    int nearestInScalePitch (int pitch) const;
 
     // Audition
     void auditionPitch (int pitch, int velocity);
@@ -94,14 +111,16 @@ private:
 
     // Toolbar
     juce::TextButton quantiseButton { "Quantize" }, humaniseButton { "Humanize" };
-    juce::ToggleButton foldButton { "Fold" };
-    juce::ComboBox rootBox, scaleBox;
+    juce::ToggleButton foldButton { "Fold" }, scaleSnapButton { "Snap Scale" };
+    juce::ComboBox rootBox, scaleBox, grooveBox;
 
     // Selection is stored as note state trees so it survives MidiNote reallocation
     juce::Array<juce::ValueTree> selection;
     juce::Array<juce::ValueTree> preMarqueeSelection;
     juce::Array<NoteOrigin> dragOrigins;
     juce::Array<juce::ValueTree> velocityTargets;
+    juce::Array<PendingLiveNote> pendingLiveNotes;
+    juce::SharedResourcePointer<te::MidiInputDevice::MidiKeyChangeDispatcher> midiKeyDispatcher;
 
     DragMode dragMode = DragMode::none;
     juce::Point<int> dragStartPos;
