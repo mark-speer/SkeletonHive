@@ -13,6 +13,8 @@ public:
     enum class LaneType
     {
         velocity = 1,
+        probability,
+        iteration,
         cc,
         pitchBend,
         aftertouch
@@ -45,7 +47,13 @@ private:
     void mouseUp (const juce::MouseEvent& e) override;
 
     void paintVelocityLane (juce::Graphics& g, juce::Rectangle<int> area) const;
+    void paintProbabilityLane (juce::Graphics& g, juce::Rectangle<int> area) const;
+    void paintIterationLane (juce::Graphics& g, juce::Rectangle<int> area) const;
     int velocityFromY (int y, juce::Rectangle<int> area) const;
+    int probabilityFromY (int y, juce::Rectangle<int> area) const;
+    int iterationFromY (int y, juce::Rectangle<int> area) const;
+    void applyLaneValueAt (const juce::MouseEvent& e, juce::Rectangle<int> area,
+                           std::function<void (te::MidiNote&, juce::UndoManager*)> applyValue);
 
     te::MidiClip& clip;
     MidiLaneViewport& viewport;

@@ -1,4 +1,5 @@
 #include "MidiLaneEditor.h"
+#include "Engine/EngineHelpers.h"
 
 namespace skeletonhive
 {
@@ -31,6 +32,8 @@ MidiLaneEditor::MidiLaneEditor (te::MidiClip& c,
       onNoteVisualsChanged (std::move (noteVisualsChanged))
 {
     laneTypeBox.addItem ("Velocity", (int) LaneType::velocity);
+    laneTypeBox.addItem ("Probability", (int) LaneType::probability);
+    laneTypeBox.addItem ("Iteration", (int) LaneType::iteration);
     laneTypeBox.addItem ("CC", (int) LaneType::cc);
     laneTypeBox.addItem ("Pitch Bend", (int) LaneType::pitchBend);
     laneTypeBox.addItem ("Aftertouch", (int) LaneType::aftertouch);
@@ -99,7 +102,9 @@ int MidiLaneEditor::activeControllerType() const
 
 void MidiLaneEditor::updateActiveLane()
 {
-    if (currentLane == LaneType::velocity)
+    if (currentLane == LaneType::velocity
+        || currentLane == LaneType::probability
+        || currentLane == LaneType::iteration)
     {
         controllerLane.reset();
         return;
@@ -168,10 +173,12 @@ void MidiLaneEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff1a1a2e));
     g.fillRect (getLocalBounds().removeFromTop (selectorHeight));
 
-    if (currentLane != LaneType::velocity)
-        return;
-
-    paintVelocityLane (g, getLaneCanvasBounds());
+    if (currentLane == LaneType::velocity)
+        paintVelocityLane (g, getLaneCanvasBounds());
+    else if (currentLane == LaneType::probability)
+        paintProbabilityLane (g, getLaneCanvasBounds());
+    else if (currentLane == LaneType::iteration)
+        paintIterationLane (g, getLaneCanvasBounds());
 }
 
 void MidiLaneEditor::paintVelocityLane (juce::Graphics& g, juce::Rectangle<int> area) const
@@ -202,40 +209,193 @@ int MidiLaneEditor::velocityFromY (int y, juce::Rectangle<int> area) const
                           / (double) juce::jmax (1, area.getHeight() - 4)));
 }
 
-void MidiLaneEditor::mouseDown (const juce::MouseEvent& e)
+int MidiLaneEditor::probabilityFromY (int y, juce::Rectangle<int> area) const
 {
-    if (currentLane != LaneType::velocity)
-        return;
+    return juce::jlimit (0, 100,
+        (int) std::round (100.0 * (area.getBottom() - 2 - y)
+                          / (double) juce::jmax (1, area.getHeight() - 4)));
+}
 
-    const auto area = getLaneCanvasBounds();
-    if (! area.contains (e.getPosition()))
-        return;
+int MidiLaneEditor::iterationFromY (int y, juce::Rectangle<int> area) const
+{
+    return juce::jlimit (0, 16,
+        (int) std::round (16.0 * (area.getBottom() - 2 - y)
+                          / (double) juce::jmax (1, area.getHeight() - 4)));
+}
 
-    dragStartPos = e.getPosition();
-    velocityDrag = VelocityDragMode::pencil;
-    velocityTargets.clear();
+void MidiLaneEditor::paintProbabilityLane (juce::Graphics& g, juce::Rectangle<int> area) const
+{
+    g.setColour (juce::Colour (0xff141428));
+    g.fillRect (area);
+    g.setColour (juce::Colours::white.withAlpha (0.25f));
+    g.drawHorizontalLine (area.getY(), (float) area.getX(), (float) area.getRight());
 
     const double offsetBeats = viewport.getClipOffsetBeats();
+
     for (auto* n : clip.getSequence().getNotes())
+    {
+        const int probability = EngineHelpers::getNoteProbability (n->state);
+        const double startBeat = n->getStartBeat().inBeats() - offsetBeats;
+        const float x = viewport.beatToX (startBeat);
+        const float barHeight = (area.getHeight() - 4) * (probability / 100.0f);
+        const bool selected = isNoteSelected (*n);
+
+        g.setColour (selected ? juce::Colour (0xffffd166) : juce::Colour (0xff2a9d8f));
+        g.fillRect (x, area.getBottom() - 2 - barHeight, 5.0f, barHeight);
+    }
+}
+
+void MidiLaneEditor::paintIterationLane (juce::Graphics& g, juce::Rectangle<int> area) const
+{
+    g.setColour (juce::Colour (0xff141428));
+    g.fillRect (area);
+    g.setColour (juce::Colours::white.withAlpha (0.25f));
+    g.drawHorizontalLine (area.getY(), (float) area.getX(), (float) area.getRight());
+
+    const double offsetBeats = viewport.getClipOffsetBeats();
+
+    for (auto* n : clip.getSequence().getNotes())
+    {
+        const int iteration = EngineHelpers::getNoteIteration (n->state);
+        const double startBeat = n->getStartBeat().inBeats() - offsetBeats;
+        const float x = viewport.beatToX (startBeat);
+        const float barHeight = iteration > 0 ? (area.getHeight() - 4) * (iteration / 16.0f) : 0.0f;
+        const bool selected = isNoteSelected (*n);
+
+        g.setColour (selected ? juce::Colour (0xffffd166) : juce::Colour (0xff9b5de5));
+        g.fillRect (x, area.getBottom() - 2 - barHeight, 5.0f, juce::jmax (2.0f, barHeight));
+
+        if (iteration > 0)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.85f));
+            g.setFont (juce::FontOptions (9.0f));
+            g.drawText (juce::String (iteration), (int) x, area.getY(), 12, 12, juce::Justification::centred);
+        }
+    }
+}
+
+void MidiLaneEditor::applyLaneValueAt (const juce::MouseEvent& e, juce::Rectangle<int> area,
+                                       std::function<void (te::MidiNote&, juce::UndoManager*)> applyValue)
+{
+    if (applyValue == nullptr)
+        return;
+
+    auto& sequence = clip.getSequence();
+    auto* um = viewport.getUndoManager();
+    const double offsetBeats = viewport.getClipOffsetBeats();
+
+    juce::Array<juce::ValueTree> targets;
+
+    for (auto* n : sequence.getNotes())
     {
         const float x = viewport.beatToX (n->getStartBeat().inBeats() - offsetBeats);
         if (e.x >= x - 1 && e.x <= x + 6 && isNoteSelected (*n))
         {
-            velocityTargets = getSelection();
-            velocityDrag = VelocityDragMode::selection;
+            targets = getSelection();
             break;
         }
     }
 
-    mouseDrag (e);
+    if (targets.isEmpty())
+    {
+        for (auto* n : sequence.getNotes())
+        {
+            const float x = viewport.beatToX (n->getStartBeat().inBeats() - offsetBeats);
+            if (e.x >= x - 1 && e.x <= x + 6)
+            {
+                applyValue (*n, um);
+                repaint (area);
+                if (onNoteVisualsChanged)
+                    onNoteVisualsChanged();
+                return;
+            }
+        }
+
+        return;
+    }
+
+    for (const auto& state : targets)
+        if (auto* n = sequence.getNoteFor (state))
+            applyValue (*n, um);
+
+    repaint (area);
+    if (onNoteVisualsChanged)
+        onNoteVisualsChanged();
+}
+
+void MidiLaneEditor::mouseDown (const juce::MouseEvent& e)
+{
+    const auto area = getLaneCanvasBounds();
+    if (! area.contains (e.getPosition()))
+        return;
+
+    if (currentLane == LaneType::velocity)
+    {
+        dragStartPos = e.getPosition();
+        velocityDrag = VelocityDragMode::pencil;
+        velocityTargets.clear();
+
+        const double offsetBeats = viewport.getClipOffsetBeats();
+        for (auto* n : clip.getSequence().getNotes())
+        {
+            const float x = viewport.beatToX (n->getStartBeat().inBeats() - offsetBeats);
+            if (e.x >= x - 1 && e.x <= x + 6 && isNoteSelected (*n))
+            {
+                velocityTargets = getSelection();
+                velocityDrag = VelocityDragMode::selection;
+                break;
+            }
+        }
+
+        mouseDrag (e);
+        return;
+    }
+
+    if (currentLane == LaneType::probability)
+    {
+        dragStartPos = e.getPosition();
+        applyLaneValueAt (e, area, [this, area, y = e.y] (te::MidiNote& note, juce::UndoManager* um)
+        {
+            EngineHelpers::setNoteProbability (note.state, probabilityFromY (y, area), um);
+        });
+        return;
+    }
+
+    if (currentLane == LaneType::iteration)
+    {
+        dragStartPos = e.getPosition();
+        applyLaneValueAt (e, area, [this, area, y = e.y] (te::MidiNote& note, juce::UndoManager* um)
+        {
+            EngineHelpers::setNoteIteration (note.state, iterationFromY (y, area), um);
+        });
+    }
 }
 
 void MidiLaneEditor::mouseDrag (const juce::MouseEvent& e)
 {
+    const auto area = getLaneCanvasBounds();
+
+    if (currentLane == LaneType::probability)
+    {
+        applyLaneValueAt (e, area, [this, area, y = e.y] (te::MidiNote& note, juce::UndoManager* um)
+        {
+            EngineHelpers::setNoteProbability (note.state, probabilityFromY (y, area), um);
+        });
+        return;
+    }
+
+    if (currentLane == LaneType::iteration)
+    {
+        applyLaneValueAt (e, area, [this, area, y = e.y] (te::MidiNote& note, juce::UndoManager* um)
+        {
+            EngineHelpers::setNoteIteration (note.state, iterationFromY (y, area), um);
+        });
+        return;
+    }
+
     if (currentLane != LaneType::velocity || velocityDrag == VelocityDragMode::none)
         return;
 
-    const auto area = getLaneCanvasBounds();
     const int newVelocity = velocityFromY (e.y, area);
     auto& sequence = clip.getSequence();
     auto* um = viewport.getUndoManager();

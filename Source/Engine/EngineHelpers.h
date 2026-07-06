@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MidiScale.h"
 #include "TracktionCommon.h"
 #include "GrooveTemplate.h"
 
@@ -15,6 +16,11 @@ struct EngineHelpers
     static const juce::Identifier clipGroupOuterProperty;
     static const juce::Identifier clipGroupColourProperty;
     static const juce::Identifier sessionSlotIdProperty;
+    static const juce::Identifier clipScaleRootProperty;
+    static const juce::Identifier clipScaleModeProperty;
+    static const juce::Identifier clipScaleLockProperty;
+    static const juce::Identifier noteProbabilityProperty;
+    static const juce::Identifier noteIterationProperty;
 
     static te::Project::Ptr createTempProject (te::Engine& engine);
 
@@ -270,6 +276,22 @@ struct EngineHelpers
     static void activateSessionClipAtStart (te::Clip& clip);
     static void enableSessionClipLoop (te::Clip& clip);
     static te::Clip* findClipById (te::Edit& edit, te::EditItemID clipId);
+
+    static int getClipScaleRoot (const te::Clip& clip);
+    static void setClipScaleRoot (te::Clip& clip, int root);
+    static ScaleMode getClipScaleMode (const te::Clip& clip);
+    static void setClipScaleMode (te::Clip& clip, ScaleMode mode);
+    static bool getClipScaleLock (const te::Clip& clip);
+    static void setClipScaleLock (te::Clip& clip, bool locked);
+
+    static int getNoteProbability (juce::ValueTree noteState);
+    static void setNoteProbability (juce::ValueTree noteState, int probability, juce::UndoManager* um);
+    static int getNoteIteration (juce::ValueTree noteState);
+    static void setNoteIteration (juce::ValueTree noteState, int iteration, juce::UndoManager* um);
+
+#if JUCE_DEBUG
+    static void createStressTestTracks (te::Edit& edit, int trackCount, int sceneCount);
+#endif
 };
 
 } // namespace skeletonhive

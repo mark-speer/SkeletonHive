@@ -6,7 +6,8 @@
 namespace skeletonhive
 {
 
-class SessionViewComponent : public juce::Component
+class SessionViewComponent : public juce::Component,
+                             private juce::ScrollBar::Listener
 {
 public:
     SessionViewComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
@@ -16,8 +17,12 @@ public:
     std::function<void (te::EditItemID trackId, int sceneIndex)> onSlotFocused;
     std::function<void (te::EditItemID trackId, int sceneIndex)> onCommitLoopToArrangement;
 
+    SessionGridComponent* getGrid() const { return grid.get(); }
+
 private:
     void resized() override;
+    void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override;
+    void syncViewportToGrid();
 
     std::unique_ptr<SessionGridComponent> grid;
     juce::Viewport viewport;

@@ -292,7 +292,8 @@ Current state and the reasoning behind it:
 
 ### Remaining Phase 2 polish (optional)
 
-- Measure UI telemetry at 200+ tracks (lane-level LOD implemented; see Phase 3).
+- Measure UI telemetry at 200+ tracks (lane-level LOD implemented; session grid
+  virtualization + debug stress helper implemented — see Phase 8 Tier 4).
 
 ---
 
@@ -737,13 +738,26 @@ SessionArrangementBridge
 - **MIDI mapping to clip slots** — extend `MidiLearnController` for note/CC →
   slot launch.
 
-### Tier 4 — Scale and Live 12 alignment
+### Tier 4 — Scale and Live 12 alignment (implemented)
 
 - **Key/scale clip constraint** — clip-level scale lock for launched MIDI
-  clips.
-- **Probability and iteration** — per-note probability in session clips.
-- **200+ track telemetry** — finish optional Phase 2 benchmark (§5); session
-  grid must pool slot components like lane virtualization (§4).
+  clips (`skeletonHiveScaleRoot/Mode/Lock` on clip state; Clip inspector +
+  piano roll sync). Session playback mutes out-of-scale notes via
+  `SessionClipPlaybackResolver`.
+- **Probability and iteration** — per-note probability/iteration in session
+  clips (`skeletonHiveNoteProbability/Iteration` on note state; Probability
+  and Iteration lanes in `MidiLaneEditor`). Re-rolled each loop wrap in
+  `SessionManager`.
+- **200+ track telemetry** — session grid pools slot components like lane
+  virtualization (`SessionGridComponent::refreshVisibleSlots`). Debug builds:
+  Ctrl+Shift+Alt+T stress helper logs add-track/rebuild ms and live slot count.
+
+**200+ track acceptance checklist (manual):**
+
+1. Debug build → Ctrl+Shift+Alt+T → confirm DBG line shows live slot count ≪ tracks×scenes.
+2. Session View → scroll 200 tracks → UI stays responsive; only visible rows instantiate slots.
+3. Arrangement View → scroll 200 tracks → lane count stays ~visible rows (existing virtualization).
+4. Launch/stop a scene with probability/scale-locked MIDI clips → no multi-second freeze.
 
 ### Success criteria
 
@@ -779,7 +793,7 @@ performance into the arrangement, and have the result look hand-arranged.
 | 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
 | 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
-| 8 | Tier 1–3 done | Session grid, scenes, launch quantize, arrangement bridge, performance features | Session View |
+| 8 | Tier 1–4 done | Session grid, scenes, launch quantize, arrangement bridge, performance, scale/probability, virtualization | Session View |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
 Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).

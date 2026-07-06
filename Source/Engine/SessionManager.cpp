@@ -2,6 +2,7 @@
 #include "ClipLibraryManager.h"
 #include "EngineHelpers.h"
 #include "SessionArrangementBridge.h"
+#include "SessionClipPlaybackResolver.h"
 #include "UI/Arrangement/TimelineGrid.h"
 
 namespace skeletonhive
@@ -349,6 +350,26 @@ void SessionManager::updateTransportLoopForPlayingClips()
     }
 }
 
+void SessionManager::applySessionPlaybackForKey (SessionSlotKey key, int loopCycleIndex)
+{
+    auto* clip = getSlotClip (key.trackId, key.sceneIndex);
+    if (clip == nullptr)
+        return;
+
+    if (auto* midi = dynamic_cast<te::MidiClip*> (clip))
+        SessionClipPlaybackResolver::applyPlaybackMasks (*midi, loopCycleIndex, playbackRandom);
+}
+
+void SessionManager::restoreSessionPlaybackForKey (SessionSlotKey key)
+{
+    auto* clip = getSlotClip (key.trackId, key.sceneIndex);
+    if (clip == nullptr)
+        return;
+
+    if (auto* midi = dynamic_cast<te::MidiClip*> (clip))
+        SessionClipPlaybackResolver::restorePlaybackMasks (*midi);
+}
+
 void SessionManager::executeLaunch (SessionSlotKey key)
 {
     auto* clip = getSlotClip (key.trackId, key.sceneIndex);
@@ -379,6 +400,8 @@ void SessionManager::executeLaunch (SessionSlotKey key)
 
     if (arrangementBridge != nullptr)
         arrangementBridge->onSlotLaunched (key);
+
+    applySessionPlaybackForKey (key, 0);
 
     for (int i = slotPhaseStates.size(); --i >= 0;)
     {
@@ -430,7 +453,10 @@ void SessionManager::stopSlot (te::EditItemID trackId, int sceneIndex)
     }
 
     if (auto* clip = getSlotClip (trackId, sceneIndex))
+    {
+        restoreSessionPlaybackForKey (key);
         EngineHelpers::parkSessionClip (*clip);
+    }
 
     for (int i = slotPhaseStates.size(); --i >= 0;)
     {
@@ -586,7 +612,22 @@ void SessionManager::processFollowActions()
         }
 
         if (lastPhase > highThreshold && phase <= lowThreshold)
+        {
+            int loopCycleIndex = 1;
+
+            for (auto& state : slotPhaseStates)
+            {
+                if (state.key == key)
+                {
+                    state.loopCycleIndex += 1;
+                    loopCycleIndex = state.loopCycleIndex;
+                    break;
+                }
+            }
+
+            applySessionPlaybackForKey (key, loopCycleIndex);
             dispatchFollowAction (key);
+        }
     }
 }
 
@@ -652,6 +693,8 @@ void SessionManager::stopAll()
 
     for (const auto& key : keys)
     {
+        restoreSessionPlaybackForKey (key);
+
         if (auto* clip = getSlotClip (key.trackId, key.sceneIndex))
             EngineHelpers::parkSessionClip (*clip);
 
@@ -660,6 +703,7 @@ void SessionManager::stopAll()
     }
 
     playingSlots.clear();
+    slotPhaseStates.clear();
     transportController.stop();
     sendChangeMessage();
 }
@@ -681,6 +725,8 @@ void SessionManager::changeListenerCallback (juce::ChangeBroadcaster*)
 
         for (const auto& key : keys)
         {
+            restoreSessionPlaybackForKey (key);
+
             if (auto* clip = getSlotClip (key.trackId, key.sceneIndex))
                 EngineHelpers::parkSessionClip (*clip);
 

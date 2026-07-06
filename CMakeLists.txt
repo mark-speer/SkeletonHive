@@ -61,6 +61,10 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
     Source/Engine/EngineHelpers.cpp
+    Source/Engine/MidiScale.h
+    Source/Engine/MidiScale.cpp
+    Source/Engine/SessionClipPlaybackResolver.h
+    Source/Engine/SessionClipPlaybackResolver.cpp
     Source/Engine/AppSettings.h
     Source/Engine/AppSettings.cpp
     Source/Engine/AppCommands.h
@@ -181,6 +185,7 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Session/SceneLaunchColumn.cpp
     Source/UI/Session/SessionGridComponent.h
     Source/UI/Session/SessionGridComponent.cpp
+    Source/UI/Session/SessionSlotTypes.h
     Source/UI/Session/SessionViewComponent.h
     Source/UI/Session/SessionViewComponent.cpp
     Source/UI/Session/PerformanceMacroPanel.h

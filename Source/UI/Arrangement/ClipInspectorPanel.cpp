@@ -9,6 +9,8 @@ namespace
 {
 constexpr int numClipColours = 8;
 
+const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
 juce::Colour clipPaletteColour (int index)
 {
     return AppColours::clipGroupPalette (index % 6);
@@ -226,6 +228,58 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
 
     if (stretchModeBox.getNumItems() == 0)
         stretchModeBox.addItem ("Default", 1);
+
+    scaleRootLabel.setText ("Root", juce::dontSendNotification);
+    scaleModeLabel.setText ("Scale", juce::dontSendNotification);
+    scaleLockButton.setTooltip ("Constrain playback and editing to the selected scale");
+
+    for (int i = 0; i < 12; ++i)
+        scaleRootBox.addItem (noteNames[i], i + 1);
+
+    scaleModeBox.addItem ("No Scale", 1);
+    scaleModeBox.addItem ("Major", 2);
+    scaleModeBox.addItem ("Minor", 3);
+
+    scaleRootBox.onChange = [this]
+    {
+        if (updatingFromModel)
+            return;
+
+        applyToMidiClips ([root = scaleRootBox.getSelectedId() - 1] (te::MidiClip& mc)
+        {
+            EngineHelpers::setClipScaleRoot (mc, root);
+        });
+    };
+
+    scaleModeBox.onChange = [this]
+    {
+        if (updatingFromModel)
+            return;
+
+        applyToMidiClips ([mode = (ScaleMode) juce::jmax (0, scaleModeBox.getSelectedId() - 1)] (te::MidiClip& mc)
+        {
+            EngineHelpers::setClipScaleMode (mc, mode);
+        });
+    };
+
+    scaleLockButton.onClick = [this]
+    {
+        if (updatingFromModel)
+            return;
+
+        applyToMidiClips ([locked = scaleLockButton.getToggleState()] (te::MidiClip& mc)
+        {
+            EngineHelpers::setClipScaleLock (mc, locked);
+        });
+    };
+
+    addAndMakeVisible (scaleRootLabel);
+    addAndMakeVisible (scaleModeLabel);
+    addAndMakeVisible (scaleRootBox);
+    addAndMakeVisible (scaleModeBox);
+    addAndMakeVisible (scaleLockButton);
+
+    updateControlVisibility();
 }
 
 ClipInspectorPanel::~ClipInspectorPanel()
@@ -235,19 +289,25 @@ ClipInspectorPanel::~ClipInspectorPanel()
 
 int ClipInspectorPanel::getPreferredHeight() const
 {
-    if (! hasAudioSelection())
+    if (! hasClipSelection())
         return 0;
 
-    if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
-        return panelHeight + takeRowHeight + 4;
+    if (hasAudioSelection())
+    {
+        if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
+            return panelHeight + takeRowHeight + 4;
 
-    return panelHeight;
+        return panelHeight;
+    }
+
+    return midiPanelHeight;
 }
 
 void ClipInspectorPanel::setClips (const juce::Array<te::Clip*>& newClips)
 {
     clips.clear();
     audioClips.clear();
+    midiClips.clear();
 
     for (auto* clip : newClips)
     {
@@ -258,6 +318,8 @@ void ClipInspectorPanel::setClips (const juce::Array<te::Clip*>& newClips)
 
         if (auto* audio = dynamic_cast<te::AudioClipBase*> (clip))
             audioClips.add (audio);
+        else if (auto* midi = dynamic_cast<te::MidiClip*> (clip))
+            midiClips.add (midi);
     }
 
     const auto linked = EngineHelpers::expandWithGroupedPeers (clips);
@@ -269,7 +331,8 @@ void ClipInspectorPanel::setClips (const juce::Array<te::Clip*>& newClips)
 
     attachClipListener (clips.isEmpty() ? nullptr : clips.getFirst());
     refreshFromModel();
-    setVisible (hasAudioSelection());
+    updateControlVisibility();
+    setVisible (hasClipSelection());
     resized();
 }
 
@@ -315,36 +378,54 @@ void ClipInspectorPanel::refreshFromModel()
     const auto& primary = *clips.getFirst();
     nameEditor.setText (primary.getName(), juce::dontSendNotification);
 
-    if (audioClips.isEmpty())
+    if (audioClips.isEmpty() && midiClips.isEmpty())
     {
         updatingFromModel = false;
         return;
     }
 
-    const auto& audio = *audioClips.getFirst();
-
-    gainSlider.setValue (audio.getGainDB(), juce::dontSendNotification);
-    transposeSlider.setValue (audio.getPitchChange(), juce::dontSendNotification);
-    speedSlider.setValue (audio.getSpeedRatio() * 100.0, juce::dontSendNotification);
-    reverseButton.setToggleState (audio.getIsReversed(), juce::dontSendNotification);
-
-    const auto modeName = te::TimeStretcher::getNameOfMode (audio.getActualTimeStretchMode());
-
-    for (int i = 0; i < stretchModeBox.getNumItems(); ++i)
+    if (! audioClips.isEmpty())
     {
-        if (stretchModeBox.getItemText (i) == modeName)
+        const auto& audio = *audioClips.getFirst();
+
+        gainSlider.setValue (audio.getGainDB(), juce::dontSendNotification);
+        transposeSlider.setValue (audio.getPitchChange(), juce::dontSendNotification);
+        speedSlider.setValue (audio.getSpeedRatio() * 100.0, juce::dontSendNotification);
+        reverseButton.setToggleState (audio.getIsReversed(), juce::dontSendNotification);
+
+        const auto modeName = te::TimeStretcher::getNameOfMode (audio.getActualTimeStretchMode());
+
+        for (int i = 0; i < stretchModeBox.getNumItems(); ++i)
         {
-            stretchModeBox.setSelectedItemIndex (i, juce::dontSendNotification);
-            break;
+            if (stretchModeBox.getItemText (i) == modeName)
+            {
+                stretchModeBox.setSelectedItemIndex (i, juce::dontSendNotification);
+                break;
+            }
         }
+
+        const bool looping = audio.isLooping();
+        loopButton.setToggleState (looping, juce::dontSendNotification);
+        loopLengthSlider.setEnabled (looping);
+
+        if (looping)
+            loopLengthSlider.setValue (audio.getLoopLengthBeats().inBeats(), juce::dontSendNotification);
     }
 
-    const bool looping = audio.isLooping();
-    loopButton.setToggleState (looping, juce::dontSendNotification);
-    loopLengthSlider.setEnabled (looping);
+    if (! midiClips.isEmpty())
+    {
+        const auto& midi = *midiClips.getFirst();
+        scaleRootBox.setSelectedId (EngineHelpers::getClipScaleRoot (midi) + 1, juce::dontSendNotification);
 
-    if (looping)
-        loopLengthSlider.setValue (audio.getLoopLengthBeats().inBeats(), juce::dontSendNotification);
+        switch (EngineHelpers::getClipScaleMode (midi))
+        {
+            case ScaleMode::major: scaleModeBox.setSelectedId (2, juce::dontSendNotification); break;
+            case ScaleMode::minor: scaleModeBox.setSelectedId (3, juce::dontSendNotification); break;
+            default:               scaleModeBox.setSelectedId (1, juce::dontSendNotification); break;
+        }
+
+        scaleLockButton.setToggleState (EngineHelpers::getClipScaleLock (midi), juce::dontSendNotification);
+    }
 
     const bool showTakes = clips.size() == 1 && EngineHelpers::hasMultipleTakes (primary);
     takeLabel.setVisible (showTakes);
@@ -377,6 +458,44 @@ void ClipInspectorPanel::applyToAudioClips (std::function<void (te::AudioClipBas
     }
 }
 
+void ClipInspectorPanel::applyToMidiClips (std::function<void (te::MidiClip&)> fn)
+{
+    if (fn == nullptr)
+        return;
+
+    for (auto* clip : clipsIncludingLinkedPeers())
+    {
+        if (auto* midi = dynamic_cast<te::MidiClip*> (clip))
+            fn (*midi);
+    }
+}
+
+void ClipInspectorPanel::updateControlVisibility()
+{
+    const bool showAudio = hasAudioSelection();
+    const bool showMidi = hasMidiSelection() && ! showAudio;
+
+    for (auto* label : { &gainLabel, &transposeLabel, &speedLabel, &stretchLabel, &loopLengthLabel })
+        label->setVisible (showAudio);
+
+    gainSlider.setVisible (showAudio);
+    transposeSlider.setVisible (showAudio);
+    speedSlider.setVisible (showAudio);
+    loopLengthSlider.setVisible (showAudio);
+    reverseButton.setVisible (showAudio);
+    loopButton.setVisible (showAudio);
+    stretchModeBox.setVisible (showAudio);
+    takeLabel.setVisible (showAudio && clips.size() == 1 && ! clips.isEmpty()
+                          && EngineHelpers::hasMultipleTakes (*clips.getFirst()));
+    takeBox.setVisible (takeLabel.isVisible());
+
+    scaleRootLabel.setVisible (showMidi);
+    scaleModeLabel.setVisible (showMidi);
+    scaleRootBox.setVisible (showMidi);
+    scaleModeBox.setVisible (showMidi);
+    scaleLockButton.setVisible (showMidi);
+}
+
 juce::Array<te::Clip*> ClipInspectorPanel::clipsIncludingLinkedPeers() const
 {
     return EngineHelpers::expandWithGroupedPeers (clips);
@@ -391,7 +510,7 @@ void ClipInspectorPanel::paint (juce::Graphics& g)
 
 void ClipInspectorPanel::resized()
 {
-    if (! hasAudioSelection())
+    if (! hasClipSelection())
         return;
 
     auto area = getLocalBounds().reduced (6, 4);
@@ -422,29 +541,48 @@ void ClipInspectorPanel::resized()
         rowArea.removeFromTop (2);
     };
 
-    placeRow (gainLabel, gainSlider, area);
-    placeRow (transposeLabel, transposeSlider, area);
+    if (hasAudioSelection())
+    {
+        placeRow (gainLabel, gainSlider, area);
 
-    auto row3 = area.removeFromTop (rowHeight);
-    speedLabel.setBounds (row3.removeFromLeft (labelWidth));
-    row3.removeFromLeft (gap);
-    reverseButton.setBounds (row3.removeFromRight (72).reduced (0, 1));
-    row3.removeFromRight (gap);
-    speedSlider.setBounds (row3);
-    area.removeFromTop (2);
+        auto row2 = area.removeFromTop (rowHeight);
+        transposeLabel.setBounds (row2.removeFromLeft (labelWidth));
+        row2.removeFromLeft (gap);
+        transposeSlider.setBounds (row2);
+        area.removeFromTop (2);
 
-    auto row4 = area.removeFromTop (rowHeight);
-    stretchLabel.setBounds (row4.removeFromLeft (labelWidth));
-    row4.removeFromLeft (gap);
-    loopButton.setBounds (row4.removeFromRight (56).reduced (0, 1));
-    row4.removeFromRight (gap);
-    stretchModeBox.setBounds (row4);
-    area.removeFromTop (2);
+        auto row3 = area.removeFromTop (rowHeight);
+        speedLabel.setBounds (row3.removeFromLeft (labelWidth));
+        row3.removeFromLeft (gap);
+        reverseButton.setBounds (row3.removeFromRight (72).reduced (0, 1));
+        row3.removeFromRight (gap);
+        speedSlider.setBounds (row3);
+        area.removeFromTop (2);
 
-    placeRow (loopLengthLabel, loopLengthSlider, area);
+        auto row4 = area.removeFromTop (rowHeight);
+        stretchLabel.setBounds (row4.removeFromLeft (labelWidth));
+        row4.removeFromLeft (gap);
+        loopButton.setBounds (row4.removeFromRight (56).reduced (0, 1));
+        row4.removeFromRight (gap);
+        stretchModeBox.setBounds (row4);
+        area.removeFromTop (2);
 
-    if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
-        placeRow (takeLabel, takeBox, area);
+        placeRow (loopLengthLabel, loopLengthSlider, area);
+
+        if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
+            placeRow (takeLabel, takeBox, area);
+    }
+    else if (hasMidiSelection())
+    {
+        placeRow (scaleRootLabel, scaleRootBox, area);
+
+        auto row = area.removeFromTop (rowHeight);
+        scaleModeLabel.setBounds (row.removeFromLeft (labelWidth));
+        row.removeFromLeft (gap);
+        scaleLockButton.setBounds (row.removeFromRight (96).reduced (0, 1));
+        row.removeFromRight (gap);
+        scaleModeBox.setBounds (row);
+    }
 }
 
 } // namespace skeletonhive

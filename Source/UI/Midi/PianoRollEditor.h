@@ -124,6 +124,8 @@ private:
     void repaintLaneEditor();
     /** Nearest pitch that's in the current scale (returns pitch unchanged if no scale is selected). */
     int nearestInScalePitch (int pitch) const;
+    bool shouldSnapToScale() const;
+    void syncClipScaleFromModel();
 
     // Audition
     void auditionPitch (int pitch, int velocity);
@@ -172,6 +174,7 @@ private:
     double scrollRowOffset = 0.0;
     bool zoomInitialised = false;
     bool verticalZoomInitialised = false;
+    bool updatingScaleFromModel = false;
 
     // Note-length draw tool: remembers the last drawn/resized note's length so the
     // next drawn or step-input note reuses it.

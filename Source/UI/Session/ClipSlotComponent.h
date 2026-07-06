@@ -17,8 +17,7 @@ enum class ClipSlotState
 };
 
 class ClipSlotComponent : public juce::Component,
-                          public juce::DragAndDropTarget,
-                          private juce::ChangeListener
+                          public juce::DragAndDropTarget
 {
 public:
     ClipSlotComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
@@ -27,6 +26,8 @@ public:
     void refresh();
     void setSelected (bool shouldBeSelected);
     bool isSelected() const { return selected; }
+    te::EditItemID getTrackId() const { return trackId; }
+    int getSceneIndex() const { return sceneIndex; }
 
     std::function<void (te::EditItemID trackId, int sceneIndex)> onTrackFocus;
     std::function<void (te::EditItemID trackId, int sceneIndex)> onCommitLoopToArrangement;
@@ -41,7 +42,6 @@ private:
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
-    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     void itemDragEnter (const SourceDetails&) override {}
     void itemDragMove (const SourceDetails&) override {}

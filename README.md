@@ -29,11 +29,15 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Session View grid (Tab toggle) with clip slots, scene launch, launch quantization, and browser drag-to-slot import
 - Session ↔ Arrangement bridge: Record to Arrangement (Rec>), Capture & Insert (Shift+C), and Commit Loop to Arrangement
 - Session performance features: per-slot follow actions, legato launch, MIDI note mapping to slots, and a bottom-docked rack macro performance panel (Alt+P in Session View)
+- MIDI clip scale lock (root/scale/Scale Lock in Clip inspector) with session playback filtering for out-of-scale notes
+- Per-note probability and iteration lanes in the piano roll; session clips re-roll on each loop cycle
+- Session grid virtualization for large track counts (visible-row slot pooling)
 
 ## Roadmap
 
-Phases 1–7 and Phase 8 Tiers 1–3 (Session View, arrangement bridge, performance features) are implemented. Planned next steps (scale/probability, grid virtualization)
-are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§15).
+Phases 1–7 and Phase 8 (Session View, arrangement bridge, performance features, scale/probability, grid virtualization) are implemented. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§15).
+
+**Debug stress test (200 tracks):** In debug builds, press Ctrl+Shift+Alt+T to add 200 MIDI tracks and log grid rebuild timing plus live slot component count to the debug console.
 
 ## Requirements
 

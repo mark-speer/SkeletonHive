@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "TracktionCommon.h"
 #include "Engine/AppSettings.h"
+#include "Engine/EngineHelpers.h"
 #include "Engine/ExportManager.h"
 #include "UI/Settings/PreferencesDialog.h"
 #include "UI/AppLookAndFeel.h"
@@ -817,6 +818,29 @@ void MainContentComponent::togglePerformancePanel()
 
 bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
+#if JUCE_DEBUG
+    if (key == juce::KeyPress ('T', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier
+                                         | juce::ModifierKeys::altModifier, 0)
+        && edit != nullptr)
+    {
+        const double startMs = juce::Time::getMillisecondCounterHiRes();
+        EngineHelpers::createStressTestTracks (*edit, 200, sessionManager != nullptr ? sessionManager->getSceneCount() : 8);
+        const double afterTracksMs = juce::Time::getMillisecondCounterHiRes();
+
+        if (sessionView != nullptr && sessionView->getGrid() != nullptr)
+        {
+            sessionView->getGrid()->rebuild();
+            const double afterRebuildMs = juce::Time::getMillisecondCounterHiRes();
+            DBG ("Session stress test: add tracks "
+                 << juce::String (afterTracksMs - startMs, 1) << " ms, grid rebuild "
+                 << juce::String (afterRebuildMs - afterTracksMs, 1) << " ms, live slot components "
+                 << sessionView->getGrid()->getLiveSlotComponentCount());
+        }
+
+        return true;
+    }
+#endif
+
     if (auto* mappings = commandManager.getKeyMappings())
         return mappings->keyPressed (key, this);
 

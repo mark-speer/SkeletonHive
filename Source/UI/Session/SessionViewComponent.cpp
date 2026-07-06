@@ -25,12 +25,26 @@ SessionViewComponent::SessionViewComponent (SessionManager& session, SessionMidi
 
     viewport.setViewedComponent (grid.get(), false);
     viewport.setScrollBarsShown (true, true);
+    viewport.getVerticalScrollBar().addListener (this);
+    viewport.getHorizontalScrollBar().addListener (this);
     addAndMakeVisible (viewport);
 }
 
 void SessionViewComponent::resized()
 {
     viewport.setBounds (getLocalBounds());
+    syncViewportToGrid();
+}
+
+void SessionViewComponent::scrollBarMoved (juce::ScrollBar*, double)
+{
+    syncViewportToGrid();
+}
+
+void SessionViewComponent::syncViewportToGrid()
+{
+    if (grid != nullptr)
+        grid->setViewportRange (viewport.getViewPositionY(), viewport.getViewHeight());
 }
 
 } // namespace skeletonhive

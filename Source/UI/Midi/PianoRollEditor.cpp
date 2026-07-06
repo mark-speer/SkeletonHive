@@ -1,6 +1,8 @@
 #include "PianoRollEditor.h"
 #include "Engine/AppCommands.h"
+#include "Engine/EngineHelpers.h"
 #include "Engine/GrooveEngine.h"
+#include "Engine/MidiScale.h"
 #include "UI/Arrangement/TimelineGrid.h"
 #include "TracktionCommon.h"
 
@@ -12,12 +14,6 @@ namespace skeletonhive
 
 namespace
 {
-constexpr int scaleMasks[][12] =
-{
-    { 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1 },  // Major
-    { 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0 }   // Natural minor
-};
-
 const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 bool isBlackKey (int pitch)
@@ -107,14 +103,36 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
     for (int i = 0; i < 12; ++i)
         rootBox.addItem (noteNames[i], i + 1);
-    rootBox.setSelectedId (1, juce::dontSendNotification);
-    rootBox.onChange = [this] { repaint (gridBounds); repaint (keyboardBounds); };
+    rootBox.onChange = [this]
+    {
+        if (! updatingScaleFromModel)
+        {
+            EngineHelpers::setClipScaleRoot (*clip, rootBox.getSelectedId() - 1);
+            if (EngineHelpers::getClipScaleLock (*clip))
+                scaleSnapButton.setToggleState (true, juce::dontSendNotification);
+        }
+
+        repaint (gridBounds);
+        repaint (keyboardBounds);
+    };
 
     scaleBox.addItem ("No Scale", 1);
     scaleBox.addItem ("Major", 2);
     scaleBox.addItem ("Minor", 3);
-    scaleBox.setSelectedId (1, juce::dontSendNotification);
-    scaleBox.onChange = [this] { repaint (gridBounds); repaint (keyboardBounds); };
+    scaleBox.onChange = [this]
+    {
+        if (! updatingScaleFromModel)
+        {
+            EngineHelpers::setClipScaleMode (*clip, (ScaleMode) juce::jmax (0, scaleBox.getSelectedId() - 1));
+            if (EngineHelpers::getClipScaleLock (*clip))
+                scaleSnapButton.setToggleState (true, juce::dontSendNotification);
+        }
+
+        repaint (gridBounds);
+        repaint (keyboardBounds);
+    };
+
+    syncClipScaleFromModel();
 
     groovePool.addChangeListener (this);
     refreshGrooveBox();
@@ -165,6 +183,7 @@ juce::UndoManager* PianoRollEditor::getUndoManager() const
 
 void PianoRollEditor::valueTreeChanged()
 {
+    syncClipScaleFromModel();
     pruneSelection();
 
     if (foldButton.getToggleState() && dragMode == DragMode::none)
@@ -550,28 +569,40 @@ void PianoRollEditor::paint (juce::Graphics& g)
 
 bool PianoRollEditor::isPitchInScale (int pitch) const
 {
-    const int scaleIdx = scaleBox.getSelectedId() - 2;
-    if (scaleIdx < 0)
+    const auto mode = (ScaleMode) juce::jmax (0, scaleBox.getSelectedId() - 1);
+    if (mode == ScaleMode::none)
         return false;
 
-    const int root = rootBox.getSelectedId() - 1;
-    return scaleMasks[scaleIdx][((pitch - root) % 12 + 12) % 12] != 0;
+    return MidiScale::isPitchInScale (pitch, rootBox.getSelectedId() - 1, mode);
 }
 
 int PianoRollEditor::nearestInScalePitch (int pitch) const
 {
-    if (scaleBox.getSelectedId() <= 1 || isPitchInScale (pitch))
-        return pitch;
+    const auto mode = (ScaleMode) juce::jmax (0, scaleBox.getSelectedId() - 1);
+    return MidiScale::nearestInScalePitch (pitch, rootBox.getSelectedId() - 1, mode);
+}
 
-    for (int delta = 1; delta <= 6; ++delta)
+bool PianoRollEditor::shouldSnapToScale() const
+{
+    return scaleSnapButton.getToggleState() || EngineHelpers::getClipScaleLock (*clip);
+}
+
+void PianoRollEditor::syncClipScaleFromModel()
+{
+    updatingScaleFromModel = true;
+    rootBox.setSelectedId (EngineHelpers::getClipScaleRoot (*clip) + 1, juce::dontSendNotification);
+
+    switch (EngineHelpers::getClipScaleMode (*clip))
     {
-        if (isPitchInScale (pitch - delta))
-            return juce::jlimit (0, 127, pitch - delta);
-        if (isPitchInScale (pitch + delta))
-            return juce::jlimit (0, 127, pitch + delta);
+        case ScaleMode::major: scaleBox.setSelectedId (2, juce::dontSendNotification); break;
+        case ScaleMode::minor: scaleBox.setSelectedId (3, juce::dontSendNotification); break;
+        default:               scaleBox.setSelectedId (1, juce::dontSendNotification); break;
     }
 
-    return pitch;
+    if (EngineHelpers::getClipScaleLock (*clip))
+        scaleSnapButton.setToggleState (true, juce::dontSendNotification);
+
+    updatingScaleFromModel = false;
 }
 
 void PianoRollEditor::paintKeyboard (juce::Graphics& g) const
@@ -801,7 +832,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
 
     if (stepButton.getToggleState())
     {
-        commitStepNote (scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y));
+        commitStepNote (shouldSnapToScale() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y));
         return;
     }
 
@@ -810,7 +841,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
         // Draw tool: create a note at the snapped beat/pitch, then reuse the resizeEnd
         // drag machinery (as used by double-click-create) so it can be extended live.
         const double startBeat = snapBeat (xToBeat (e.x));
-        const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
+        const int pitch = shouldSnapToScale() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
         const double offsetBeats = clip->getOffsetInBeats().inBeats();
 
         if (auto* note = clip->getSequence().addNote (pitch,
@@ -855,7 +886,7 @@ void PianoRollEditor::mouseDoubleClick (const juce::MouseEvent& e)
     // Create a note one grid interval long
     const double interval = gridIntervalBeats();
     const double startBeat = snapBeat (xToBeat (e.x));
-    const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
+    const int pitch = shouldSnapToScale() ? nearestInScalePitch (pitchAtY (e.y)) : pitchAtY (e.y);
     const double offsetBeats = clip->getOffsetInBeats().inBeats();
 
     auto* note = clip->getSequence().addNote (pitch,
@@ -952,7 +983,7 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
                     if (originRow >= 0)
                         newPitch = pitchForRow (juce::jlimit (0, numVisibleRows() - 1, originRow + rowDelta));
 
-                    if (scaleSnapButton.getToggleState())
+                    if (shouldSnapToScale())
                         newPitch = nearestInScalePitch (newPitch);
                 }
 
@@ -1353,7 +1384,7 @@ void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Ar
             for (int i = 0; i < notesOn.size(); ++i)
             {
                 const int rawPitch = notesOn[i];
-                const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (rawPitch) : rawPitch;
+                const int pitch = shouldSnapToScale() ? nearestInScalePitch (rawPitch) : rawPitch;
                 const int velocity = i < vels.size() ? vels[i] : defaultVelocity;
 
                 if (auto* note = clip->getSequence().addNote (pitch,
@@ -1396,7 +1427,7 @@ void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Ar
             if (pending.pitch != offPitch)
                 continue;
 
-            const int pitch = scaleSnapButton.getToggleState() ? nearestInScalePitch (pending.pitch) : pending.pitch;
+            const int pitch = shouldSnapToScale() ? nearestInScalePitch (pending.pitch) : pending.pitch;
             const double lengthBeats = juce::jmax (minNoteLengthBeats, nowBeat - pending.startBeat);
             const double offsetBeats = clip->getOffsetInBeats().inBeats();
 

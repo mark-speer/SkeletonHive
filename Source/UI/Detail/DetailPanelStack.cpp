@@ -51,16 +51,17 @@ void DetailPanelStack::setActiveView (DetailView view)
 void DetailPanelStack::autoSelectView (bool hasAudioClipSelection)
 {
     hasAudioClips = hasAudioClipSelection;
+    const bool hasClipTab = clipInspector != nullptr && clipInspector->hasClipSelection();
 
     if (userPinnedView)
     {
-        if (activeView == DetailView::clip && ! hasAudioClips)
+        if (activeView == DetailView::clip && ! hasClipTab)
             setActiveView (DetailView::devices);
 
         return;
     }
 
-    if (hasAudioClips)
+    if (hasClipTab)
         setActiveView (DetailView::clip);
     else
         setActiveView (DetailView::devices);
@@ -84,11 +85,13 @@ int DetailPanelStack::getPreferredHeight() const
 
 void DetailPanelStack::refreshVisibility()
 {
+    const bool showClipTab = clipInspector != nullptr && clipInspector->hasClipSelection();
+
     if (pluginTray != nullptr)
         pluginTray->setVisible (activeView == DetailView::devices);
 
     if (clipInspector != nullptr)
-        clipInspector->setVisible (activeView == DetailView::clip && hasAudioClips);
+        clipInspector->setVisible (activeView == DetailView::clip && showClipTab);
 }
 
 void DetailPanelStack::paint (juce::Graphics& g)
@@ -114,7 +117,7 @@ void DetailPanelStack::resized()
     if (pluginTray != nullptr && activeView == DetailView::devices)
         pluginTray->setBounds (contentArea);
 
-    if (clipInspector != nullptr && activeView == DetailView::clip && hasAudioClips)
+    if (clipInspector != nullptr && activeView == DetailView::clip && clipInspector->hasClipSelection())
         clipInspector->setBounds (contentArea);
 }
 

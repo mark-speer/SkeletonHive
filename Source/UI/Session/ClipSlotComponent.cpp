@@ -8,14 +8,13 @@ namespace skeletonhive
 ClipSlotComponent::ClipSlotComponent (SessionManager& session, SessionMidiMapper& midiMapper,
                                       EditViewState& viewState, ClipLibraryManager* clipLibrary,
                                       te::EditItemID track, int scene)
-    : sessionManager (session),
+    :     sessionManager (session),
       sessionMidiMapper (midiMapper),
       editViewState (viewState),
       clipLibraryManager (clipLibrary),
       trackId (track),
       sceneIndex (scene)
 {
-    sessionManager.addChangeListener (this);
     refresh();
 }
 
@@ -126,11 +125,6 @@ void ClipSlotComponent::mouseUp (const juce::MouseEvent& e)
 
     if (e.mouseWasClicked() && getClip() != nullptr)
         sessionManager.toggleSlot (trackId, sceneIndex);
-}
-
-void ClipSlotComponent::changeListenerCallback (juce::ChangeBroadcaster*)
-{
-    repaint();
 }
 
 bool ClipSlotComponent::isInterestedInDragSource (const SourceDetails& details)

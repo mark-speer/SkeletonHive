@@ -58,6 +58,8 @@ public:
     std::function<void (te::Track&)> onSoloChanged;
     std::function<void (te::Track&)> onTrackSelected;
 
+    te::EditItemID getTrackId() const { return track != nullptr ? track->itemID : te::EditItemID(); }
+
     // juce::DragAndDropTarget
     bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
     void itemDragEnter (const SourceDetails& dragSourceDetails) override;

@@ -85,6 +85,7 @@ private:
     {
         SessionSlotKey key;
         double lastPhaseBeats = 0.0;
+        int loopCycleIndex = 0;
     };
 
     void timerCallback() override;
@@ -106,6 +107,8 @@ private:
     double getSlotClipLoopLengthBeats (te::Clip& clip) const;
     void parkOtherClipsOnTrack (te::EditItemID trackId, const juce::String& exceptSlotId);
     void updateTransportLoopForPlayingClips();
+    void applySessionPlaybackForKey (SessionSlotKey key, int loopCycleIndex);
+    void restoreSessionPlaybackForKey (SessionSlotKey key);
     double getCurrentBeat() const;
     double getNextQuantizeBeat (double fromBeat) const;
     double getQuantizeIntervalBeats() const;
@@ -124,6 +127,7 @@ private:
     juce::Array<PendingLaunch> pendingLaunches;
     juce::Array<SlotPhaseState> slotPhaseStates;
     SessionArrangementBridge* arrangementBridge = nullptr;
+    juce::Random playbackRandom;
 };
 
 } // namespace skeletonhive

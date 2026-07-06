@@ -17,6 +17,11 @@ const juce::Identifier EngineHelpers::clipGroupProperty ("skeletonHiveClipGroup"
 const juce::Identifier EngineHelpers::clipGroupOuterProperty ("skeletonHiveClipGroupOuter");
 const juce::Identifier EngineHelpers::clipGroupColourProperty ("skeletonHiveClipGroupColour");
 const juce::Identifier EngineHelpers::sessionSlotIdProperty ("skeletonHiveSessionSlotId");
+const juce::Identifier EngineHelpers::clipScaleRootProperty ("skeletonHiveScaleRoot");
+const juce::Identifier EngineHelpers::clipScaleModeProperty ("skeletonHiveScaleMode");
+const juce::Identifier EngineHelpers::clipScaleLockProperty ("skeletonHiveScaleLock");
+const juce::Identifier EngineHelpers::noteProbabilityProperty ("skeletonHiveNoteProbability");
+const juce::Identifier EngineHelpers::noteIterationProperty ("skeletonHiveNoteIteration");
 const juce::Identifier EngineHelpers::soloedPluginIdProperty ("skeletonHiveSoloedPluginId");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
@@ -1947,5 +1952,80 @@ te::Clip* EngineHelpers::findClipById (te::Edit& edit, te::EditItemID clipId)
 
     return nullptr;
 }
+
+int EngineHelpers::getClipScaleRoot (const te::Clip& clip)
+{
+    return juce::jlimit (0, 11, (int) clip.state.getProperty (clipScaleRootProperty, 0));
+}
+
+void EngineHelpers::setClipScaleRoot (te::Clip& clip, int root)
+{
+    clip.state.setProperty (clipScaleRootProperty, juce::jlimit (0, 11, root), &clip.edit.getUndoManager());
+}
+
+ScaleMode EngineHelpers::getClipScaleMode (const te::Clip& clip)
+{
+    return (ScaleMode) juce::jlimit (0, 2, (int) clip.state.getProperty (clipScaleModeProperty, 0));
+}
+
+void EngineHelpers::setClipScaleMode (te::Clip& clip, ScaleMode mode)
+{
+    clip.state.setProperty (clipScaleModeProperty, (int) mode, &clip.edit.getUndoManager());
+}
+
+bool EngineHelpers::getClipScaleLock (const te::Clip& clip)
+{
+    return (bool) clip.state.getProperty (clipScaleLockProperty, false);
+}
+
+void EngineHelpers::setClipScaleLock (te::Clip& clip, bool locked)
+{
+    clip.state.setProperty (clipScaleLockProperty, locked, &clip.edit.getUndoManager());
+}
+
+int EngineHelpers::getNoteProbability (juce::ValueTree noteState)
+{
+    return juce::jlimit (0, 100, (int) noteState.getProperty (noteProbabilityProperty, 100));
+}
+
+void EngineHelpers::setNoteProbability (juce::ValueTree noteState, int probability, juce::UndoManager* um)
+{
+    noteState.setProperty (noteProbabilityProperty, juce::jlimit (0, 100, probability), um);
+}
+
+int EngineHelpers::getNoteIteration (juce::ValueTree noteState)
+{
+    return juce::jmax (0, (int) noteState.getProperty (noteIterationProperty, 0));
+}
+
+void EngineHelpers::setNoteIteration (juce::ValueTree noteState, int iteration, juce::UndoManager* um)
+{
+    noteState.setProperty (noteIterationProperty, juce::jmax (0, iteration), um);
+}
+
+#if JUCE_DEBUG
+void EngineHelpers::createStressTestTracks (te::Edit& edit, int trackCount, int sceneCount)
+{
+    juce::ignoreUnused (sceneCount);
+
+    for (int i = 0; i < trackCount; ++i)
+    {
+        if (auto* track = getOrInsertTrackForMidi (edit, edit.getTrackList().size()))
+        {
+            track->setName ("Stress " + juce::String (i + 1), &edit.getUndoManager());
+
+            if (auto clip = createMidiClipOnTrack (*track, { 0s, edit.tempoSequence.toTime (te::BeatPosition::fromBeats (4.0)) },
+                                                   "Slot Clip"))
+            {
+                clip->getSequence().addNote (60 + (i % 12),
+                                             te::BeatPosition(),
+                                             te::BeatDuration::fromBeats (1.0),
+                                             100, 0, &edit.getUndoManager());
+                setSessionSlotId (*clip, makeSessionSlotId (track->itemID, i % juce::jmax (1, sceneCount)));
+            }
+        }
+    }
+}
+#endif
 
 } // namespace skeletonhive
