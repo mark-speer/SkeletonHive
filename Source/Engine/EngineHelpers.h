@@ -10,6 +10,7 @@ class ExtendedUIBehaviour;
 struct EngineHelpers
 {
     static const juce::Identifier clipGroupProperty;
+    static const juce::Identifier clipGroupOuterProperty;
     static const juce::Identifier clipGroupColourProperty;
 
     static te::Project::Ptr createTempProject (te::Engine& engine);
@@ -52,10 +53,33 @@ struct EngineHelpers
         starts where the original ends, otherwise it sits on top of the original. */
     static te::Clip* duplicateClip (te::Clip& clip, bool placeAfterOriginal);
 
-    // Minimal clip grouping: clips sharing a non-empty group id move together.
+    // Two-tier clip grouping: inner group (move together) + optional outer super-group.
     static juce::String getClipGroup (const te::Clip& clip);
     static void setClipGroup (te::Clip& clip, const juce::String& groupId);
+    static juce::String getClipOuterGroup (const te::Clip& clip);
+    static void setClipOuterGroup (te::Clip& clip, const juce::String& outerGroupId);
     static juce::Array<te::Clip*> getClipsInGroup (te::Edit& edit, const juce::String& groupId);
+    static juce::Array<te::Clip*> getClipsSharingOuterGroup (te::Edit& edit, const juce::String& outerGroupId);
+    /** All clips that should move/resize with this clip (inner + outer peers, excluding clip). */
+    static juce::Array<te::Clip*> getGroupedPeers (te::Clip& clip);
+
+    static bool canMoveClipToTrack (const te::Clip& clip, te::ClipTrack& dest);
+    static void moveClipToTrack (te::Clip& clip, te::ClipTrack& dest, te::TimePosition start);
+    /** Moves clip and grouped peers by the same track-row offset; returns false if any move is invalid. */
+    static bool moveClipGroupToTrack (te::Clip& leader, te::ClipTrack& destTrack, te::TimePosition start);
+
+    enum class TrackDropZone { above, below, intoFolder, promoteTopLevel };
+    static bool canReparentTrack (te::Track& dragged, te::Track& hoverRow, TrackDropZone zone);
+    static te::TrackInsertPoint insertPointForDrop (te::Edit& edit, te::Track& hoverRow, TrackDropZone zone);
+    static void moveTrackToInsertPoint (te::Edit& edit, te::Track& track, te::TrackInsertPoint point);
+    static void moveTrackOutOfFolder (te::Track& track);
+    static void moveTrackBySiblingDelta (te::Track& track, int delta);
+    static te::ClipTrack* getClipTrackAtArrangementIndex (te::Edit& edit, int index);
+    static int getArrangementTrackIndex (te::Edit& edit, te::Track& track);
+
+    /** Payload for track header drag-and-drop. */
+    static juce::String encodeTrackDrag (te::EditItemID trackId);
+    static te::EditItemID parseTrackDrag (const juce::var& description);
 
     /** Clips on the given track starting strictly after the anchor time, sorted by start time.
         The ordering primitive ripple editing shifts to make/close room. */

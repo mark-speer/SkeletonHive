@@ -8,6 +8,7 @@ namespace skeletonhive
 {
 
 const juce::Identifier EngineHelpers::clipGroupProperty ("skeletonHiveClipGroup");
+const juce::Identifier EngineHelpers::clipGroupOuterProperty ("skeletonHiveClipGroupOuter");
 const juce::Identifier EngineHelpers::clipGroupColourProperty ("skeletonHiveClipGroupColour");
 const juce::Identifier EngineHelpers::soloedPluginIdProperty ("skeletonHiveSoloedPluginId");
 
@@ -46,6 +47,299 @@ void EngineHelpers::setClipGroup (te::Clip& clip, const juce::String& groupId)
     {
         clip.state.setProperty (clipGroupProperty, groupId, &clip.edit.getUndoManager());
     }
+}
+
+juce::String EngineHelpers::getClipOuterGroup (const te::Clip& clip)
+{
+    return clip.state.getProperty (clipGroupOuterProperty).toString();
+}
+
+void EngineHelpers::setClipOuterGroup (te::Clip& clip, const juce::String& outerGroupId)
+{
+    if (outerGroupId.isEmpty())
+        clip.state.removeProperty (clipGroupOuterProperty, &clip.edit.getUndoManager());
+    else
+        clip.state.setProperty (clipGroupOuterProperty, outerGroupId, &clip.edit.getUndoManager());
+}
+
+juce::Array<te::Clip*> EngineHelpers::getClipsSharingOuterGroup (te::Edit& edit, const juce::String& outerGroupId)
+{
+    juce::Array<te::Clip*> result;
+
+    if (outerGroupId.isEmpty())
+        return result;
+
+    for (auto track : te::getAllTracks (edit))
+        if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track))
+            for (auto* c : clipTrack->getClips())
+                if (getClipOuterGroup (*c) == outerGroupId)
+                    result.add (c);
+
+    return result;
+}
+
+juce::Array<te::Clip*> EngineHelpers::getGroupedPeers (te::Clip& clip)
+{
+    juce::Array<te::Clip*> peers;
+    juce::Array<te::Clip*> stack;
+    stack.add (&clip);
+
+    for (int i = 0; i < stack.size(); ++i)
+    {
+        auto* current = stack.getReference (i);
+
+        const auto outerId = getClipOuterGroup (*current);
+        if (outerId.isNotEmpty())
+        {
+            for (auto* c : getClipsSharingOuterGroup (clip.edit, outerId))
+                if (! stack.contains (c))
+                    stack.add (c);
+        }
+
+        const auto innerId = getClipGroup (*current);
+        if (innerId.isNotEmpty())
+        {
+            for (auto* c : getClipsInGroup (clip.edit, innerId))
+                if (! stack.contains (c))
+                    stack.add (c);
+        }
+    }
+
+    for (auto* c : stack)
+        if (c != &clip)
+            peers.addIfNotAlreadyThere (c);
+
+    return peers;
+}
+
+namespace
+{
+bool isArrangementTrack (te::Track& track)
+{
+    return ! track.isMarkerTrack() && ! track.isTempoTrack() && ! track.isChordTrack()
+           && ! track.isMasterTrack() && ! track.isArrangerTrack();
+}
+
+juce::Array<te::Track*> getArrangementTracks (te::Edit& edit)
+{
+    juce::Array<te::Track*> tracks;
+
+    for (auto track : te::getAllTracks (edit))
+        if (isArrangementTrack (*track))
+            tracks.add (track);
+
+    return tracks;
+}
+} // namespace
+
+int EngineHelpers::getArrangementTrackIndex (te::Edit& edit, te::Track& track)
+{
+    return getArrangementTracks (edit).indexOf (&track);
+}
+
+te::ClipTrack* EngineHelpers::getClipTrackAtArrangementIndex (te::Edit& edit, int index)
+{
+    const auto tracks = getArrangementTracks (edit);
+    if (! juce::isPositiveAndBelow (index, tracks.size()))
+        return nullptr;
+
+    return dynamic_cast<te::ClipTrack*> (tracks[index]);
+}
+
+bool EngineHelpers::canMoveClipToTrack (const te::Clip& clip, te::ClipTrack& dest)
+{
+    if (clip.getClipTrack() == &dest)
+        return true;
+
+    if (dest.isFolderTrack())
+        return false;
+
+    if (isReturnTrack (dest))
+        return false;
+
+    if (dynamic_cast<const te::MidiClip*> (&clip) != nullptr && ! canHostMidiClips (dest))
+        return false;
+
+    return const_cast<te::Clip&> (clip).canBeAddedTo (dest);
+}
+
+void EngineHelpers::moveClipToTrack (te::Clip& clip, te::ClipTrack& dest, te::TimePosition start)
+{
+    if (! canMoveClipToTrack (clip, dest))
+        return;
+
+    if (clip.getClipTrack() != &dest)
+        clip.moveTo (dest);
+
+    clip.setStart (start, false, true);
+}
+
+bool EngineHelpers::moveClipGroupToTrack (te::Clip& leader, te::ClipTrack& destTrack, te::TimePosition start)
+{
+    auto* sourceTrack = leader.getClipTrack();
+    if (sourceTrack == nullptr)
+        return false;
+
+    const int sourceIdx = getArrangementTrackIndex (leader.edit, *sourceTrack);
+    const int destIdx = getArrangementTrackIndex (leader.edit, destTrack);
+
+    if (sourceIdx < 0 || destIdx < 0)
+        return false;
+
+    const int offset = destIdx - sourceIdx;
+    juce::Array<te::Clip*> toMove;
+    toMove.add (&leader);
+
+    for (auto* peer : getGroupedPeers (leader))
+        toMove.addIfNotAlreadyThere (peer);
+
+    for (auto* c : toMove)
+    {
+        auto* src = c->getClipTrack();
+        if (src == nullptr)
+            return false;
+
+        const int targetIdx = getArrangementTrackIndex (leader.edit, *src) + offset;
+        if (auto* target = getClipTrackAtArrangementIndex (leader.edit, targetIdx))
+        {
+            if (! canMoveClipToTrack (*c, *target))
+                return false;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    const auto timeDelta = start - leader.getPosition().getStart();
+
+    for (auto* c : toMove)
+    {
+        auto* src = c->getClipTrack();
+        const int targetIdx = getArrangementTrackIndex (leader.edit, *src) + offset;
+        auto* target = getClipTrackAtArrangementIndex (leader.edit, targetIdx);
+        moveClipToTrack (*c, *target, c->getPosition().getStart() + timeDelta);
+    }
+
+    return true;
+}
+
+bool EngineHelpers::canReparentTrack (te::Track& dragged, te::Track& hoverRow, TrackDropZone zone)
+{
+    if (&dragged == &hoverRow)
+        return false;
+
+    if (! dragged.isMovable())
+        return false;
+
+    if (hoverRow.isAChildOf (dragged))
+        return false;
+
+    if (zone == TrackDropZone::intoFolder && ! hoverRow.isFolderTrack())
+        return false;
+
+    if (zone == TrackDropZone::promoteTopLevel && dragged.getParentFolderTrack() == nullptr)
+        return false;
+
+    return true;
+}
+
+te::TrackInsertPoint EngineHelpers::insertPointForDrop (te::Edit& edit, te::Track& hoverRow, TrackDropZone zone)
+{
+    switch (zone)
+    {
+        case TrackDropZone::above:
+            return te::TrackInsertPoint (hoverRow, true);
+
+        case TrackDropZone::below:
+            return te::TrackInsertPoint (hoverRow, false);
+
+        case TrackDropZone::intoFolder:
+        {
+            if (auto* folder = dynamic_cast<te::FolderTrack*> (&hoverRow))
+            {
+                te::Track* lastChild = nullptr;
+                for (auto* child : folder->getAllSubTracks (false))
+                    lastChild = child;
+                return te::TrackInsertPoint (folder, lastChild);
+            }
+            return te::TrackInsertPoint (hoverRow, false);
+        }
+
+        case TrackDropZone::promoteTopLevel:
+        {
+            auto topLevel = te::getTopLevelTracks (edit);
+            return te::TrackInsertPoint (nullptr, topLevel.getLast());
+        }
+    }
+
+    return te::TrackInsertPoint (hoverRow, false);
+}
+
+void EngineHelpers::moveTrackToInsertPoint (te::Edit& edit, te::Track& track, te::TrackInsertPoint point)
+{
+    for (auto t : te::getAllTracks (edit))
+    {
+        if (t->itemID == track.itemID)
+        {
+            edit.moveTrack (t, point);
+            break;
+        }
+    }
+}
+
+void EngineHelpers::moveTrackOutOfFolder (te::Track& track)
+{
+    if (track.getParentFolderTrack() == nullptr)
+        return;
+
+    auto& edit = track.edit;
+    const auto topLevel = te::getTopLevelTracks (edit);
+    const te::TrackInsertPoint point (nullptr, topLevel.getLast());
+
+    for (auto t : te::getAllTracks (edit))
+    {
+        if (t->itemID == track.itemID)
+        {
+            edit.moveTrack (t, point);
+            break;
+        }
+    }
+}
+
+void EngineHelpers::moveTrackBySiblingDelta (te::Track& track, int delta)
+{
+    if (delta == 0 || ! track.isMovable())
+        return;
+
+    if (auto* sibling = track.getSiblingTrack (delta, true))
+    {
+        const bool moveDown = delta > 0;
+        const te::TrackInsertPoint point (*sibling, moveDown);
+
+        for (auto t : te::getAllTracks (track.edit))
+        {
+            if (t->itemID == track.itemID)
+            {
+                track.edit.moveTrack (t, point);
+                break;
+            }
+        }
+    }
+}
+
+juce::String EngineHelpers::encodeTrackDrag (te::EditItemID trackId)
+{
+    return "skeletonHiveTrackDrag:" + trackId.toVar().toString();
+}
+
+te::EditItemID EngineHelpers::parseTrackDrag (const juce::var& description)
+{
+    const auto text = description.toString();
+    if (! text.startsWith ("skeletonHiveTrackDrag:"))
+        return {};
+
+    return te::EditItemID::fromVar (text.fromFirstOccurrenceOf (":", false, false));
 }
 
 juce::Array<te::Clip*> EngineHelpers::getClipsInGroup (te::Edit& edit, const juce::String& groupId)

@@ -137,7 +137,7 @@ void ClipComponent::updateCursorForMode (DragMode mode)
     if (mode == DragMode::resizeStart || mode == DragMode::resizeEnd)
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     else if (mode == DragMode::fadeIn || mode == DragMode::fadeOut)
-        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     else
         setMouseCursor (juce::MouseCursor::DraggingHandCursor);
 }
@@ -171,11 +171,117 @@ void ClipComponent::paintSelectionAndGroupIndicators (juce::Graphics& g) const
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 4.0f, 2.0f);
     }
 
+    if (EngineHelpers::getClipOuterGroup (*clip).isNotEmpty())
+    {
+        g.setColour (EngineHelpers::colourForGroupId (EngineHelpers::getClipOuterGroup (*clip)));
+        g.fillRect (getWidth() - 10, 0, 10, 6);
+    }
+
     if (EngineHelpers::getClipGroup (*clip).isNotEmpty())
     {
-        // Small corner tag marking grouped clips, coloured per-group
         g.setColour (EngineHelpers::getClipGroupColour (*clip));
-        g.fillRect (getWidth() - 10, 0, 10, 6);
+        g.fillRect (getWidth() - 10, EngineHelpers::getClipOuterGroup (*clip).isNotEmpty() ? 7 : 0, 10, 6);
+    }
+}
+
+te::AudioFadeCurve::Type ClipComponent::nextFadeCurveType (te::AudioFadeCurve::Type current)
+{
+    switch (current)
+    {
+        case te::AudioFadeCurve::Type::linear:  return te::AudioFadeCurve::Type::convex;
+        case te::AudioFadeCurve::Type::convex:  return te::AudioFadeCurve::Type::concave;
+        case te::AudioFadeCurve::Type::concave: return te::AudioFadeCurve::Type::sCurve;
+        default:                                return te::AudioFadeCurve::Type::linear;
+    }
+}
+
+bool ClipComponent::isFadeHandleZone (const juce::MouseEvent& e, bool& fadeIn) const
+{
+    if (! shouldShowFadeHandles (getDetailLevel()))
+        return false;
+
+    if (dynamic_cast<te::AudioClipBase*> (clip.get()) == nullptr)
+        return false;
+
+    if (e.y <= fadeHandlePx && e.x <= fadeHandlePx * 2)
+    {
+        fadeIn = true;
+        return true;
+    }
+
+    if (e.y <= fadeHandlePx && e.x >= getWidth() - fadeHandlePx * 2)
+    {
+        fadeIn = false;
+        return true;
+    }
+
+    return false;
+}
+
+void ClipComponent::cycleFadeCurveType (bool fadeIn)
+{
+    if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
+    {
+        if (fadeIn)
+            audioClip->setFadeInType (nextFadeCurveType (audioClip->getFadeInType()));
+        else
+            audioClip->setFadeOutType (nextFadeCurveType (audioClip->getFadeOutType()));
+
+        audioClip->checkFadeLengthsForOverrun();
+        repaint();
+    }
+}
+
+void ClipComponent::showFadeCurveMenu (bool fadeIn, juce::Point<int> screenPosition)
+{
+    auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get());
+    if (audioClip == nullptr)
+        return;
+
+    const auto current = fadeIn ? audioClip->getFadeInType() : audioClip->getFadeOutType();
+
+    juce::PopupMenu menu;
+    menu.addItem (1, "Linear",   true, current == te::AudioFadeCurve::Type::linear);
+    menu.addItem (2, "Convex",   true, current == te::AudioFadeCurve::Type::convex);
+    menu.addItem (3, "Concave",  true, current == te::AudioFadeCurve::Type::concave);
+    menu.addItem (4, "S-Curve",  true, current == te::AudioFadeCurve::Type::sCurve);
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
+                        [safeClip = clip, fadeIn] (int result)
+    {
+        if (result < 1 || result > 4)
+            return;
+
+        if (auto* ac = dynamic_cast<te::AudioClipBase*> (safeClip.get()))
+        {
+            const auto type = static_cast<te::AudioFadeCurve::Type> (result - 1);
+
+            if (fadeIn)
+                ac->setFadeInType (type);
+            else
+                ac->setFadeOutType (type);
+
+            ac->checkFadeLengthsForOverrun();
+        }
+    });
+}
+
+void ClipComponent::applyAutoCrossfadeForClip (te::Clip& c) const
+{
+    if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (&c))
+    {
+        auto enableIfOverlapping = [] (te::AudioClipBase* a, te::AudioClipBase::ClipDirection dir)
+        {
+            if (auto* neighbour = a->getOverlappingClip (dir))
+            {
+                a->setAutoCrossfade (true);
+                neighbour->setAutoCrossfade (true);
+            }
+        };
+
+        enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::previous);
+        enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::next);
     }
 }
 
@@ -194,7 +300,21 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
                 editViewState.insertPoint->setNextInsertPoint (clip->getPosition().getStart(), clipTrack);
         }
 
-        showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, clip->getTrack(), false, nullptr);
+        bool fadeIn = false;
+        if (isFadeHandleZone (e, fadeIn))
+        {
+            showFadeCurveMenu (fadeIn, e.getScreenPosition());
+            return;
+        }
+
+        showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, clip->getTrack(), false, nullptr, clip.get());
+        return;
+    }
+
+    bool fadeIn = false;
+    if (e.mods.isAltDown() && isFadeHandleZone (e, fadeIn))
+    {
+        cycleFadeCurveType (fadeIn);
         return;
     }
 
@@ -212,11 +332,14 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         if (auto* leftBehind = EngineHelpers::duplicateClip (*clip, false))
         {
             const auto originalGroupId = EngineHelpers::getClipGroup (*clip);
+            const auto originalOuterId = EngineHelpers::getClipOuterGroup (*clip);
             if (originalGroupId.isNotEmpty())
             {
                 EngineHelpers::setClipGroup (*leftBehind, juce::Uuid().toString());
                 EngineHelpers::setClipGroupColour (*leftBehind, EngineHelpers::getClipGroupColour (*clip));
             }
+            if (originalOuterId.isNotEmpty())
+                EngineHelpers::setClipOuterGroup (*leftBehind, juce::Uuid().toString());
         }
     }
 
@@ -230,9 +353,11 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         captureGroupDragItems();
         captureRippleDragItems (originalStart);
     }
-    else if (dragMode == DragMode::resizeEnd)
+    else if (dragMode == DragMode::resizeStart || dragMode == DragMode::resizeEnd)
     {
-        captureRippleDragItems (originalEnd);
+        captureGroupResizeItems();
+        if (dragMode == DragMode::resizeEnd)
+            captureRippleDragItems (originalEnd);
     }
     else if (dragMode == DragMode::fadeIn || dragMode == DragMode::fadeOut)
     {
@@ -250,13 +375,19 @@ void ClipComponent::captureGroupDragItems()
 {
     groupDragItems.clear();
 
-    const auto groupId = EngineHelpers::getClipGroup (*clip);
-    if (groupId.isEmpty())
-        return;
+    for (auto* member : EngineHelpers::getGroupedPeers (*clip))
+        groupDragItems.add ({ member, member->getPosition().getStart() });
+}
 
-    for (auto* member : EngineHelpers::getClipsInGroup (editViewState.edit, groupId))
-        if (member != clip.get())
-            groupDragItems.add ({ member, member->getPosition().getStart() });
+void ClipComponent::captureGroupResizeItems()
+{
+    groupResizeItems.clear();
+
+    for (auto* member : EngineHelpers::getGroupedPeers (*clip))
+    {
+        const auto pos = member->getPosition();
+        groupResizeItems.add ({ member, pos.getStart(), pos.getEnd() });
+    }
 }
 
 void ClipComponent::captureRippleDragItems (te::TimePosition anchor)
@@ -273,12 +404,15 @@ void ClipComponent::captureRippleDragItems (te::TimePosition anchor)
     // Clips already moving together as part of this clip's group are excluded
     // here so they aren't shifted twice.
     const auto groupId = EngineHelpers::getClipGroup (*clip);
+    const auto outerId = EngineHelpers::getClipOuterGroup (*clip);
 
     for (auto* c : EngineHelpers::getClipsStartingAfter (*track, anchor))
     {
         if (c == clip.get())
             continue;
         if (groupId.isNotEmpty() && EngineHelpers::getClipGroup (*c) == groupId)
+            continue;
+        if (outerId.isNotEmpty() && EngineHelpers::getClipOuterGroup (*c) == outerId)
             continue;
         rippleDragItems.add ({ c, c->getPosition().getStart() });
     }
@@ -312,14 +446,28 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
             const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
             item.clip->setStart (memberStart, false, true);
         }
+
+        if (onCrossTrackDragMove)
+            onCrossTrackDragMove (*clip, e);
     }
     else if (dragMode == DragMode::resizeStart)
     {
         const auto newStart = snapTime (currentTime);
         if (originalEnd - newStart >= minLength)
         {
+            const auto effectiveDelta = newStart - originalStart;
             clip->setStart (newStart, false, false);
             clip->setEnd (originalEnd, false);
+
+            for (auto& item : groupResizeItems)
+            {
+                const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
+                if (item.originalEnd - memberStart >= minLength)
+                {
+                    item.clip->setStart (memberStart, false, false);
+                    item.clip->setEnd (item.originalEnd, false);
+                }
+            }
         }
     }
     else if (dragMode == DragMode::resizeEnd)
@@ -327,11 +475,16 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
         const auto newEnd = snapTime (currentTime);
         if (newEnd - originalStart >= minLength)
         {
+            const auto effectiveDelta = newEnd - originalEnd;
             clip->setEnd (newEnd, false);
 
-            // Ripple mode: resizing changes the clip's length, so shift
-            // everything after it by the same change in length.
-            const auto effectiveDelta = newEnd - originalEnd;
+            for (auto& item : groupResizeItems)
+            {
+                const auto memberEnd = item.originalEnd + effectiveDelta;
+                if (memberEnd - item.originalStart >= minLength)
+                    item.clip->setEnd (memberEnd, false);
+            }
+
             for (auto& item : rippleDragItems)
             {
                 const auto memberStart = juce::jmax (te::TimePosition(), item.originalStart + effectiveDelta);
@@ -353,30 +506,23 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
 
 void ClipComponent::mouseUp (const juce::MouseEvent& e)
 {
-    juce::ignoreUnused (e);
-
-    // If a move/resize left this clip overlapping a neighbour, let TE
-    // auto-crossfade the overlap instead of leaving a hard cut.
     if (dragMode == DragMode::move || dragMode == DragMode::resizeStart || dragMode == DragMode::resizeEnd)
     {
-        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
-        {
-            auto enableIfOverlapping = [] (te::AudioClipBase* a, te::AudioClipBase::ClipDirection dir)
-            {
-                if (auto* neighbour = a->getOverlappingClip (dir))
-                {
-                    a->setAutoCrossfade (true);
-                    neighbour->setAutoCrossfade (true);
-                }
-            };
+        applyAutoCrossfadeForClip (*clip);
 
-            enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::previous);
-            enableIfOverlapping (audioClip, te::AudioClipBase::ClipDirection::next);
-        }
+        for (auto& item : groupDragItems)
+            applyAutoCrossfadeForClip (*item.clip);
+
+        for (auto& item : groupResizeItems)
+            applyAutoCrossfadeForClip (*item.clip);
+
+        if (dragMode == DragMode::move && onCrossTrackDragEnd)
+            onCrossTrackDragEnd (*clip, e);
     }
 
     dragMode = DragMode::none;
     groupDragItems.clear();
+    groupResizeItems.clear();
     rippleDragItems.clear();
     setMouseCursor (juce::MouseCursor::NormalCursor);
 }
@@ -390,7 +536,7 @@ void ClipComponent::mouseMove (const juce::MouseEvent& e)
     if (mode == DragMode::resizeStart || mode == DragMode::resizeEnd)
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     else if (mode == DragMode::fadeIn || mode == DragMode::fadeOut)
-        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     else
         setMouseCursor (juce::MouseCursor::NormalCursor);
 }

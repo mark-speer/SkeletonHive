@@ -293,8 +293,12 @@ void TimelineComponent::duplicateSelectedClips()
     // merging into the source group; every source group id seen is remapped
     // once and reused for every copy of that group's members.
     juce::StringArray oldGroupIds, newGroupIds;
+    juce::StringArray oldOuterGroupIds, newOuterGroupIds;
     auto remapGroupId = [&oldGroupIds, &newGroupIds] (const juce::String& oldId)
     {
+        if (oldId.isEmpty())
+            return juce::String();
+
         const int idx = oldGroupIds.indexOf (oldId);
         if (idx >= 0)
             return newGroupIds[idx];
@@ -302,6 +306,20 @@ void TimelineComponent::duplicateSelectedClips()
         const auto newId = juce::Uuid().toString();
         oldGroupIds.add (oldId);
         newGroupIds.add (newId);
+        return newId;
+    };
+    auto remapOuterGroupId = [&oldOuterGroupIds, &newOuterGroupIds] (const juce::String& oldId)
+    {
+        if (oldId.isEmpty())
+            return juce::String();
+
+        const int idx = oldOuterGroupIds.indexOf (oldId);
+        if (idx >= 0)
+            return newOuterGroupIds[idx];
+
+        const auto newId = juce::Uuid().toString();
+        oldOuterGroupIds.add (oldId);
+        newOuterGroupIds.add (newId);
         return newId;
     };
 
@@ -314,11 +332,14 @@ void TimelineComponent::duplicateSelectedClips()
             rippleAfterInsert (*clip, *copy);
 
             const auto originalGroupId = EngineHelpers::getClipGroup (*clip);
+            const auto originalOuterId = EngineHelpers::getClipOuterGroup (*clip);
             if (originalGroupId.isNotEmpty())
             {
                 EngineHelpers::setClipGroup (*copy, remapGroupId (originalGroupId));
                 EngineHelpers::setClipGroupColour (*copy, EngineHelpers::getClipGroupColour (*clip));
             }
+            if (originalOuterId.isNotEmpty())
+                EngineHelpers::setClipOuterGroup (*copy, remapOuterGroupId (originalOuterId));
 
             newClips.add (copy);
         }
@@ -340,12 +361,16 @@ bool TimelineComponent::deleteSelectedClips()
 
     editViewState.selectionManager.deselectAll();
 
-    juce::StringArray affectedGroups;
+    juce::StringArray affectedGroups, affectedOuterGroups;
     for (auto* clip : clips)
     {
         const auto groupId = EngineHelpers::getClipGroup (*clip);
         if (groupId.isNotEmpty())
             affectedGroups.addIfNotAlreadyThere (groupId);
+
+        const auto outerId = EngineHelpers::getClipOuterGroup (*clip);
+        if (outerId.isNotEmpty())
+            affectedOuterGroups.addIfNotAlreadyThere (outerId);
     }
 
     for (auto* clip : clips)
@@ -365,6 +390,13 @@ bool TimelineComponent::deleteSelectedClips()
         const auto remaining = EngineHelpers::getClipsInGroup (editViewState.edit, groupId);
         if (remaining.size() == 1)
             EngineHelpers::setClipGroup (*remaining.getFirst(), {});
+    }
+
+    for (const auto& outerId : affectedOuterGroups)
+    {
+        const auto remaining = EngineHelpers::getClipsSharingOuterGroup (editViewState.edit, outerId);
+        if (remaining.size() == 1)
+            EngineHelpers::setClipOuterGroup (*remaining.getFirst(), {});
     }
 
     return true;
@@ -410,14 +442,85 @@ void TimelineComponent::groupSelectedClips (bool group)
     if (clips.isEmpty())
         return;
 
-    const auto groupId = group ? juce::Uuid().toString() : juce::String();
-    const auto colour = EngineHelpers::colourForGroupId (groupId);
+    if (! group)
+    {
+        bool anyHadOuter = false;
+        for (auto* clip : clips)
+            if (EngineHelpers::getClipOuterGroup (*clip).isNotEmpty())
+                anyHadOuter = true;
+
+        for (auto* clip : clips)
+        {
+            if (anyHadOuter)
+                EngineHelpers::setClipOuterGroup (*clip, {});
+            else
+                EngineHelpers::setClipGroup (*clip, {});
+        }
+
+        repaintGrid();
+        return;
+    }
+
+    juce::StringArray innerGroups;
+    bool hasUngrouped = false;
 
     for (auto* clip : clips)
     {
-        EngineHelpers::setClipGroup (*clip, groupId);
-        if (group)
+        const auto inner = EngineHelpers::getClipGroup (*clip);
+        if (inner.isEmpty())
+            hasUngrouped = true;
+        else
+            innerGroups.addIfNotAlreadyThere (inner);
+    }
+
+    if (innerGroups.size() > 1 || (innerGroups.size() == 1 && hasUngrouped))
+    {
+        juce::String sharedOuter;
+        for (auto* clip : clips)
+        {
+            const auto outer = EngineHelpers::getClipOuterGroup (*clip);
+            if (outer.isEmpty())
+                continue;
+
+            if (sharedOuter.isEmpty())
+                sharedOuter = outer;
+            else if (sharedOuter != outer)
+                sharedOuter = juce::String();
+        }
+
+        if (sharedOuter.isNotEmpty())
+            return;
+
+        const auto outerId = juce::Uuid().toString();
+        for (auto* clip : clips)
+            EngineHelpers::setClipOuterGroup (*clip, outerId);
+    }
+    else
+    {
+        juce::String sharedInner;
+        for (auto* clip : clips)
+        {
+            const auto inner = EngineHelpers::getClipGroup (*clip);
+            if (inner.isEmpty())
+                continue;
+
+            if (sharedInner.isEmpty())
+                sharedInner = inner;
+            else if (sharedInner != inner)
+                sharedInner = juce::String();
+        }
+
+        if (sharedInner.isNotEmpty())
+            return;
+
+        const auto groupId = juce::Uuid().toString();
+        const auto colour = EngineHelpers::colourForGroupId (groupId);
+
+        for (auto* clip : clips)
+        {
+            EngineHelpers::setClipGroup (*clip, groupId);
             EngineHelpers::setClipGroupColour (*clip, colour);
+        }
     }
 
     repaintGrid();
@@ -430,6 +533,112 @@ void TimelineComponent::toggleShowGrid()
     editViewState.showGrid = ! editViewState.showGrid.get();
     syncGridControls();
     repaintGrid();
+}
+
+int TimelineComponent::trackRowIndexAtContentY (int contentY) const
+{
+    for (int i = 0; i < trackRows.size(); ++i)
+    {
+        const auto& row = trackRows.getReference (i);
+        if (contentY >= row.y && contentY < row.y + row.height)
+            return i;
+    }
+
+    return -1;
+}
+
+te::ClipTrack* TimelineComponent::clipTrackForRowIndex (int rowIndex) const
+{
+    if (! juce::isPositiveAndBelow (rowIndex, trackRows.size()))
+        return nullptr;
+
+    return dynamic_cast<te::ClipTrack*> (trackRows.getReference (rowIndex).track.get());
+}
+
+void TimelineComponent::clearCrossTrackDragState()
+{
+    crossTrackDrag = {};
+    repaint();
+}
+
+void TimelineComponent::handleClipCrossTrackDragMove (te::Clip& clip, const juce::MouseEvent& e)
+{
+    auto* lane = e.eventComponent != nullptr
+                     ? e.eventComponent->findParentComponentOfClass<TrackLaneComponent>()
+                     : nullptr;
+
+    if (lane == nullptr)
+        return;
+
+    const int contentY = lane->getY() + e.getEventRelativeTo (lane).y;
+
+    crossTrackDrag.active = true;
+    crossTrackDrag.clipId = clip.itemID;
+    crossTrackDrag.ghostStart = clip.getPosition().getStart();
+
+    if (auto* sourceTrack = clip.getClipTrack())
+        crossTrackDrag.sourceRowIndex = EngineHelpers::getArrangementTrackIndex (edit, *sourceTrack);
+
+    crossTrackDrag.targetRowIndex = trackRowIndexAtContentY (contentY);
+
+    if (crossTrackDrag.targetRowIndex >= 0)
+    {
+        if (auto* dest = clipTrackForRowIndex (crossTrackDrag.targetRowIndex))
+            crossTrackDrag.validDrop = EngineHelpers::canMoveClipToTrack (clip, *dest);
+        else
+            crossTrackDrag.validDrop = false;
+    }
+    else
+    {
+        crossTrackDrag.validDrop = false;
+    }
+
+    repaint();
+}
+
+void TimelineComponent::handleClipCrossTrackDragEnd (te::Clip& clip, const juce::MouseEvent& e)
+{
+    juce::ignoreUnused (e);
+
+    if (crossTrackDrag.active
+        && crossTrackDrag.validDrop
+        && crossTrackDrag.targetRowIndex >= 0
+        && crossTrackDrag.targetRowIndex != crossTrackDrag.sourceRowIndex)
+    {
+        if (auto* dest = clipTrackForRowIndex (crossTrackDrag.targetRowIndex))
+            EngineHelpers::moveClipGroupToTrack (clip, *dest, clip.getPosition().getStart());
+    }
+
+    clearCrossTrackDragState();
+}
+
+void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
+{
+    if (! crossTrackDrag.active || ! juce::isPositiveAndBelow (crossTrackDrag.targetRowIndex, trackRows.size()))
+        return;
+
+    const auto& row = trackRows.getReference (crossTrackDrag.targetRowIndex);
+    const int viewY = timelineViewport.getViewPositionY();
+    const auto laneBounds = juce::Rectangle<int> (headerWidth + timelineViewport.getX(),
+                                                  timelineViewport.getY() + row.y - viewY,
+                                                  timelineViewport.getViewWidth(),
+                                                  row.height);
+
+    g.setColour (crossTrackDrag.validDrop ? juce::Colour (0xff06d6a0).withAlpha (0.25f)
+                                          : juce::Colour (0xffef476f).withAlpha (0.25f));
+    g.fillRect (laneBounds);
+
+    const int ghostX = headerWidth + timelineViewport.getX()
+                       + editViewState.timeToX (crossTrackDrag.ghostStart)
+                       - timelineViewport.getViewPositionX();
+    g.setColour (crossTrackDrag.validDrop ? juce::Colours::white.withAlpha (0.8f)
+                                          : juce::Colours::red.withAlpha (0.8f));
+    g.drawVerticalLine (ghostX, (float) laneBounds.getY(), (float) laneBounds.getBottom());
+}
+
+void TimelineComponent::paintOverChildren (juce::Graphics& g)
+{
+    paintCrossTrackDropOverlay (g);
 }
 
 void TimelineComponent::syncGridControls()
@@ -547,6 +756,14 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
     };
     lane->createPlugin = createPlugin;
     lane->onAddPlugin = onAddPlugin;
+    lane->onClipCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& e)
+    {
+        handleClipCrossTrackDragMove (c, e);
+    };
+    lane->onClipCrossTrackDragEnd = [this] (te::Clip& c, const juce::MouseEvent& e)
+    {
+        handleClipCrossTrackDragEnd (c, e);
+    };
     trackLanes.add (lane.release());
 
     auto header = std::make_unique<TrackHeaderComponent> (editViewState, row.track);

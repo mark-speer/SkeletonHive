@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ClipComponents.h"
+#include "Engine/EngineHelpers.h"
 #include "Engine/PluginDragManager.h"
 #include <functional>
 
@@ -16,7 +17,8 @@ void showTimelineContextMenu (juce::Component& target,
                               EditViewState& editViewState,
                               te::Track* track,
                               bool offerCreateMidiClip,
-                              std::function<void()> onCreateMidiClip);
+                              std::function<void()> onCreateMidiClip,
+                              te::Clip* contextClip = nullptr);
 
 class FlaggedAsyncUpdater : public juce::AsyncUpdater
 {
@@ -31,7 +33,8 @@ public:
 };
 
 class TrackHeaderComponent : public juce::Component,
-                             private te::ValueTreeAllEventListener
+                             private te::ValueTreeAllEventListener,
+                             public juce::DragAndDropTarget
 {
 public:
     TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t);
@@ -39,12 +42,20 @@ public:
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
     void resized() override;
 
     std::function<void (te::Track&)> onArmChanged;
     std::function<void (te::Track&)> onMuteChanged;
     std::function<void (te::Track&)> onSoloChanged;
     std::function<void (te::Track&)> onTrackSelected;
+
+    // juce::DragAndDropTarget
+    bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
+    void itemDragEnter (const SourceDetails& dragSourceDetails) override;
+    void itemDragMove (const SourceDetails& dragSourceDetails) override;
+    void itemDragExit (const SourceDetails& dragSourceDetails) override;
+    void itemDropped (const SourceDetails& dragSourceDetails) override;
 
 private:
     void valueTreeChanged() override {}
@@ -53,12 +64,19 @@ private:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { updateKindBadge(); }
 
     void updateKindBadge();
+    void showHeaderContextMenu (juce::Point<int> screenPosition);
+    EngineHelpers::TrackDropZone dropZoneForPosition (juce::Point<int> localPos) const;
+    void moveSelectedTracksToDropZone (EngineHelpers::TrackDropZone zone);
 
     EditViewState& editViewState;
     te::Track::Ptr track;
     juce::Label trackName;
     juce::Label kindBadge;
     juce::TextButton armButton { "R" }, muteButton { "M" }, soloButton { "S" };
+
+    EngineHelpers::TrackDropZone dropHighlightZone = EngineHelpers::TrackDropZone::below;
+    bool dropHighlightActive = false;
+    bool dragStarted = false;
 };
 
 class PluginSlotButton : public juce::TextButton
@@ -173,6 +191,8 @@ public:
     te::Track& getTrack() { return *track; }
 
     std::function<void (te::Clip&)> onClipDoubleClick;
+    std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragMove;
+    std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragEnd;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (te::Track&)> onAddPlugin;
 

@@ -88,10 +88,18 @@ void paintClipBlock (juce::Graphics& g, EditViewState& editViewState, te::Clip& 
         g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), corner, 2.0f);
     }
 
+    if (EngineHelpers::getClipOuterGroup (clip).isNotEmpty())
+    {
+        g.setColour (EngineHelpers::colourForGroupId (EngineHelpers::getClipOuterGroup (clip)));
+        g.fillRect (bounds.getRight() - 10, bounds.getY(), 10, 6);
+    }
+
     if (EngineHelpers::getClipGroup (clip).isNotEmpty())
     {
         g.setColour (EngineHelpers::getClipGroupColour (clip));
-        g.fillRect (bounds.getRight() - 10, bounds.getY(), 10, 6);
+        g.fillRect (bounds.getRight() - 10,
+                    bounds.getY() + (EngineHelpers::getClipOuterGroup (clip).isNotEmpty() ? 7 : 0),
+                    10, 6);
     }
 }
 

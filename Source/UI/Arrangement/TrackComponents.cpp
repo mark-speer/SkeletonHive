@@ -19,8 +19,45 @@ enum class TimelineMenuResult
     copy,
     paste,
     createMidiClip,
-    newFolderTrack
+    newFolderTrack,
+    fadeInLinear = 100,
+    fadeInConvex,
+    fadeInConcave,
+    fadeInSCurve,
+    fadeOutLinear = 110,
+    fadeOutConvex,
+    fadeOutConcave,
+    fadeOutSCurve,
+    moveTrackUp = 200,
+    moveTrackDown,
+    moveTrackOutOfFolder
 };
+
+void setFadeCurveOnAudioClips (EditViewState& editViewState, bool fadeIn, te::AudioFadeCurve::Type type)
+{
+    for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
+    {
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip))
+        {
+            if (fadeIn)
+                audioClip->setFadeInType (type);
+            else
+                audioClip->setFadeOutType (type);
+
+            audioClip->checkFadeLengthsForOverrun();
+        }
+    }
+}
+
+void addFadeCurveSubmenu (juce::PopupMenu& parent, const juce::String& name, int baseId)
+{
+    juce::PopupMenu sub;
+    sub.addItem (baseId + 0, "Linear");
+    sub.addItem (baseId + 1, "Convex");
+    sub.addItem (baseId + 2, "Concave");
+    sub.addItem (baseId + 3, "S-Curve");
+    parent.addSubMenu (name, sub);
+}
 
 void setInsertPoint (EditViewState& editViewState, te::Track* track, te::TimePosition time)
 {
@@ -35,10 +72,9 @@ void showTimelineContextMenu (juce::Component& target,
                               EditViewState& editViewState,
                               te::Track* track,
                               bool offerCreateMidiClip,
-                              std::function<void()> onCreateMidiClip)
+                              std::function<void()> onCreateMidiClip,
+                              te::Clip* contextClip)
 {
-    juce::ignoreUnused (track);
-
     juce::PopupMenu menu;
     const bool hasSelection = editViewState.selectionManager.getNumObjectsSelected() > 0;
     const bool canPaste = te::Clipboard::getInstance()->getContent() != nullptr;
@@ -46,6 +82,26 @@ void showTimelineContextMenu (juce::Component& target,
     menu.addItem ((int) TimelineMenuResult::cut, "Cut", hasSelection);
     menu.addItem ((int) TimelineMenuResult::copy, "Copy", hasSelection);
     menu.addItem ((int) TimelineMenuResult::paste, "Paste", canPaste);
+
+    bool hasAudioClip = contextClip != nullptr && dynamic_cast<te::AudioClipBase*> (contextClip) != nullptr;
+    if (! hasAudioClip)
+    {
+        for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
+        {
+            if (dynamic_cast<te::AudioClipBase*> (clip) != nullptr)
+            {
+                hasAudioClip = true;
+                break;
+            }
+        }
+    }
+
+    if (hasAudioClip)
+    {
+        menu.addSeparator();
+        addFadeCurveSubmenu (menu, "Fade In Curve", (int) TimelineMenuResult::fadeInLinear);
+        addFadeCurveSubmenu (menu, "Fade Out Curve", (int) TimelineMenuResult::fadeOutLinear);
+    }
 
     if (offerCreateMidiClip)
     {
@@ -56,14 +112,36 @@ void showTimelineContextMenu (juce::Component& target,
     menu.addSeparator();
     menu.addItem ((int) TimelineMenuResult::newFolderTrack, "New Folder Track");
 
-    // Anchor at the click point, not the target's full screen bounds. Lanes can be
-    // tens of thousands of pixels wide inside a scrolled viewport, so using
-    // withTargetComponent alone places the menu on the wrong monitor.
+    if (track != nullptr && track->isMovable())
+    {
+        menu.addSeparator();
+        menu.addItem ((int) TimelineMenuResult::moveTrackUp, "Move Track Up");
+        menu.addItem ((int) TimelineMenuResult::moveTrackDown, "Move Track Down");
+
+        if (track->getParentFolderTrack() != nullptr)
+            menu.addItem ((int) TimelineMenuResult::moveTrackOutOfFolder, "Move Out of Folder");
+    }
+
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (&target)
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
-                        [&editViewState, onCreateMidiClip = std::move (onCreateMidiClip)] (int result)
+                        [&editViewState, track, onCreateMidiClip = std::move (onCreateMidiClip)] (int result)
     {
+        const int r = result;
+        if (r >= (int) TimelineMenuResult::fadeInLinear && r <= (int) TimelineMenuResult::fadeInSCurve)
+        {
+            setFadeCurveOnAudioClips (editViewState, true,
+                                    static_cast<te::AudioFadeCurve::Type> (r - (int) TimelineMenuResult::fadeInLinear));
+            return;
+        }
+
+        if (r >= (int) TimelineMenuResult::fadeOutLinear && r <= (int) TimelineMenuResult::fadeOutSCurve)
+        {
+            setFadeCurveOnAudioClips (editViewState, false,
+                                    static_cast<te::AudioFadeCurve::Type> (r - (int) TimelineMenuResult::fadeOutLinear));
+            return;
+        }
+
         switch (static_cast<TimelineMenuResult> (result))
         {
             case TimelineMenuResult::cut:
@@ -81,6 +159,18 @@ void showTimelineContextMenu (juce::Component& target,
                 break;
             case TimelineMenuResult::newFolderTrack:
                 EngineHelpers::createFolderTrack (editViewState.edit, &editViewState.selectionManager);
+                break;
+            case TimelineMenuResult::moveTrackUp:
+                if (track != nullptr)
+                    EngineHelpers::moveTrackBySiblingDelta (*track, -1);
+                break;
+            case TimelineMenuResult::moveTrackDown:
+                if (track != nullptr)
+                    EngineHelpers::moveTrackBySiblingDelta (*track, 1);
+                break;
+            case TimelineMenuResult::moveTrackOutOfFolder:
+                if (track != nullptr)
+                    EngineHelpers::moveTrackOutOfFolder (*track);
                 break;
             default:
                 break;
@@ -145,6 +235,32 @@ TrackHeaderComponent::~TrackHeaderComponent()
 void TrackHeaderComponent::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff1a1a2e));
+
+    if (dropHighlightActive)
+    {
+        g.setColour (juce::Colour (0xff06d6a0).withAlpha (0.35f));
+
+        switch (dropHighlightZone)
+        {
+            case EngineHelpers::TrackDropZone::above:
+                g.fillRect (0, 0, getWidth(), getHeight() / 4);
+                g.setColour (juce::Colours::white);
+                g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+                break;
+            case EngineHelpers::TrackDropZone::below:
+                g.fillRect (0, getHeight() * 3 / 4, getWidth(), getHeight() / 4);
+                g.setColour (juce::Colours::white);
+                g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+                break;
+            case EngineHelpers::TrackDropZone::intoFolder:
+                g.fillRect (getWidth() / 4, getHeight() / 4, getWidth() / 2, getHeight() / 2);
+                break;
+            case EngineHelpers::TrackDropZone::promoteTopLevel:
+                g.fillRect (0, 0, EngineHelpers::getTrackIndentLevel (*track) * 12 + 8, getHeight());
+                break;
+        }
+    }
+
     g.setColour (juce::Colours::white.withAlpha (0.2f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 }
@@ -167,12 +283,140 @@ void TrackHeaderComponent::resized()
 
 void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.mods.isLeftButtonDown() && ! e.mods.isPopupMenu())
+    dragStarted = false;
+
+    if (e.mods.isPopupMenu())
+    {
+        editViewState.selectionManager.selectOnly (track.get());
+        showHeaderContextMenu (e.getScreenPosition());
+        return;
+    }
+
+    if (e.mods.isLeftButtonDown())
     {
         editViewState.selectionManager.selectOnly (track.get());
         if (onTrackSelected)
             onTrackSelected (*track);
     }
+}
+
+void TrackHeaderComponent::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragStarted || ! track->isMovable())
+        return;
+
+    if (e.getDistanceFromDragStart() < 6)
+        return;
+
+    dragStarted = true;
+
+    if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+        container->startDragging (EngineHelpers::encodeTrackDrag (track->itemID), this);
+}
+
+EngineHelpers::TrackDropZone TrackHeaderComponent::dropZoneForPosition (juce::Point<int> localPos) const
+{
+    const int indentPx = EngineHelpers::getTrackIndentLevel (*track) * 12;
+
+    if (localPos.x < indentPx + 8)
+        return EngineHelpers::TrackDropZone::promoteTopLevel;
+
+    const float ratio = (float) localPos.y / (float) juce::jmax (1, getHeight());
+
+    if (track->isFolderTrack() && ratio > 0.25f && ratio < 0.75f)
+        return EngineHelpers::TrackDropZone::intoFolder;
+
+    if (ratio < 0.25f)
+        return EngineHelpers::TrackDropZone::above;
+
+    return EngineHelpers::TrackDropZone::below;
+}
+
+void TrackHeaderComponent::moveSelectedTracksToDropZone (EngineHelpers::TrackDropZone zone)
+{
+    auto selected = editViewState.selectionManager.getItemsOfType<te::Track>();
+
+    if (selected.isEmpty())
+        selected.add (track.get());
+
+    for (auto* t : selected)
+    {
+        if (t == nullptr || ! t->isMovable())
+            continue;
+
+        if (! EngineHelpers::canReparentTrack (*t, *track, zone))
+            continue;
+
+        const auto point = EngineHelpers::insertPointForDrop (editViewState.edit, *track, zone);
+        EngineHelpers::moveTrackToInsertPoint (editViewState.edit, *t, point);
+    }
+}
+
+void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPosition)
+{
+    juce::PopupMenu menu;
+    menu.addItem ((int) TimelineMenuResult::moveTrackUp, "Move Up", track->isMovable());
+    menu.addItem ((int) TimelineMenuResult::moveTrackDown, "Move Down", track->isMovable());
+
+    if (track->getParentFolderTrack() != nullptr)
+        menu.addItem ((int) TimelineMenuResult::moveTrackOutOfFolder, "Move Out of Folder");
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
+                        [this] (int result)
+    {
+        switch (static_cast<TimelineMenuResult> (result))
+        {
+            case TimelineMenuResult::moveTrackUp:
+                EngineHelpers::moveTrackBySiblingDelta (*track, -1);
+                break;
+            case TimelineMenuResult::moveTrackDown:
+                EngineHelpers::moveTrackBySiblingDelta (*track, 1);
+                break;
+            case TimelineMenuResult::moveTrackOutOfFolder:
+                EngineHelpers::moveTrackOutOfFolder (*track);
+                break;
+            default:
+                break;
+        }
+    });
+}
+
+bool TrackHeaderComponent::isInterestedInDragSource (const SourceDetails& details)
+{
+    const auto draggedId = EngineHelpers::parseTrackDrag (details.description);
+    return draggedId.isValid() && draggedId != track->itemID;
+}
+
+void TrackHeaderComponent::itemDragEnter (const SourceDetails& details)
+{
+    dropHighlightActive = true;
+    dropHighlightZone = dropZoneForPosition (details.localPosition);
+    repaint();
+}
+
+void TrackHeaderComponent::itemDragMove (const SourceDetails& details)
+{
+    const auto zone = dropZoneForPosition (details.localPosition);
+    if (zone != dropHighlightZone)
+    {
+        dropHighlightZone = zone;
+        repaint();
+    }
+}
+
+void TrackHeaderComponent::itemDragExit (const SourceDetails&)
+{
+    dropHighlightActive = false;
+    repaint();
+}
+
+void TrackHeaderComponent::itemDropped (const SourceDetails& details)
+{
+    dropHighlightActive = false;
+    const auto zone = dropZoneForPosition (details.localPosition);
+    moveSelectedTracksToDropZone (zone);
+    repaint();
 }
 
 void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier& id)
@@ -987,7 +1231,8 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
 
     showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, track.get(),
                              canDragCreateClips() && rangeSelectionActive,
-                             [this] { createMidiClipFromRangeSelection(); });
+                             [this] { createMidiClipFromRangeSelection(); },
+                             nullptr);
 }
 
 void TrackLaneComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -1033,6 +1278,16 @@ void TrackLaneComponent::buildClips()
             {
                 if (onClipDoubleClick)
                     onClipDoubleClick (clipRef);
+            };
+            cc->onCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& ev)
+            {
+                if (onClipCrossTrackDragMove)
+                    onClipCrossTrackDragMove (c, ev);
+            };
+            cc->onCrossTrackDragEnd = [this] (te::Clip& c, const juce::MouseEvent& ev)
+            {
+                if (onClipCrossTrackDragEnd)
+                    onClipCrossTrackDragEnd (c, ev);
             };
 
             clips.add (cc);

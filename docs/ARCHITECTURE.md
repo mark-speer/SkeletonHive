@@ -124,10 +124,13 @@ how they were resolved. They double as guidelines for future work.
    engine behaviour, only presentation. Candidate for removal in Phase 2 in
    favour of pure clip-type inference.
 
-10. **Known deviation — `skeletonHiveClipGroup` property.** Minimal clip grouping
-    is a custom `ValueTree` property (`skeletonHiveClipGroup`, a shared UUID) plus
-    group-aware drag in `ClipComponent`. TE has no first-class clip-group
-    concept, so this is additive, undo-safe, and persists with the edit.
+10. **Known deviation — clip group properties.** Two-tier grouping uses custom
+    `ValueTree` properties: `skeletonHiveClipGroup` (inner group) and
+    `skeletonHiveClipGroupOuter` (super-group spanning multiple inner groups), plus
+    optional `skeletonHiveClipGroupColour`. Group-aware move, resize, duplicate,
+    and cross-track moves use `EngineHelpers::getGroupedPeers()`. TE has no
+    first-class clip-group concept; this is additive, undo-safe, and persists with
+    the edit.
 
 ---
 
@@ -271,10 +274,24 @@ Current state and the reasoning behind it:
 - **Incremental `MixerPanel`** — per-track strip add/remove/reorder without full rebuild.
 - **`UiTelemetryHub`** — consolidated 30 Hz playhead + meter polling.
 
+### Implemented (Phase 2 polish)
+
+- **Nested clip groups** — inner (`skeletonHiveClipGroup`) + outer
+  (`skeletonHiveClipGroupOuter`) tiers; Ctrl+G creates inner or outer group as
+  appropriate; Ctrl+Shift+G removes one level; dual corner tags.
+- **Grouped resize** — resize start/end on any grouped member shifts all peers by
+  the same edge delta; ripple exclusion respects inner and outer ids.
+- **Fade curve type UI** — right-click fade handles or clip menu (Linear / Convex /
+  Concave / S-Curve); Alt+click cycles type; uses TE `setFadeInType` /
+  `setFadeOutType`.
+- **Cross-track clip moves** — vertical drag feedback in `TimelineComponent`;
+  `EngineHelpers::moveClipGroupToTrack()` with validation and group offset.
+- **Folder drag/reparent** — track header drag (`skeletonHiveTrackDrag` payload),
+  drop zones (above / below / into folder / promote), context-menu Move Up/Down/
+  Out of Folder; `Edit::moveTrack` via `EngineHelpers`.
+
 ### Remaining Phase 2 polish (optional)
 
-- Nested clip groups, grouped resize, fade curve type UI, cross-track clip moves.
-- Nested folder drag/reparent UI.
 - Measure UI telemetry at 200+ tracks (lane-level LOD implemented; see Phase 3).
 
 ---

@@ -62,6 +62,7 @@ public:
     void clearRangeSelectionsExcept (TrackLaneComponent* except);
     bool handleKeyPress (const juce::KeyPress& key);
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+    void paintOverChildren (juce::Graphics& g) override;
 
 private:
     void valueTreeChanged() override {}
@@ -94,6 +95,25 @@ private:
     void toggleRippleMode();
     void rippleAfterInsert (te::Clip& originalClip, te::Clip& insertedCopy);
     void rippleAfterDelete (te::ClipTrack& track, te::TimePosition removedStart, te::TimeDuration removedLength);
+
+    void handleClipCrossTrackDragMove (te::Clip& clip, const juce::MouseEvent& e);
+    void handleClipCrossTrackDragEnd (te::Clip& clip, const juce::MouseEvent& e);
+    int trackRowIndexAtContentY (int contentY) const;
+    te::ClipTrack* clipTrackForRowIndex (int rowIndex) const;
+    void paintCrossTrackDropOverlay (juce::Graphics& g);
+    void clearCrossTrackDragState();
+
+    struct CrossTrackDragState
+    {
+        bool active = false;
+        te::EditItemID clipId;
+        int sourceRowIndex = -1;
+        int targetRowIndex = -1;
+        te::TimePosition ghostStart;
+        bool validDrop = false;
+    };
+
+    CrossTrackDragState crossTrackDrag;
 
     te::Edit& edit;
     EditViewState editViewState;

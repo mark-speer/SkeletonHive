@@ -22,6 +22,8 @@ public:
 
     te::Clip& getClip() { return *clip; }
     std::function<void (te::Clip&)> onDoubleClick;
+    std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragMove;
+    std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragEnd;
 
 protected:
     enum class DragMode { none, move, resizeStart, resizeEnd, fadeIn, fadeOut };
@@ -31,6 +33,12 @@ protected:
         te::Clip::Ptr clip;
         te::TimePosition originalStart;
     };
+    struct GroupResizeItem
+    {
+        te::Clip::Ptr clip;
+        te::TimePosition originalStart;
+        te::TimePosition originalEnd;
+    };
     using RippleDragItem = GroupDragItem;
 
     te::TimePosition timeAtLaneX (int laneX) const;
@@ -38,9 +46,15 @@ protected:
     DragMode dragModeForEvent (const juce::MouseEvent& e) const;
     void updateCursorForMode (DragMode mode);
     void captureGroupDragItems();
+    void captureGroupResizeItems();
     void captureRippleDragItems (te::TimePosition anchor);
+    void applyAutoCrossfadeForClip (te::Clip& c) const;
     void paintSelectionAndGroupIndicators (juce::Graphics& g) const;
     TimelineClipDetailLevel getDetailLevel() const;
+    bool isFadeHandleZone (const juce::MouseEvent& e, bool& fadeIn) const;
+    void cycleFadeCurveType (bool fadeIn);
+    void showFadeCurveMenu (bool fadeIn, juce::Point<int> screenPosition);
+    static te::AudioFadeCurve::Type nextFadeCurveType (te::AudioFadeCurve::Type current);
 
     EditViewState& editViewState;
     te::Clip::Ptr clip;
@@ -51,6 +65,7 @@ protected:
     te::TimePosition originalEnd;
     te::TimeDuration originalFadeIn, originalFadeOut;
     juce::Array<GroupDragItem> groupDragItems;
+    juce::Array<GroupResizeItem> groupResizeItems;
     juce::Array<RippleDragItem> rippleDragItems;
 
     static constexpr int resizeHandleWidth = 6;
