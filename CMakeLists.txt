@@ -100,6 +100,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/UiTelemetryHub.cpp
     Source/Engine/SessionManager.h
     Source/Engine/SessionManager.cpp
+    Source/Engine/SessionMidiMapper.h
+    Source/Engine/SessionMidiMapper.cpp
     Source/Engine/SessionArrangementBridge.h
     Source/Engine/SessionArrangementBridge.cpp
     Source/UI/Arrangement/EditViewState.h
@@ -181,6 +183,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Session/SessionGridComponent.cpp
     Source/UI/Session/SessionViewComponent.h
     Source/UI/Session/SessionViewComponent.cpp
+    Source/UI/Session/PerformanceMacroPanel.h
+    Source/UI/Session/PerformanceMacroPanel.cpp
 )
 
 target_compile_definitions(SkeletonHive PRIVATE

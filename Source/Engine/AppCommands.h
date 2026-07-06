@@ -62,6 +62,7 @@ enum
     toggleRecordToArrangement,
     captureSessionToArrangement,
     duplicateSessionLoopToArrangement,
+    togglePerformancePanel,
 };
 } // namespace AppCommandIDs
 

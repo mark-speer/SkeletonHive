@@ -45,6 +45,9 @@ public:
 
     std::function<void()> onToggleRecordToArrangement;
     std::function<void()> onCaptureSession;
+    std::function<void()> onTogglePerformancePanel;
+
+    void setPerformancePanelVisible (bool visible);
 
 private:
     void syncSessionControls();
@@ -67,6 +70,7 @@ private:
     juce::ComboBox sceneLaunchModeBox;
     juce::TextButton recordToArrangementButton { "Rec>" };
     juce::TextButton captureButton { "Capture" };
+    juce::TextButton performanceButton { "Perf" };
     juce::Label writePositionLabel { {}, "Write: 0.0.0" };
 
     juce::TextButton returnButton { "<<" }, playButton { "Play" }, stopButton { "Stop" },

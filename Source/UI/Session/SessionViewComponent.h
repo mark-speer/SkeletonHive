@@ -9,7 +9,7 @@ namespace skeletonhive
 class SessionViewComponent : public juce::Component
 {
 public:
-    SessionViewComponent (SessionManager& session, EditViewState& viewState,
+    SessionViewComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
                           ClipLibraryManager* clipLibrary);
 
     std::function<void (te::EditItemID trackId)> onTrackSelected;

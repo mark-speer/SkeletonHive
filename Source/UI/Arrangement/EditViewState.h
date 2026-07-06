@@ -29,6 +29,28 @@ enum class LaunchQuantization
     eighthBeat
 };
 
+enum class FollowAction
+{
+    none = 0,
+    playNext,
+    playPrevious,
+    playRandom,
+    stop
+};
+
+enum class SessionMidiTrigger
+{
+    noteOn = 0,
+    cc
+};
+
+enum class SessionMidiAction
+{
+    toggleSlot = 0,
+    launchSlot,
+    stopSlot
+};
+
 enum class GridDivision
 {
     Auto = 0,
@@ -70,6 +92,13 @@ namespace IDs
     DECLARE_ID (trackId)
     DECLARE_ID (sceneIndex)
     DECLARE_ID (clipId)
+    DECLARE_ID (followAction)
+    DECLARE_ID (legatoLaunch)
+    DECLARE_ID (SESSIONMIDIMAPPING)
+    DECLARE_ID (triggerType)
+    DECLARE_ID (channel)
+    DECLARE_ID (number)
+    DECLARE_ID (action)
     #undef DECLARE_ID
 }
 

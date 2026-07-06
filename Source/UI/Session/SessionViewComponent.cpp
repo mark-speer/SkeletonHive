@@ -3,10 +3,10 @@
 namespace skeletonhive
 {
 
-SessionViewComponent::SessionViewComponent (SessionManager& session, EditViewState& viewState,
-                                            ClipLibraryManager* clipLibrary)
+SessionViewComponent::SessionViewComponent (SessionManager& session, SessionMidiMapper& midiMapper,
+                                            EditViewState& viewState, ClipLibraryManager* clipLibrary)
 {
-    grid = std::make_unique<SessionGridComponent> (session, viewState, clipLibrary);
+    grid = std::make_unique<SessionGridComponent> (session, midiMapper, viewState, clipLibrary);
     grid->onTrackSelected = [this] (te::EditItemID trackId)
     {
         if (onTrackSelected)

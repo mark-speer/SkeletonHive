@@ -99,6 +99,14 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
             onCaptureSession();
     };
 
+    performanceButton.setClickingTogglesState (true);
+    performanceButton.setTooltip ("Show rack macro performance panel (Alt+P)");
+    performanceButton.onClick = [this]
+    {
+        if (onTogglePerformancePanel)
+            onTogglePerformancePanel();
+    };
+
     writePositionLabel.setJustificationType (juce::Justification::centredLeft);
     writePositionLabel.setFont (juce::FontOptions (10.0f));
 
@@ -187,6 +195,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (sceneLaunchModeBox);
     addAndMakeVisible (recordToArrangementButton);
     addAndMakeVisible (captureButton);
+    addAndMakeVisible (performanceButton);
     addAndMakeVisible (writePositionLabel);
 
     updateSessionControlsVisibility();
@@ -244,6 +253,7 @@ void TransportBar::resized()
         sceneLaunchModeBox.setBounds (row2.removeFromLeft (130).reduced (1));
         recordToArrangementButton.setBounds (row2.removeFromLeft (btnW).reduced (1));
         captureButton.setBounds (row2.removeFromLeft (btnW + 8).reduced (1));
+        performanceButton.setBounds (row2.removeFromLeft (btnW).reduced (1));
         writePositionLabel.setBounds (row2.removeFromLeft (120).reduced (1));
     }
 }
@@ -293,8 +303,14 @@ void TransportBar::updateSessionControlsVisibility()
     sceneLaunchModeBox.setVisible (sessionViewActive);
     recordToArrangementButton.setVisible (sessionViewActive);
     captureButton.setVisible (sessionViewActive);
+    performanceButton.setVisible (sessionViewActive);
     writePositionLabel.setVisible (sessionViewActive);
     viewLabel.setVisible (true);
+}
+
+void TransportBar::setPerformancePanelVisible (bool visible)
+{
+    performanceButton.setToggleState (visible, juce::dontSendNotification);
 }
 
 void TransportBar::syncSessionCaptureControls()

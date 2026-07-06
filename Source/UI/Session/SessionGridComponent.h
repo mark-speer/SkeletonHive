@@ -12,7 +12,7 @@ class SessionGridComponent : public juce::Component,
                              private te::ValueTreeAllEventListener
 {
 public:
-    SessionGridComponent (SessionManager& session, EditViewState& viewState,
+    SessionGridComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
                           ClipLibraryManager* clipLibrary);
 
     static constexpr int slotSize = 80;
@@ -35,6 +35,7 @@ private:
     void resized() override;
 
     SessionManager& sessionManager;
+    SessionMidiMapper& sessionMidiMapper;
     EditViewState& editViewState;
     ClipLibraryManager* clipLibraryManager = nullptr;
 

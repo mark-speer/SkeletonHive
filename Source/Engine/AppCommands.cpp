@@ -41,6 +41,7 @@ void AppCommands::registerAllCommands (juce::ApplicationCommandManager& manager)
     reg (AppCommandIDs::toggleRecordToArrangement, "Record to Arrangement", "Record session launches into the arrangement timeline");
     reg (AppCommandIDs::captureSessionToArrangement, "Capture and Insert", "Capture playing session clips into the arrangement at the write position");
     reg (AppCommandIDs::duplicateSessionLoopToArrangement, "Commit Loop to Arrangement", "Commit a session clip loop to the arrangement timeline");
+    reg (AppCommandIDs::togglePerformancePanel, "Performance Macros", "Show or hide the session performance macro panel");
 
     reg (AppCommandIDs::pluginCopy, "Copy Plugin", "Copy the selected plugin");
     reg (AppCommandIDs::pluginPaste, "Paste Plugin", "Paste a copied plugin");
@@ -113,6 +114,7 @@ void AppCommands::registerDefaultKeyMappings (juce::KeyPressMappingSet& mappings
     mappings.addKeyPress (AppCommandIDs::toggleDetailClip, juce::KeyPress ('c', alt, 0));
     mappings.addKeyPress (AppCommandIDs::toggleMainView, juce::KeyPress (juce::KeyPress::tabKey));
     mappings.addKeyPress (AppCommandIDs::captureSessionToArrangement, juce::KeyPress ('c', shift, 0));
+    mappings.addKeyPress (AppCommandIDs::togglePerformancePanel, juce::KeyPress ('p', alt, 0));
 
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', ctrl, 0));
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', cmd, 0));
@@ -175,6 +177,7 @@ juce::String AppCommands::getCommandName (int commandID)
         case AppCommandIDs::toggleRecordToArrangement: return "Record to Arrangement";
         case AppCommandIDs::captureSessionToArrangement: return "Capture and Insert";
         case AppCommandIDs::duplicateSessionLoopToArrangement: return "Commit Loop to Arrangement";
+        case AppCommandIDs::togglePerformancePanel: return "Performance Macros";
         case AppCommandIDs::pluginCopy: return "Copy Plugin";
         case AppCommandIDs::pluginPaste: return "Paste Plugin";
         case AppCommandIDs::pluginDuplicate: return "Duplicate Plugin";

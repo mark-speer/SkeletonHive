@@ -5,10 +5,11 @@
 namespace skeletonhive
 {
 
-ClipSlotComponent::ClipSlotComponent (SessionManager& session, EditViewState& viewState,
-                                      ClipLibraryManager* clipLibrary, te::EditItemID track,
-                                      int scene)
+ClipSlotComponent::ClipSlotComponent (SessionManager& session, SessionMidiMapper& midiMapper,
+                                      EditViewState& viewState, ClipLibraryManager* clipLibrary,
+                                      te::EditItemID track, int scene)
     : sessionManager (session),
+      sessionMidiMapper (midiMapper),
       editViewState (viewState),
       clipLibraryManager (clipLibrary),
       trackId (track),
@@ -85,6 +86,24 @@ void ClipSlotComponent::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.25f));
         g.setFont (juce::FontOptions (10.0f));
         g.drawText ("+", getLocalBounds(), juce::Justification::centred);
+    }
+
+    const auto followAction = sessionManager.getSlotFollowAction (trackId, sceneIndex);
+    const bool legato = sessionManager.getSlotLegatoLaunch (trackId, sceneIndex);
+    const bool midiMapped = sessionMidiMapper.hasMappingForSlot (trackId, sceneIndex);
+
+    if (followAction != FollowAction::none || legato || midiMapped)
+    {
+        auto badge = getLocalBounds().removeFromTop (10).removeFromRight (10).reduced (2).toFloat();
+        g.setColour (juce::Colours::white.withAlpha (0.75f));
+        g.fillEllipse (badge);
+
+        if (followAction != FollowAction::none)
+        {
+            g.setColour (juce::Colour (0xff1b263b));
+            g.setFont (juce::FontOptions (7.0f));
+            g.drawText ("F", badge.toNearestInt(), juce::Justification::centred);
+        }
     }
 }
 
@@ -172,6 +191,25 @@ void ClipSlotComponent::showContextMenu (juce::Point<int> screenPos)
     menu.addItem (1, "Launch", hasClip);
     menu.addItem (2, "Stop", hasClip && sessionManager.isSlotPlaying (trackId, sceneIndex));
     menu.addSeparator();
+
+    const auto currentFollow = sessionManager.getSlotFollowAction (trackId, sceneIndex);
+    juce::PopupMenu followMenu;
+    followMenu.addItem (10, "None", true, currentFollow == FollowAction::none);
+    followMenu.addItem (11, "Play Next", true, currentFollow == FollowAction::playNext);
+    followMenu.addItem (12, "Play Previous", true, currentFollow == FollowAction::playPrevious);
+    followMenu.addItem (13, "Play Random", true, currentFollow == FollowAction::playRandom);
+    followMenu.addItem (14, "Stop", true, currentFollow == FollowAction::stop);
+    menu.addSubMenu ("Follow Action", followMenu, hasClip);
+
+    menu.addItem (20, "Legato Launch", true, sessionManager.getSlotLegatoLaunch (trackId, sceneIndex));
+
+    menu.addSeparator();
+    menu.addItem (30, "MIDI Learn Launch...", hasClip);
+    menu.addItem (31, "MIDI Learn Toggle...", hasClip);
+    if (sessionMidiMapper.hasMappingForSlot (trackId, sceneIndex))
+        menu.addItem (32, "Remove MIDI Mapping");
+
+    menu.addSeparator();
     menu.addItem (3, "Clear Slot", hasClip);
     menu.addItem (4, "Duplicate to Scene...", hasClip);
     menu.addItem (5, "Commit Loop to Arrangement", hasClip);
@@ -188,6 +226,21 @@ void ClipSlotComponent::showContextMenu (juce::Point<int> screenPos)
             case 5:
                 if (onCommitLoopToArrangement)
                     onCommitLoopToArrangement (trackId, sceneIndex);
+                break;
+            case 10: sessionManager.setSlotFollowAction (trackId, sceneIndex, FollowAction::none); refresh(); break;
+            case 11: sessionManager.setSlotFollowAction (trackId, sceneIndex, FollowAction::playNext); refresh(); break;
+            case 12: sessionManager.setSlotFollowAction (trackId, sceneIndex, FollowAction::playPrevious); refresh(); break;
+            case 13: sessionManager.setSlotFollowAction (trackId, sceneIndex, FollowAction::playRandom); refresh(); break;
+            case 14: sessionManager.setSlotFollowAction (trackId, sceneIndex, FollowAction::stop); refresh(); break;
+            case 20:
+                sessionManager.setSlotLegatoLaunch (trackId, sceneIndex, ! sessionManager.getSlotLegatoLaunch (trackId, sceneIndex));
+                refresh();
+                break;
+            case 30: sessionMidiMapper.armLearn (trackId, sceneIndex, SessionMidiAction::launchSlot); break;
+            case 31: sessionMidiMapper.armLearn (trackId, sceneIndex, SessionMidiAction::toggleSlot); break;
+            case 32:
+                sessionMidiMapper.removeMappingsForSlot (trackId, sceneIndex);
+                refresh();
                 break;
             default: break;
         }

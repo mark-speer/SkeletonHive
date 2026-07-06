@@ -68,11 +68,23 @@ public:
 
     juce::Array<SessionSlotKey> getPlayingSlots() const { return playingSlots; }
 
+    FollowAction getSlotFollowAction (te::EditItemID trackId, int sceneIndex) const;
+    void setSlotFollowAction (te::EditItemID trackId, int sceneIndex, FollowAction action);
+
+    bool getSlotLegatoLaunch (te::EditItemID trackId, int sceneIndex) const;
+    void setSlotLegatoLaunch (te::EditItemID trackId, int sceneIndex, bool enabled);
+
 private:
     struct PendingLaunch
     {
         SessionSlotKey key;
         double targetBeat = 0.0;
+    };
+
+    struct SlotPhaseState
+    {
+        SessionSlotKey key;
+        double lastPhaseBeats = 0.0;
     };
 
     void timerCallback() override;
@@ -85,6 +97,13 @@ private:
 
     void queueLaunch (SessionSlotKey key);
     void executeLaunch (SessionSlotKey key);
+    void processPendingLaunches();
+    void processFollowActions();
+    void dispatchFollowAction (SessionSlotKey key);
+    int findNextLoadedScene (te::EditItemID trackId, int fromScene) const;
+    int findPreviousLoadedScene (te::EditItemID trackId, int fromScene) const;
+    int findRandomLoadedScene (te::EditItemID trackId, int excludeScene) const;
+    double getSlotClipLoopLengthBeats (te::Clip& clip) const;
     void parkOtherClipsOnTrack (te::EditItemID trackId, const juce::String& exceptSlotId);
     void updateTransportLoopForPlayingClips();
     double getCurrentBeat() const;
@@ -103,6 +122,7 @@ private:
 
     juce::Array<SessionSlotKey> playingSlots;
     juce::Array<PendingLaunch> pendingLaunches;
+    juce::Array<SlotPhaseState> slotPhaseStates;
     SessionArrangementBridge* arrangementBridge = nullptr;
 };
 

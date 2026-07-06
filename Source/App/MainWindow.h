@@ -46,7 +46,11 @@
 
 #include "Engine/SessionArrangementBridge.h"
 
+#include "Engine/SessionMidiMapper.h"
+
 #include "UI/Session/SessionViewComponent.h"
+
+#include "UI/Session/PerformanceMacroPanel.h"
 
 
 
@@ -172,6 +176,8 @@ private:
 
     void updateMainViewVisibility();
 
+    void togglePerformancePanel();
+
 
 
     te::Track* resolveFocusedTrack() const;
@@ -206,6 +212,8 @@ private:
 
     std::unique_ptr<SessionArrangementBridge> sessionArrangementBridge;
 
+    std::unique_ptr<SessionMidiMapper> sessionMidiMapper;
+
     std::unique_ptr<PluginScanner> pluginScanner;
 
     std::unique_ptr<PluginStateManager> pluginStateManager;
@@ -227,6 +235,8 @@ private:
     std::unique_ptr<TimelineComponent> timeline;
 
     std::unique_ptr<SessionViewComponent> sessionView;
+
+    std::unique_ptr<PerformanceMacroPanel> performanceMacroPanel;
 
     std::unique_ptr<MixerPanel> mixerPanel;
 
@@ -257,6 +267,8 @@ private:
     bool automationVisible = false;
 
     bool browserVisible = true;
+
+    bool performancePanelVisible = false;
 
     te::EditItemID sessionFocusedTrackId;
     int sessionFocusedSceneIndex = 0;

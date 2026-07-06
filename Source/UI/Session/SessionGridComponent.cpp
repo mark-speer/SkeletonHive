@@ -3,9 +3,10 @@
 namespace skeletonhive
 {
 
-SessionGridComponent::SessionGridComponent (SessionManager& session, EditViewState& viewState,
-                                            ClipLibraryManager* clipLibrary)
+SessionGridComponent::SessionGridComponent (SessionManager& session, SessionMidiMapper& midiMapper,
+                                            EditViewState& viewState, ClipLibraryManager* clipLibrary)
     : sessionManager (session),
+      sessionMidiMapper (midiMapper),
       editViewState (viewState),
       clipLibraryManager (clipLibrary)
 {
@@ -59,8 +60,8 @@ void SessionGridComponent::rebuild()
 
         for (int scene = 0; scene < sceneCount; ++scene)
         {
-            auto* slot = slots.add (new ClipSlotComponent (sessionManager, editViewState, clipLibraryManager,
-                                                          track->itemID, scene));
+            auto* slot = slots.add (new ClipSlotComponent (sessionManager, sessionMidiMapper, editViewState,
+                                                          clipLibraryManager, track->itemID, scene));
             slot->onTrackFocus = [this] (te::EditItemID trackId, int sceneIndex)
             {
                 selectedTrackId = trackId;

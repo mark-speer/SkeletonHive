@@ -727,7 +727,7 @@ SessionArrangementBridge
 `recordToArrangementEnabled`), `TransportBar` capture controls, `AppCommands`,
 `ClipSlotComponent` context menu.
 
-### Tier 3 — Performance features
+### Tier 3 — Performance features (implemented)
 
 - **Follow actions** — per slot: None | Play Next | Play Previous | Play Random
   | Stop.
@@ -779,7 +779,7 @@ performance into the arrangement, and have the result look hand-arranged.
 | 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
 | 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
-| 8 | Tier 1–2 done | Session grid, scenes, launch quantize, arrangement bridge | Session View |
+| 8 | Tier 1–3 done | Session grid, scenes, launch quantize, arrangement bridge, performance features | Session View |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
 Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).

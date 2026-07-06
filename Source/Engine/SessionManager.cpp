@@ -26,6 +26,19 @@ double quantizeIntervalBeats (LaunchQuantization q, const te::Edit& edit, te::Ti
 
     return barBeats;
 }
+
+double getSessionClipLoopLengthBeats (const te::Clip& clip)
+{
+    if (auto* audio = dynamic_cast<const te::AudioClipBase*> (&clip))
+    {
+        const auto loopRange = audio->getLoopRangeBeats();
+        const double loopLen = loopRange.getLength().inBeats();
+        if (loopLen > 0.0)
+            return loopLen;
+    }
+
+    return clip.edit.tempoSequence.toBeats (clip.getPosition().time).getLength().inBeats();
+}
 } // namespace
 
 SessionManager::SessionManager (te::Edit& e, EditViewState& viewState, TransportController& transport)
@@ -109,8 +122,43 @@ juce::ValueTree SessionManager::findOrCreateSlotTree (te::EditItemID trackId, in
     slot.setProperty (IDs::trackId, (juce::int64) trackId.getRawID(), &edit.getUndoManager());
     slot.setProperty (IDs::sceneIndex, sceneIndex, &edit.getUndoManager());
     slot.setProperty (IDs::clipId, (juce::int64) 0, &edit.getUndoManager());
+    slot.setProperty (IDs::followAction, (int) FollowAction::none, &edit.getUndoManager());
+    slot.setProperty (IDs::legatoLaunch, false, &edit.getUndoManager());
     editViewState.sessionState.appendChild (slot, &edit.getUndoManager());
     return slot;
+}
+
+FollowAction SessionManager::getSlotFollowAction (te::EditItemID trackId, int sceneIndex) const
+{
+    const auto slot = findSlotTree (trackId, sceneIndex);
+    if (! slot.isValid())
+        return FollowAction::none;
+
+    return static_cast<FollowAction> (juce::jlimit (0, (int) FollowAction::stop,
+                                                    (int) slot.getProperty (IDs::followAction, (int) FollowAction::none)));
+}
+
+void SessionManager::setSlotFollowAction (te::EditItemID trackId, int sceneIndex, FollowAction action)
+{
+    auto slot = findOrCreateSlotTree (trackId, sceneIndex);
+    slot.setProperty (IDs::followAction, (int) action, &edit.getUndoManager());
+    sendChangeMessage();
+}
+
+bool SessionManager::getSlotLegatoLaunch (te::EditItemID trackId, int sceneIndex) const
+{
+    const auto slot = findSlotTree (trackId, sceneIndex);
+    if (! slot.isValid())
+        return false;
+
+    return (bool) slot.getProperty (IDs::legatoLaunch, false);
+}
+
+void SessionManager::setSlotLegatoLaunch (te::EditItemID trackId, int sceneIndex, bool enabled)
+{
+    auto slot = findOrCreateSlotTree (trackId, sceneIndex);
+    slot.setProperty (IDs::legatoLaunch, enabled, &edit.getUndoManager());
+    sendChangeMessage();
 }
 
 te::EditItemID SessionManager::getSlotClipId (te::EditItemID trackId, int sceneIndex) const
@@ -307,6 +355,14 @@ void SessionManager::executeLaunch (SessionSlotKey key)
     if (clip == nullptr)
         return;
 
+    if (isSlotPlaying (key.trackId, key.sceneIndex) && getSlotLegatoLaunch (key.trackId, key.sceneIndex))
+    {
+        playingSlots.addIfNotAlreadyThere (key);
+        updateTransportLoopForPlayingClips();
+        sendChangeMessage();
+        return;
+    }
+
     const auto slotId = EngineHelpers::makeSessionSlotId (key.trackId, key.sceneIndex);
     parkOtherClipsOnTrack (key.trackId, slotId);
     EngineHelpers::activateSessionClipAtStart (*clip);
@@ -323,6 +379,12 @@ void SessionManager::executeLaunch (SessionSlotKey key)
 
     if (arrangementBridge != nullptr)
         arrangementBridge->onSlotLaunched (key);
+
+    for (int i = slotPhaseStates.size(); --i >= 0;)
+    {
+        if (slotPhaseStates.getReference (i).key == key)
+            slotPhaseStates.remove (i);
+    }
 
     sendChangeMessage();
 }
@@ -370,6 +432,12 @@ void SessionManager::stopSlot (te::EditItemID trackId, int sceneIndex)
     if (auto* clip = getSlotClip (trackId, sceneIndex))
         EngineHelpers::parkSessionClip (*clip);
 
+    for (int i = slotPhaseStates.size(); --i >= 0;)
+    {
+        if (slotPhaseStates.getReference (i).key == key)
+            slotPhaseStates.remove (i);
+    }
+
     if (arrangementBridge != nullptr)
         arrangementBridge->onSlotStopped (key);
 
@@ -379,6 +447,173 @@ void SessionManager::stopSlot (te::EditItemID trackId, int sceneIndex)
         updateTransportLoopForPlayingClips();
 
     sendChangeMessage();
+}
+
+double SessionManager::getSlotClipLoopLengthBeats (te::Clip& clip) const
+{
+    return getSessionClipLoopLengthBeats (clip);
+}
+
+int SessionManager::findNextLoadedScene (te::EditItemID trackId, int fromScene) const
+{
+    for (int s = fromScene + 1; s < getSceneCount(); ++s)
+        if (getSlotClip (trackId, s) != nullptr)
+            return s;
+
+    return -1;
+}
+
+int SessionManager::findPreviousLoadedScene (te::EditItemID trackId, int fromScene) const
+{
+    for (int s = fromScene - 1; s >= 0; --s)
+        if (getSlotClip (trackId, s) != nullptr)
+            return s;
+
+    return -1;
+}
+
+int SessionManager::findRandomLoadedScene (te::EditItemID trackId, int excludeScene) const
+{
+    juce::Array<int> candidates;
+
+    for (int s = 0; s < getSceneCount(); ++s)
+    {
+        if (s != excludeScene && getSlotClip (trackId, s) != nullptr)
+            candidates.add (s);
+    }
+
+    if (candidates.isEmpty())
+        return -1;
+
+    return candidates[juce::Random::getSystemRandom().nextInt (candidates.size())];
+}
+
+void SessionManager::dispatchFollowAction (SessionSlotKey key)
+{
+    switch (getSlotFollowAction (key.trackId, key.sceneIndex))
+    {
+        case FollowAction::none:
+            return;
+
+        case FollowAction::stop:
+            stopSlot (key.trackId, key.sceneIndex);
+            return;
+
+        case FollowAction::playNext:
+        {
+            const int nextScene = findNextLoadedScene (key.trackId, key.sceneIndex);
+            stopSlot (key.trackId, key.sceneIndex);
+
+            if (nextScene >= 0)
+                queueLaunch ({ key.trackId, nextScene });
+
+            return;
+        }
+
+        case FollowAction::playPrevious:
+        {
+            const int prevScene = findPreviousLoadedScene (key.trackId, key.sceneIndex);
+            stopSlot (key.trackId, key.sceneIndex);
+
+            if (prevScene >= 0)
+                queueLaunch ({ key.trackId, prevScene });
+
+            return;
+        }
+
+        case FollowAction::playRandom:
+        {
+            const int randomScene = findRandomLoadedScene (key.trackId, key.sceneIndex);
+            stopSlot (key.trackId, key.sceneIndex);
+
+            if (randomScene >= 0)
+                queueLaunch ({ key.trackId, randomScene });
+
+            return;
+        }
+
+        default:
+            break;
+    }
+}
+
+void SessionManager::processFollowActions()
+{
+    if (! transportController.isPlaying() || playingSlots.isEmpty())
+        return;
+
+    const double currentBeat = getCurrentBeat();
+
+    for (const auto& key : playingSlots)
+    {
+        auto* clip = getSlotClip (key.trackId, key.sceneIndex);
+        if (clip == nullptr)
+            continue;
+
+        const auto action = getSlotFollowAction (key.trackId, key.sceneIndex);
+        if (action == FollowAction::none)
+            continue;
+
+        const double loopLen = getSlotClipLoopLengthBeats (*clip);
+        if (loopLen <= 0.0)
+            continue;
+
+        const double phase = std::fmod (currentBeat, loopLen);
+        const double highThreshold = loopLen * 0.75;
+        const double lowThreshold = loopLen * 0.25;
+
+        double lastPhase = 0.0;
+        bool found = false;
+
+        for (auto& state : slotPhaseStates)
+        {
+            if (state.key == key)
+            {
+                lastPhase = state.lastPhaseBeats;
+                state.lastPhaseBeats = phase;
+                found = true;
+                break;
+            }
+        }
+
+        if (! found)
+        {
+            SlotPhaseState state;
+            state.key = key;
+            state.lastPhaseBeats = phase;
+            slotPhaseStates.add (state);
+            continue;
+        }
+
+        if (lastPhase > highThreshold && phase <= lowThreshold)
+            dispatchFollowAction (key);
+    }
+}
+
+void SessionManager::processPendingLaunches()
+{
+    if (pendingLaunches.isEmpty())
+        return;
+
+    const double currentBeat = getCurrentBeat();
+    juce::Array<SessionSlotKey> ready;
+
+    for (const auto& pending : pendingLaunches)
+    {
+        if (currentBeat + 0.001 >= pending.targetBeat)
+            ready.addIfNotAlreadyThere (pending.key);
+    }
+
+    for (const auto& key : ready)
+    {
+        for (int i = pendingLaunches.size(); --i >= 0;)
+        {
+            if (pendingLaunches.getReference (i).key == key)
+                pendingLaunches.remove (i);
+        }
+
+        executeLaunch (key);
+    }
 }
 
 void SessionManager::toggleSlot (te::EditItemID trackId, int sceneIndex)
@@ -431,28 +666,8 @@ void SessionManager::stopAll()
 
 void SessionManager::timerCallback()
 {
-    if (pendingLaunches.isEmpty())
-        return;
-
-    const double currentBeat = getCurrentBeat();
-    juce::Array<SessionSlotKey> ready;
-
-    for (const auto& pending : pendingLaunches)
-    {
-        if (currentBeat + 0.001 >= pending.targetBeat)
-            ready.addIfNotAlreadyThere (pending.key);
-    }
-
-    for (const auto& key : ready)
-    {
-        for (int i = pendingLaunches.size(); --i >= 0;)
-        {
-            if (pendingLaunches.getReference (i).key == key)
-                pendingLaunches.remove (i);
-        }
-
-        executeLaunch (key);
-    }
+    processPendingLaunches();
+    processFollowActions();
 }
 
 void SessionManager::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -475,6 +690,7 @@ void SessionManager::changeListenerCallback (juce::ChangeBroadcaster*)
 
         playingSlots.clear();
         pendingLaunches.clear();
+        slotPhaseStates.clear();
         sendChangeMessage();
     }
 }

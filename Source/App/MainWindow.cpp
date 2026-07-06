@@ -117,7 +117,9 @@ void MainContentComponent::releaseEditUI()
     timeline = nullptr;
     sessionView = nullptr;
     sessionManager = nullptr;
+    sessionMidiMapper = nullptr;
     sessionArrangementBridge = nullptr;
+    performanceMacroPanel = nullptr;
     transportBar = nullptr;
     transportController = nullptr;
 }
@@ -138,8 +140,10 @@ void MainContentComponent::rebuildEditUI()
     sessionArrangementBridge = std::make_unique<SessionArrangementBridge> (*edit, timeline->getEditViewState(),
                                                                           *sessionManager, *transportController);
     sessionManager->setArrangementBridge (sessionArrangementBridge.get());
-    sessionView = std::make_unique<SessionViewComponent> (*sessionManager, timeline->getEditViewState(),
-                                                          clipLibraryManager.get());
+    sessionMidiMapper = std::make_unique<SessionMidiMapper> (*edit, timeline->getEditViewState(), *sessionManager);
+    sessionView = std::make_unique<SessionViewComponent> (*sessionManager, *sessionMidiMapper,
+                                                          timeline->getEditViewState(), clipLibraryManager.get());
+    performanceMacroPanel = std::make_unique<PerformanceMacroPanel> (*edit, timeline->getEditViewState());
     mixerPanel = std::make_unique<MixerPanel> (*edit, telemetryHub.get());
     sidechainPanel = std::make_unique<SidechainMatrixPanel> (*edit);
     automationPanel = std::make_unique<AutomationPanel> (*edit, timeline->getEditViewState());
@@ -224,6 +228,8 @@ void MainContentComponent::rebuildEditUI()
     {
         sessionFocusedTrackId = trackId;
         sessionFocusedSceneIndex = sceneIndex;
+        if (performanceMacroPanel != nullptr)
+            performanceMacroPanel->setFocusedTrack (trackId);
         syncRoamingFocus();
     };
 
@@ -260,6 +266,16 @@ void MainContentComponent::rebuildEditUI()
         if (timeline != nullptr)
             timeline->rebuildTracks();
     };
+
+    transportBar->onTogglePerformancePanel = [this] { togglePerformancePanel(); };
+
+    sessionMidiMapper->onStatusChanged = [this] { updateLearnStatus(); };
+
+    if (performanceMacroPanel != nullptr)
+    {
+        performanceMacroPanel->setVisible (false);
+        addAndMakeVisible (*performanceMacroPanel);
+    }
 
     if (auto* tray = getPluginTray())
     {
@@ -712,6 +728,10 @@ void MainContentComponent::resized()
     if (sessionMode)
     {
         timeline->setVisible (false);
+
+        if (performancePanelVisible && performanceMacroPanel != nullptr)
+            performanceMacroPanel->setBounds (r.removeFromBottom (PerformanceMacroPanel::preferredHeight));
+
         if (sessionView != nullptr)
         {
             sessionView->setVisible (true);
@@ -722,6 +742,9 @@ void MainContentComponent::resized()
     {
         if (sessionView != nullptr)
             sessionView->setVisible (false);
+
+        if (performanceMacroPanel != nullptr)
+            performanceMacroPanel->setVisible (false);
 
         timeline->setVisible (true);
         timeline->setBounds (r);
@@ -761,8 +784,35 @@ void MainContentComponent::updateMainViewVisibility()
     if (sessionView != nullptr)
         sessionView->setVisible (sessionMode);
 
+    if (! sessionMode)
+    {
+        performancePanelVisible = false;
+
+        if (performanceMacroPanel != nullptr)
+            performanceMacroPanel->setVisible (false);
+
+        if (transportBar != nullptr)
+            transportBar->setPerformancePanelVisible (false);
+    }
+
     if (timeline != nullptr)
         timeline->setVisible (! sessionMode);
+}
+
+void MainContentComponent::togglePerformancePanel()
+{
+    if (timeline == nullptr || timeline->getEditViewState().getMainView() != MainView::session)
+        return;
+
+    performancePanelVisible = ! performancePanelVisible;
+
+    if (performanceMacroPanel != nullptr)
+        performanceMacroPanel->setVisible (performancePanelVisible);
+
+    if (transportBar != nullptr)
+        transportBar->setPerformancePanelVisible (performancePanelVisible);
+
+    resized();
 }
 
 bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
@@ -820,6 +870,7 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
         AppCommandIDs::toggleRecordToArrangement,
         AppCommandIDs::captureSessionToArrangement,
         AppCommandIDs::duplicateSessionLoopToArrangement,
+        AppCommandIDs::togglePerformancePanel,
         AppCommandIDs::pluginCopy,
         AppCommandIDs::pluginPaste,
         AppCommandIDs::pluginDuplicate,
@@ -1029,6 +1080,9 @@ bool MainContentComponent::perform (const InvocationInfo& info)
             }
             break;
         }
+        case AppCommandIDs::togglePerformancePanel:
+            togglePerformancePanel();
+            return true;
         default:
             break;
     }
@@ -1092,6 +1146,9 @@ void MainContentComponent::toggleBrowserPanel()
 
 void MainContentComponent::toggleMidiLearn()
 {
+    if (sessionMidiMapper != nullptr)
+        sessionMidiMapper->cancelLearn();
+
     midiLearnController.setActive (! midiLearnController.isActive());
     updateLearnStatus();
 }
@@ -1101,17 +1158,19 @@ void MainContentComponent::updateLearnStatus()
     if (transportBar != nullptr)
         transportBar->setLearnModeActive (midiLearnController.isActive());
 
-    if (auto* edit = projectManager.getEdit())
+    juce::String text;
+
+    if (sessionMidiMapper != nullptr)
+        text = sessionMidiMapper->getStatusText();
+
+    if (text.isEmpty())
     {
-        const auto text = midiLearnController.getStatusText (*edit);
-        learnStatusLabel.setText (text, juce::dontSendNotification);
-        learnStatusLabel.setVisible (text.isNotEmpty());
-    }
-    else
-    {
-        learnStatusLabel.setVisible (false);
+        if (auto* edit = projectManager.getEdit())
+            text = midiLearnController.getStatusText (*edit);
     }
 
+    learnStatusLabel.setText (text, juce::dontSendNotification);
+    learnStatusLabel.setVisible (text.isNotEmpty());
     resized();
 }
 

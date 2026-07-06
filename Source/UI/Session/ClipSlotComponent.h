@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/SessionManager.h"
+#include "Engine/SessionMidiMapper.h"
 #include "Engine/ClipLibraryManager.h"
 #include "UI/Arrangement/EditViewState.h"
 
@@ -20,7 +21,7 @@ class ClipSlotComponent : public juce::Component,
                           private juce::ChangeListener
 {
 public:
-    ClipSlotComponent (SessionManager& session, EditViewState& viewState,
+    ClipSlotComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
                        ClipLibraryManager* clipLibrary, te::EditItemID trackId, int sceneIndex);
 
     void refresh();
@@ -52,6 +53,7 @@ private:
     te::ClipTrack* getTrack() const;
 
     SessionManager& sessionManager;
+    SessionMidiMapper& sessionMidiMapper;
     EditViewState& editViewState;
     ClipLibraryManager* clipLibraryManager = nullptr;
     te::EditItemID trackId;
