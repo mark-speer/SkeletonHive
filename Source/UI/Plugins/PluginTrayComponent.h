@@ -29,7 +29,7 @@ public:
 
     void setOnAddPlugin (std::function<void (te::Track&)> fn) { onAddPlugin = std::move (fn); }
 
-    bool handleKeyPress (const juce::KeyPress& key);
+    bool performCommand (int commandID);
     void resized() override;
     void paint (juce::Graphics& g) override;
 

@@ -3,6 +3,7 @@
 #include "Engine/MultiOutputRouting.h"
 #include "Engine/PluginDragManager.h"
 #include "Engine/PluginPresetManager.h"
+#include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/TrackComponents.h"
 #include "UI/Routing/SidechainMenu.h"
 
@@ -188,15 +189,17 @@ void PluginSlotComponent::paint (juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat().reduced (1.0f);
     const bool instrument = EngineHelpers::isInstrumentPlugin (*plugin);
     const bool rackInstance = dynamic_cast<te::RackInstance*> (plugin.get()) != nullptr;
-    auto baseColour = instrument ? juce::Colour (0xff5a189a) : juce::Colour (0xff1d3557);
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    auto baseColour = instrument ? AppColours::pluginSlotInstrument (theme)
+                                 : AppColours::pluginSlotEffect (theme);
 
     if (loadState == EngineHelpers::PluginLoadState::failed)
-        baseColour = juce::Colour (0xff9b2226);
+        baseColour = AppColours::pluginSlotFailed (theme);
     else if (loadState == EngineHelpers::PluginLoadState::loading)
-        baseColour = juce::Colour (0xffca6702);
+        baseColour = AppColours::pluginSlotLoading (theme);
 
     if (rackInstance)
-        baseColour = juce::Colour (0xff4a4e69);
+        baseColour = AppColours::pluginSlotBypassed (theme);
     if (nestedInRack)
         baseColour = baseColour.brighter (0.08f);
 

@@ -17,6 +17,12 @@ struct EngineHelpers
 
     static void showAudioDeviceSettings (te::Engine& engine);
 
+    static void startParameterMidiLearn (te::Edit& edit, te::AutomatableParameter& parameter);
+    static void removeParameterMidiMapping (te::Edit& edit, te::AutomatableParameter& parameter);
+    static bool isParameterMidiMapped (te::Edit& edit, te::AutomatableParameter& parameter);
+    static void setMidiLearnActive (te::Engine& engine, te::Edit& edit, bool active);
+    static bool isMidiLearnActive (te::Engine& engine);
+
     static void browseForAudioFile (te::Engine& engine, std::function<void (const juce::File&)> callback);
 
     static te::AudioTrack* getOrInsertAudioTrackAt (te::Edit& edit, int index);

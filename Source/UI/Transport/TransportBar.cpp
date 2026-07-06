@@ -60,12 +60,16 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAudioButton.onClick = [this] { if (onAddAudioTrack) onAddAudioTrack(); };
     addMidiButton.onClick = [this] { if (onAddMidiTrack) onAddMidiTrack(); };
     addClipButton.onClick = [this] { if (onAddMidiClip) onAddMidiClip(); };
-    settingsButton.onClick = [this] { if (onAudioSettings) onAudioSettings(); };
+    settingsButton.onClick = [this] { if (onShowPreferences) onShowPreferences(); else if (onAudioSettings) onAudioSettings(); };
     pluginsButton.onClick = [this] { if (onScanPlugins) onScanPlugins(); };
     mixerButton.onClick = [this] { if (onToggleMixer) onToggleMixer(); };
     sidechainButton.onClick = [this] { if (onToggleSidechain) onToggleSidechain(); };
     automationButton.setTooltip ("Show/hide the automation panel for the selected track");
     automationButton.onClick = [this] { if (onToggleAutomation) onToggleAutomation(); };
+
+    learnButton.setClickingTogglesState (true);
+    learnButton.setTooltip ("MIDI learn mode — adjust a control, then move a MIDI controller");
+    learnButton.onClick = [this] { if (onToggleMidiLearn) onToggleMidiLearn(); };
 
     tempoSlider.setRange (20.0, 300.0, 0.1);
     tempoSlider.setValue (transportController.getTempo(), juce::dontSendNotification);
@@ -111,6 +115,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (mixerButton);
     addAndMakeVisible (sidechainButton);
     addAndMakeVisible (automationButton);
+    addAndMakeVisible (learnButton);
     addAndMakeVisible (clickButton);
     addAndMakeVisible (clickVolumeSlider);
     addAndMakeVisible (countInBox);
@@ -152,7 +157,7 @@ void TransportBar::resized()
 
     auto row2 = r.removeFromTop (h);
     for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton, &settingsButton, &pluginsButton,
-                       &mixerButton, &sidechainButton, &automationButton })
+                       &mixerButton, &sidechainButton, &automationButton, &learnButton })
     {
         btn->setBounds (row2.removeFromLeft (btnW + 10).reduced (1));
     }
@@ -193,6 +198,13 @@ void TransportBar::updateButtonStates()
     loopButton.setToggleState (transportController.isLooping(), juce::dontSendNotification);
     punchButton.setToggleState (transportController.isPunchInEnabled(), juce::dontSendNotification);
     clickButton.setToggleState (transportController.isClickEnabled(), juce::dontSendNotification);
+}
+
+void TransportBar::setLearnModeActive (bool active)
+{
+    learnButton.setToggleState (active, juce::dontSendNotification);
+    learnButton.setColour (juce::TextButton::buttonColourId,
+                           active ? juce::Colour (0xffca6702) : findColour (juce::TextButton::buttonColourId));
 }
 
 } // namespace skeletonhive

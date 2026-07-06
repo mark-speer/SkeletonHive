@@ -13,6 +13,8 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Parameter automation (Read / Touch / Latch) with editable lanes
 - Arrangement markers and tempo/time-signature map editing
 - Track freeze
+- Customizable keyboard shortcuts and preferences (theme, autosave, audio)
+- MIDI controller learn for mixer fader/pan parameters
 - Project save/load (`.tracktionedit` format) with autosave and crash recovery
 
 ## Requirements

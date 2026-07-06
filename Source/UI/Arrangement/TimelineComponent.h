@@ -77,6 +77,7 @@ public:
 
     void rebuildTracks();
     void clearRangeSelectionsExcept (TrackLaneComponent* except);
+    bool performCommand (int commandID);
     bool handleKeyPress (const juce::KeyPress& key);
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
     void paintOverChildren (juce::Graphics& g) override;

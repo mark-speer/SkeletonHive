@@ -9,6 +9,7 @@
 #include "UI/Routing/SidechainMatrixPanel.h"
 #include "Engine/PluginStateManager.h"
 #include "Engine/SidechainRouting.h"
+#include "Engine/AppCommands.h"
 #include "UI/Midi/PianoRollEditor.h"
 #include "UI/Automation/AutomationPanel.h"
 #include "Engine/EngineHelpers.h"
@@ -19,8 +20,10 @@ namespace skeletonhive
 
 class MainContentComponent : public juce::Component,
                              public juce::DragAndDropContainer,
+                             public juce::ApplicationCommandTarget,
                              private juce::KeyListener,
-                             private juce::Timer
+                             private juce::Timer,
+                             private juce::ChangeListener
 {
 public:
     MainContentComponent (SkeletonHiveApplication& app);
@@ -29,15 +32,24 @@ public:
     void prepareForShutdown();
     bool confirmQuit (juce::Component* parent);
 
+    juce::ApplicationCommandManager& getCommandManager() { return commandManager; }
+
 private:
     void resized() override;
     bool keyPressed (const juce::KeyPress& key, juce::Component* originatingComponent) override;
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
+    ApplicationCommandTarget* getNextCommandTarget() override;
+    void getAllCommands (juce::Array<juce::CommandID>& commands) override;
+    void getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result) override;
+    bool perform (const InvocationInfo& info) override;
 
     void createDefaultProject();
     void releaseEditUI();
     void rebuildEditUI();
     void updateWindowTitle();
+    void updateLearnStatus();
     void handleNewProject();
     void handleOpenProject();
     void handleSaveProject();
@@ -50,14 +62,23 @@ private:
     void handleClipDoubleClick (te::Clip& clip);
     void handleAddPlugin (te::Track& track);
     void showPianoRoll (te::MidiClip& clip);
+    void showPreferences();
     void toggleMixer();
     void toggleSidechainPanel();
     void showSidechainPanelForPlugin (te::Plugin* plugin);
     void toggleAutomationPanel();
+    void toggleMidiLearn();
+
+    PianoRollEditor* getActivePianoRollEditor() const;
+    bool isPluginTrayContext() const;
 
     SkeletonHiveApplication& application;
     te::Engine& engine;
     ProjectManager& projectManager;
+    AppSettings& appSettings;
+    MidiLearnController& midiLearnController;
+
+    juce::ApplicationCommandManager commandManager;
     std::unique_ptr<TransportController> transportController;
     std::unique_ptr<PluginScanner> pluginScanner;
     std::unique_ptr<PluginStateManager> pluginStateManager;
@@ -71,7 +92,10 @@ private:
     std::unique_ptr<SidechainMatrixPanel> sidechainPanel;
 
     std::unique_ptr<juce::DocumentWindow> pianoRollWindow;
+    PianoRollEditor* pianoRollEditor = nullptr;
     std::unique_ptr<AutomationPanel> automationPanel;
+
+    juce::Label learnStatusLabel;
 
     bool mixerVisible = false;
     bool sidechainVisible = false;

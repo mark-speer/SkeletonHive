@@ -1,4 +1,5 @@
 #include "PianoRollEditor.h"
+#include "Engine/AppCommands.h"
 #include "UI/Arrangement/TimelineGrid.h"
 #include "TracktionCommon.h"
 
@@ -1191,94 +1192,76 @@ void PianoRollEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::Mou
 //==============================================================================
 // Keyboard shortcuts
 
+bool PianoRollEditor::performCommand (int commandID, juce::ModifierKeys mods)
+{
+    using namespace AppCommandIDs;
+
+    switch (commandID)
+    {
+        case pianoDeleteNotes:
+            deleteSelectedNotes();
+            return true;
+        case pianoSelectAll:
+            selectAllNotes();
+            return true;
+        case pianoDuplicateNotes:
+            duplicateSelectedNotes();
+            return true;
+        case pianoQuantize:
+            quantiseNotes();
+            return true;
+        case pianoHumanize:
+            humaniseNotes();
+            return true;
+        case pianoToggleFold:
+            foldButton.setToggleState (! foldButton.getToggleState(), juce::dontSendNotification);
+            rebuildFoldedPitches();
+            repaint();
+            return true;
+        case pianoToggleScaleSnap:
+            scaleSnapButton.setToggleState (! scaleSnapButton.getToggleState(), juce::dontSendNotification);
+            return true;
+        case pianoToggleDrawTool:
+            drawButton.setToggleState (! drawButton.getToggleState(), juce::sendNotification);
+            return true;
+        case pianoToggleStepTool:
+            stepButton.setToggleState (! stepButton.getToggleState(), juce::sendNotification);
+            return true;
+        case pianoEscape:
+            selection.clearQuick();
+            repaint();
+            return true;
+        case pianoNudgeLeft:
+            nudgeSelectedNotes (-gridIntervalBeats(), 0);
+            return true;
+        case pianoNudgeRight:
+            nudgeSelectedNotes (gridIntervalBeats(), 0);
+            return true;
+        case pianoNudgeUp:
+            nudgeSelectedNotes (0.0, mods.isShiftDown() ? 12 : 1);
+            return true;
+        case pianoNudgeDown:
+            nudgeSelectedNotes (0.0, mods.isShiftDown() ? -12 : -1);
+            return true;
+        case pianoStepRest:
+            if (stepButton.getToggleState())
+            {
+                chordStagingPitches.clear();
+                stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
+                repaint (gridBounds);
+                return true;
+            }
+            return false;
+        default:
+            break;
+    }
+
+    return false;
+}
+
 bool PianoRollEditor::keyPressed (const juce::KeyPress& key)
 {
-    const auto mods = key.getModifiers();
-
-    if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
-    {
-        deleteSelectedNotes();
-        return true;
-    }
-    if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0)
-        || key == juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 0))
-    {
-        selectAllNotes();
-        return true;
-    }
-    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)
-        || key == juce::KeyPress ('d', juce::ModifierKeys::ctrlModifier, 0))
-    {
-        duplicateSelectedNotes();
-        return true;
-    }
-    if (key.getKeyCode() == 'Q' || key.getKeyCode() == 'q')
-    {
-        quantiseNotes();
-        return true;
-    }
-    if (key.getKeyCode() == 'H' || key.getKeyCode() == 'h')
-    {
-        humaniseNotes();
-        return true;
-    }
-    if (key.getKeyCode() == 'F' || key.getKeyCode() == 'f')
-    {
-        foldButton.setToggleState (! foldButton.getToggleState(), juce::dontSendNotification);
-        rebuildFoldedPitches();
-        repaint();
-        return true;
-    }
-    if (key.getKeyCode() == 'S' || key.getKeyCode() == 's')
-    {
-        scaleSnapButton.setToggleState (! scaleSnapButton.getToggleState(), juce::dontSendNotification);
-        return true;
-    }
-    if (key.getKeyCode() == 'D' || key.getKeyCode() == 'd')
-    {
-        drawButton.setToggleState (! drawButton.getToggleState(), juce::sendNotification);
-        return true;
-    }
-    if (key.getKeyCode() == 'T' || key.getKeyCode() == 't')
-    {
-        stepButton.setToggleState (! stepButton.getToggleState(), juce::sendNotification);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::spaceKey && stepButton.getToggleState())
-    {
-        // Rest: advance the step cursor without inserting a note.
-        chordStagingPitches.clear();
-        stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
-        repaint (gridBounds);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::escapeKey)
-    {
-        selection.clearQuick();
-        repaint();
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::leftKey)
-    {
-        nudgeSelectedNotes (-gridIntervalBeats(), 0);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::rightKey)
-    {
-        nudgeSelectedNotes (gridIntervalBeats(), 0);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::upKey)
-    {
-        nudgeSelectedNotes (0.0, mods.isShiftDown() ? 12 : 1);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::downKey)
-    {
-        nudgeSelectedNotes (0.0, mods.isShiftDown() ? -12 : -1);
-        return true;
-    }
-
+    juce::ignoreUnused (key);
     return false;
 }
 

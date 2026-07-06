@@ -1,4 +1,5 @@
 #include "AutomationPanel.h"
+#include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
 {
@@ -206,7 +207,7 @@ void AutomationPanel::resized()
 
 void AutomationPanel::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff101a33));
+    g.fillAll (AppColours::automationPanelBackground (AppLookAndFeel::getCurrentTheme()));
 
     if (track == nullptr)
     {

@@ -42,6 +42,7 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent& e) override;
 
 private:
     class SendControlRow;
@@ -50,6 +51,7 @@ private:
     void refreshSendControls();
     void updateFromModel();
     void showAddSendMenu();
+    void showParameterContextMenu (te::AutomatableParameter& param, juce::Component& target);
 
     te::Edit& edit;
     te::Track* track = nullptr;   // nullptr for the master strip

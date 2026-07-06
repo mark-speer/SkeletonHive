@@ -153,10 +153,12 @@ void ChannelStrip::initialise()
     fader.setSliderStyle (juce::Slider::LinearVertical);
     fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     fader.setRange (0.0, 1.0, 0.001);
+    fader.addMouseListener (this, false);
 
     panSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     panSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     panSlider.setRange (-1.0, 1.0, 0.01);
+    panSlider.addMouseListener (this, false);
 
     if (volumePlugin != nullptr)
     {
@@ -270,6 +272,34 @@ void ChannelStrip::updateFromModel()
                               solo ? juce::Colours::gold : findColour (juce::TextButton::buttonColourId));
         soloButton.setToggleState (solo, juce::dontSendNotification);
     }
+}
+
+void ChannelStrip::showParameterContextMenu (te::AutomatableParameter& param, juce::Component& target)
+{
+    juce::PopupMenu menu;
+    menu.addItem (1, "MIDI Learn...");
+    if (EngineHelpers::isParameterMidiMapped (edit, param))
+        menu.addItem (2, "Remove MIDI Mapping");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&target),
+                        [this, paramPtr = te::AutomatableParameter::Ptr (&param)] (int result) mutable
+    {
+        if (result == 1)
+            EngineHelpers::startParameterMidiLearn (edit, *paramPtr);
+        else if (result == 2)
+            EngineHelpers::removeParameterMidiMapping (edit, *paramPtr);
+    });
+}
+
+void ChannelStrip::mouseDown (const juce::MouseEvent& e)
+{
+    if (! e.mods.isPopupMenu() || volumePlugin == nullptr)
+        return;
+
+    if (e.eventComponent == &fader)
+        showParameterContextMenu (*volumePlugin->volParam, fader);
+    else if (e.eventComponent == &panSlider)
+        showParameterContextMenu (*volumePlugin->panParam, panSlider);
 }
 
 void ChannelStrip::currentValueChanged (te::AutomatableParameter&)

@@ -1,7 +1,9 @@
 #include "PluginTrayComponent.h"
+#include "Engine/AppCommands.h"
+#include "Engine/PluginPresetManager.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/PluginDragManager.h"
-#include "Engine/PluginPresetManager.h"
+#include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/TrackComponents.h"
 
 namespace skeletonhive
@@ -15,7 +17,7 @@ PluginTrayComponent::PluginTrayComponent (EditViewState& evs, PluginStateManager
     trackTitle.setColour (juce::Label::textColourId, juce::Colours::white);
 
     outputLabel.setJustificationType (juce::Justification::centred);
-    outputLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff2b2d42));
+    outputLabel.setColour (juce::Label::backgroundColourId, AppColours::pluginOutputNode (AppLookAndFeel::getCurrentTheme()));
     outputLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.8f));
 
     addButton.onClick = [this]
@@ -275,7 +277,7 @@ void PluginTrayComponent::resized()
 
 void PluginTrayComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff0d1b2a));
+    g.fillAll (AppColours::pluginTrayBackground (AppLookAndFeel::getCurrentTheme()));
     g.setColour (juce::Colours::white.withAlpha (0.12f));
     g.drawHorizontalLine (0, 0.0f, (float) getWidth());
 
@@ -520,8 +522,10 @@ void PluginTrayComponent::syncSelectionHighlight()
         slot->setSelected (selected.contains (slot->getPlugin().get()));
 }
 
-bool PluginTrayComponent::handleKeyPress (const juce::KeyPress& key)
+bool PluginTrayComponent::performCommand (int commandID)
 {
+    using namespace AppCommandIDs;
+
     if (chainModel == nullptr)
         return false;
 
@@ -529,39 +533,34 @@ bool PluginTrayComponent::handleKeyPress (const juce::KeyPress& key)
     if (selected.isEmpty())
         return false;
 
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    switch (commandID)
     {
-        for (auto* p : selected)
-            removePlugin (*p);
-        return true;
-    }
-
-    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)
-        || key == juce::KeyPress ('d', juce::ModifierKeys::ctrlModifier, 0))
-    {
-        if (auto* at = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
+        case pluginDelete:
             for (auto* p : selected)
-                EngineHelpers::duplicatePluginOnTrack (*p, *at);
-        return true;
-    }
+                removePlugin (*p);
+            return true;
 
-    if (key == juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0)
-        || key == juce::KeyPress ('c', juce::ModifierKeys::ctrlModifier, 0))
-    {
-        pluginStateManager.setClipboard (PluginPresetManager::capturePluginState (*selected.getFirst()),
-                                         EngineHelpers::getPluginDescription (*selected.getFirst()));
-        return true;
-    }
+        case pluginDuplicate:
+            if (auto* at = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
+                for (auto* p : selected)
+                    EngineHelpers::duplicatePluginOnTrack (*p, *at);
+            return true;
 
-    if (key == juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)
-        || key == juce::KeyPress ('v', juce::ModifierKeys::ctrlModifier, 0))
-    {
-        if (pluginStateManager.hasClipboard())
-        {
-            const auto desc = pluginStateManager.getClipboardDescription();
-            insertBrowserPlugin (desc, chainModel->getUserChainSize());
-        }
-        return true;
+        case pluginCopy:
+            pluginStateManager.setClipboard (PluginPresetManager::capturePluginState (*selected.getFirst()),
+                                             EngineHelpers::getPluginDescription (*selected.getFirst()));
+            return true;
+
+        case pluginPaste:
+            if (pluginStateManager.hasClipboard())
+            {
+                const auto desc = pluginStateManager.getClipboardDescription();
+                insertBrowserPlugin (desc, chainModel->getUserChainSize());
+            }
+            return true;
+
+        default:
+            break;
     }
 
     return false;

@@ -27,6 +27,10 @@ public:
     std::function<void()> onToggleMixer;
     std::function<void()> onToggleSidechain;
     std::function<void()> onToggleAutomation;
+    std::function<void()> onShowPreferences;
+    std::function<void()> onToggleMidiLearn;
+
+    void setLearnModeActive (bool active);
 
 private:
     void resized() override;
@@ -44,8 +48,9 @@ private:
     juce::TextButton newButton { "New" }, openButton { "Open" }, saveButton { "Save" },
         saveAsButton { "Save As" }, exportButton { "Export" },
         importButton { "Import" }, addAudioButton { "+ Audio" }, addMidiButton { "+ MIDI" },
-        addClipButton { "+ Clip" }, settingsButton { "Audio" }, pluginsButton { "Plugins" },
-        mixerButton { "Mixer" }, sidechainButton { "Sidechain" }, automationButton { "Auto" };
+        addClipButton { "+ Clip" },         settingsButton { "Prefs" }, pluginsButton { "Plugins" },
+        mixerButton { "Mixer" }, sidechainButton { "Sidechain" }, automationButton { "Auto" },
+        learnButton { "Learn" };
     juce::Label positionLabel { {}, "00:00:00.000" };
     juce::Slider tempoSlider;
     juce::Label tempoLabel { {}, "BPM" };

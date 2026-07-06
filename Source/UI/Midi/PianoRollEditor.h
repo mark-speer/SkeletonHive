@@ -28,6 +28,7 @@ public:
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+    bool performCommand (int commandID, juce::ModifierKeys mods = {});
     bool keyPressed (const juce::KeyPress& key) override;
 
     // Editing operations (also reachable via keyboard shortcuts)

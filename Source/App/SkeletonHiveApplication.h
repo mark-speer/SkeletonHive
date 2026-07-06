@@ -6,6 +6,9 @@
 #include "Engine/ProjectManager.h"
 #include "Engine/TransportController.h"
 #include "Engine/PluginScanner.h"
+#include "Engine/AppSettings.h"
+#include "Engine/MidiLearnController.h"
+#include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
 {
@@ -29,11 +32,17 @@ public:
 
     te::Engine& getEngine() { return *engine; }
     ProjectManager& getProjectManager() { return *projectManager; }
+    AppSettings& getAppSettings() { return appSettings; }
+    AppLookAndFeel& getAppLookAndFeel() { return appLookAndFeel; }
+    MidiLearnController& getMidiLearnController() { return *midiLearnController; }
 
 private:
     std::unique_ptr<te::Engine> engine;
     std::unique_ptr<ProjectManager> projectManager;
     std::unique_ptr<juce::DocumentWindow> mainWindow;
+    AppSettings appSettings;
+    AppLookAndFeel appLookAndFeel;
+    std::unique_ptr<MidiLearnController> midiLearnController;
 };
 
 } // namespace skeletonhive

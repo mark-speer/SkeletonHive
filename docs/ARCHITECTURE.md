@@ -450,7 +450,42 @@ is built; horizontal scroll for long chains.
 
 ---
 
-## 9. Conventions for contributors
+## 10. Phase 5 — Control & UX (implemented)
+
+### Application settings
+- **`AppSettings`** (`Source/Engine/AppSettings.*`) — persisted user preferences
+  (theme, autosave interval, default project folder, keyboard mappings) in
+  `%AppData%/SkeletonHive/app.settings`.
+
+### Look and feel
+- **`AppLookAndFeel`** + **`AppColours`** (`Source/UI/AppLookAndFeel.*`) — shared
+  dark/light palettes applied at startup; core panels (timeline, plugin tray,
+  automation, plugin slots) read colours via `AppLookAndFeel::getCurrentTheme()`.
+
+### Keyboard commands
+- **`AppCommands`** + `ApplicationCommandManager` in `MainContentComponent` —
+  central command registry covering transport, timeline, plugin tray, and piano
+  roll shortcuts. Defaults mirror the prior hard-coded bindings; user overrides
+  persist via `AppSettings`. Context routing: piano-roll window focus, plugin
+  selection/tray focus, then global/timeline commands.
+
+### Preferences dialog
+- **`PreferencesDialog`** (`Source/UI/Settings/PreferencesDialog.*`) — opened
+  from transport **Prefs** (formerly Audio-only). Tabs: **General** (project
+  folder, autosave interval), **Appearance** (dark/light theme), **Keyboard**
+  (`KeyMappingEditorComponent`), **Audio** (`AudioDeviceSelectorComponent` on
+  TE's device manager).
+
+### MIDI learn
+- **`MidiLearnController`** + `EngineHelpers::startParameterMidiLearn` — TE
+  `ParameterControlMappings` / `MidiLearnState` integration. Transport **Learn**
+  toggle arms global learn mode; right-click channel-strip fader/pan → **MIDI
+  Learn…** / **Remove MIDI Mapping**. Status bar shows the active assignment
+  target.
+
+---
+
+## 11. Conventions for contributors
 
 - UI code lives under `Source/UI/…`, engine-facing helpers under
   `Source/Engine/…`. UI never talks to `juce::AudioDeviceManager` or the

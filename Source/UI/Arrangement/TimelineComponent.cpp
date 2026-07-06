@@ -1,4 +1,6 @@
 #include "TimelineComponent.h"
+#include "Engine/AppCommands.h"
+#include "UI/AppLookAndFeel.h"
 #include "Engine/EngineHelpers.h"
 #include "TimelineLOD.h"
 
@@ -43,7 +45,8 @@ void TimelineRulerComponent::paint (juce::Graphics& g)
         if (x2 >= 0 && x1 <= getWidth())
         {
             const bool looping = editRef.getTransport().looping;
-            const auto braceColour = looping ? juce::Colour (0xffffd166) : juce::Colours::grey;
+            const auto braceColour = looping ? AppColours::accentLoop (AppLookAndFeel::getCurrentTheme())
+                                             : juce::Colours::grey;
 
             g.setColour (braceColour.withAlpha (0.35f));
             g.fillRect (x1, 0, juce::jmax (2, x2 - x1), loopBraceHeight);
@@ -101,7 +104,7 @@ void TimelineRulerComponent::paintTempoChanges (juce::Graphics& g)
             if (x < -40 || x > getWidth() + 4)
                 continue;
 
-            g.setColour (juce::Colour (0xffef8354));
+            g.setColour (AppColours::accentTempo (AppLookAndFeel::getCurrentTheme()));
             g.fillEllipse ((float) x - 2.5f, (float) getHeight() - 6.0f, 5.0f, 5.0f);
             g.drawText (juce::String (tempo->getBpm(), 1), x + 4, getHeight() - 11, 36, 10,
                         juce::Justification::centredLeft, false);
@@ -116,7 +119,7 @@ void TimelineRulerComponent::paintTempoChanges (juce::Graphics& g)
             if (x < -40 || x > getWidth() + 4)
                 continue;
 
-            g.setColour (juce::Colour (0xff4cc9f0));
+            g.setColour (AppColours::accentTimeSig (AppLookAndFeel::getCurrentTheme()));
             g.fillEllipse ((float) x - 2.5f, (float) getHeight() - 6.0f, 5.0f, 5.0f);
             g.drawText (sig->getStringTimeSig(), x + 4, getHeight() - 11, 30, 10,
                         juce::Justification::centredLeft, false);
@@ -521,53 +524,49 @@ void TimelineComponent::clearRangeSelectionsExcept (TrackLaneComponent* except)
 //==============================================================================
 // Keyboard commands
 
+bool TimelineComponent::performCommand (int commandID)
+{
+    using namespace AppCommandIDs;
+
+    switch (commandID)
+    {
+        case toggleGrid:
+            toggleShowGrid();
+            return true;
+        case duplicateClips:
+            duplicateSelectedClips();
+            return true;
+        case groupClips:
+            groupSelectedClips (true);
+            return true;
+        case ungroupClips:
+            groupSelectedClips (false);
+            return true;
+        case toggleRipple:
+            toggleRippleMode();
+            return true;
+        case deleteTimelineSelection:
+            return deleteSelectedClips();
+        case addMarker:
+            edit.getMarkerManager().createMarker (-1, edit.getTransport().getPosition(), {},
+                                                  &editViewState.selectionManager);
+            return true;
+        case prevMarker:
+            jumpToMarker (false);
+            return true;
+        case nextMarker:
+            jumpToMarker (true);
+            return true;
+        default:
+            break;
+    }
+
+    return false;
+}
+
 bool TimelineComponent::handleKeyPress (const juce::KeyPress& key)
 {
-    if (key == juce::KeyPress ('4', juce::ModifierKeys::ctrlModifier, 0)
-        || key == juce::KeyPress ('4', juce::ModifierKeys::commandModifier, 0))
-    {
-        toggleShowGrid();
-        return true;
-    }
-    if (key == juce::KeyPress ('d', juce::ModifierKeys::ctrlModifier, 0)
-        || key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))
-    {
-        duplicateSelectedClips();
-        return true;
-    }
-    if (key == juce::KeyPress ('g', juce::ModifierKeys::ctrlModifier, 0)
-        || key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 0))
-    {
-        groupSelectedClips (true);
-        return true;
-    }
-    if (key == juce::KeyPress ('g', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0)
-        || key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0))
-    {
-        groupSelectedClips (false);
-        return true;
-    }
-    if (key == juce::KeyPress ('r', juce::ModifierKeys::ctrlModifier, 0)
-        || key == juce::KeyPress ('r', juce::ModifierKeys::commandModifier, 0))
-    {
-        toggleRippleMode();
-        return true;
-    }
-    if (key == juce::KeyPress ('m', juce::ModifierKeys(), 0))
-    {
-        edit.getMarkerManager().createMarker (-1, edit.getTransport().getPosition(), {},
-                                              &editViewState.selectionManager);
-        return true;
-    }
-    if (key == juce::KeyPress (juce::KeyPress::leftKey, juce::ModifierKeys::altModifier, 0)
-        || key == juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::altModifier, 0))
-    {
-        jumpToMarker (key.getKeyCode() == juce::KeyPress::rightKey);
-        return true;
-    }
-    if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
-        return deleteSelectedClips();
-
+    juce::ignoreUnused (key);
     return false;
 }
 
@@ -929,8 +928,8 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
                                                   timelineViewport.getViewWidth(),
                                                   row.height);
 
-    g.setColour (crossTrackDrag.validDrop ? juce::Colour (0xff06d6a0).withAlpha (0.25f)
-                                          : juce::Colour (0xffef476f).withAlpha (0.25f));
+    g.setColour (crossTrackDrag.validDrop ? AppColours::accentValidDrop (AppLookAndFeel::getCurrentTheme()).withAlpha (0.25f)
+                                          : AppColours::accentInvalidDrop (AppLookAndFeel::getCurrentTheme()).withAlpha (0.25f));
     g.fillRect (laneBounds);
 
     const int ghostX = headerWidth + timelineViewport.getX()

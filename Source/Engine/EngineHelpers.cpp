@@ -1,4 +1,5 @@
 #include "EngineHelpers.h"
+#include "UI/AppLookAndFeel.h"
 #include "TrackPluginChainModel.h"
 #include "PluginPresetManager.h"
 #include "TracktionCommon.h"
@@ -376,17 +377,11 @@ juce::Array<te::Clip*> EngineHelpers::getClipsStartingAfter (te::ClipTrack& trac
 
 juce::Colour EngineHelpers::colourForGroupId (const juce::String& groupId)
 {
-    static const juce::Colour palette[] =
-    {
-        juce::Colour (0xffffd166), juce::Colour (0xff06d6a0), juce::Colour (0xff118ab2),
-        juce::Colour (0xffef476f), juce::Colour (0xffc77dff), juce::Colour (0xfff4a261),
-    };
-
     if (groupId.isEmpty())
-        return palette[0];
+        return AppColours::clipGroupPalette (0);
 
-    const auto index = (juce::uint32) groupId.hashCode() % (juce::uint32) juce::numElementsInArray (palette);
-    return palette[index];
+    const auto index = (int) ((juce::uint32) groupId.hashCode() % 6);
+    return AppColours::clipGroupPalette (index);
 }
 
 juce::Colour EngineHelpers::getClipGroupColour (const te::Clip& clip)
@@ -994,6 +989,37 @@ void EngineHelpers::showAudioDeviceSettings (te::Engine& engine)
                                                                 false, false, true, true));
     o.content->setSize (400, 600);
     o.launchAsync();
+}
+
+void EngineHelpers::startParameterMidiLearn (te::Edit& edit, te::AutomatableParameter& parameter)
+{
+    edit.getParameterChangeHandler().setParameterLearnActive (true);
+    edit.engine.getMidiLearnState().setActive (true);
+    edit.getParameterChangeHandler().parameterChanged (parameter, false);
+}
+
+void EngineHelpers::removeParameterMidiMapping (te::Edit& edit, te::AutomatableParameter& parameter)
+{
+    edit.getParameterControlMappings().removeParameterMapping (parameter);
+    edit.getParameterControlMappings().saveToEdit();
+}
+
+bool EngineHelpers::isParameterMidiMapped (te::Edit& edit, te::AutomatableParameter& parameter)
+{
+    return edit.getParameterControlMappings().isParameterMapped (parameter);
+}
+
+void EngineHelpers::setMidiLearnActive (te::Engine& engine, te::Edit& edit, bool active)
+{
+    engine.getMidiLearnState().setActive (active);
+
+    if (! active)
+        edit.getParameterChangeHandler().setParameterLearnActive (false);
+}
+
+bool EngineHelpers::isMidiLearnActive (te::Engine& engine)
+{
+    return engine.getMidiLearnState().isActive();
 }
 
 void EngineHelpers::browseForAudioFile (te::Engine& engine, std::function<void (const juce::File&)> callback)

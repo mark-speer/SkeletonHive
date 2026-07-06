@@ -61,6 +61,12 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
     Source/Engine/EngineHelpers.cpp
+    Source/Engine/AppSettings.h
+    Source/Engine/AppSettings.cpp
+    Source/Engine/AppCommands.h
+    Source/Engine/AppCommands.cpp
+    Source/Engine/MidiLearnController.h
+    Source/Engine/MidiLearnController.cpp
     Source/Engine/ExportManager.h
     Source/Engine/ExportManager.cpp
     Source/Engine/MultiOutputRouting.h
@@ -95,6 +101,10 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Arrangement/TimelineTypes.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.cpp
+    Source/UI/AppLookAndFeel.h
+    Source/UI/AppLookAndFeel.cpp
+    Source/UI/Settings/PreferencesDialog.h
+    Source/UI/Settings/PreferencesDialog.cpp
     Source/UI/Transport/TransportBar.h
     Source/UI/Transport/TransportBar.cpp
     Source/UI/Mixer/MixerPanel.h
