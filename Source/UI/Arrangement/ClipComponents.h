@@ -3,7 +3,7 @@
 #include "EditViewState.h"
 #include "TimelineLOD.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle<int> area, te::TimeRange viewRange);
@@ -98,4 +98,4 @@ private:
     bool previewDirty = true;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

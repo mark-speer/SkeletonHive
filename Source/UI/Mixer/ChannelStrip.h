@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class UiTelemetryHub;
@@ -77,4 +77,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStrip)
 };
 
-} // namespace arrange
+} // namespace skeletonhive

@@ -1,6 +1,6 @@
 #include "PluginScanner.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 PluginScanner::PluginScanner (te::Engine& e)
@@ -123,4 +123,4 @@ te::Plugin::Ptr PluginScanner::createPlugin (const juce::PluginDescription& desc
     return edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

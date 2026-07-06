@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Read-only view of a track's user-visible plugin chain (TE PluginList wrapper). */
@@ -37,4 +37,4 @@ private:
     te::AudioTrack& track;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

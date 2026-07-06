@@ -1,7 +1,8 @@
 #include "TimelineComponent.h"
 #include "Engine/EngineHelpers.h"
+#include "TimelineLOD.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 //==============================================================================
@@ -157,14 +158,17 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
     addAndMakeVisible (rippleButton);
     addAndMakeVisible (gridDivisionBox);
 
+    addAndMakeVisible (gridDivisionBox);
+    addAndMakeVisible (hScrollBarOverlay);
+
     headerViewport.setViewedComponent (&headerContent, false);
     headerViewport.setScrollBarsShown (false, false);
 
     timelineViewport.setViewedComponent (&timelineContent, false);
-    timelineViewport.setScrollBarsShown (true, true);
-    timelineViewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::all);
-    timelineViewport.getHorizontalScrollBar().addListener (this);
+    timelineViewport.setScrollBarsShown (true, false);
+    timelineViewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
     timelineViewport.getVerticalScrollBar().addListener (this);
+    hScrollBarOverlay.addListener (this);
 
     timelineContent.addAndMakeVisible (playhead);
     playhead.toFront (false);
@@ -215,8 +219,8 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
 
 TimelineComponent::~TimelineComponent()
 {
-    timelineViewport.getHorizontalScrollBar().removeListener (this);
     timelineViewport.getVerticalScrollBar().removeListener (this);
+    hScrollBarOverlay.removeListener (this);
     edit.state.removeListener (this);
 }
 
@@ -433,10 +437,11 @@ void TimelineComponent::syncGridControls()
     gridButton.setToggleState (editViewState.showGrid.get(), juce::dontSendNotification);
 }
 
-void TimelineComponent::scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, double)
+void TimelineComponent::scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, double newRangeStart)
 {
-    if (scrollBarThatHasMoved == &timelineViewport.getHorizontalScrollBar())
+    if (scrollBarThatHasMoved == &hScrollBarOverlay)
     {
+        timelineViewport.setViewPosition ((int) newRangeStart, timelineViewport.getViewPositionY());
         syncVisibleRange();
         refreshLaneLayouts();
         ruler.repaint();
@@ -448,6 +453,17 @@ void TimelineComponent::scrollBarMoved (juce::ScrollBar* scrollBarThatHasMoved, 
         editViewState.viewY = y;
         refreshVisibleTracks();
     }
+}
+
+void TimelineComponent::updateHorizontalScrollBarOverlay()
+{
+    const int contentW = timelineContent.getWidth();
+    const int viewW = juce::jmax (1, timelineViewport.getViewWidth());
+    hScrollBarOverlay.setRangeLimits (0.0, (double) contentW);
+    hScrollBarOverlay.setCurrentRange ((double) timelineViewport.getViewPositionX(),
+                                       (double) viewW,
+                                       juce::dontSendNotification);
+    hScrollBarOverlay.setVisible (contentW > viewW);
 }
 
 void TimelineComponent::handleAsyncUpdate()
@@ -474,8 +490,17 @@ void TimelineComponent::syncVisibleRange()
 
 void TimelineComponent::refreshLaneLayouts()
 {
+    const bool laneLevel = useLaneLevelRendering (editViewState.getPixelsPerBeat());
+    const bool modeChanged = laneLevel != laneLevelRenderingActive;
+    laneLevelRenderingActive = laneLevel;
+
     for (auto* lane : trackLanes)
+    {
         lane->refreshLayout();
+
+        if (laneLevel || modeChanged)
+            lane->repaint();
+    }
 }
 
 void TimelineComponent::updateTimelineWidth()
@@ -490,6 +515,7 @@ void TimelineComponent::updateTimelineWidth()
     syncVisibleRange();
     invalidateLaneBackgrounds();
     refreshLaneLayouts();
+    updateHorizontalScrollBarOverlay();
 }
 
 void TimelineComponent::repaintGrid()
@@ -675,6 +701,7 @@ void TimelineComponent::buildTracks()
 
     timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), editViewState.viewY.get());
     headerViewport.setViewPosition (0, timelineViewport.getViewPositionY());
+    updateHorizontalScrollBarOverlay();
 }
 
 void TimelineComponent::layoutTracks()
@@ -701,7 +728,11 @@ void TimelineComponent::resized()
     headerViewport.setBounds (headerArea);
     timelineViewport.setBounds (r);
 
+    hScrollBarOverlay.setBounds (timelineViewport.getBounds().withHeight (hScrollBarHeight));
+    hScrollBarOverlay.toFront (false);
+
     updateTimelineWidth();
+    updateHorizontalScrollBarOverlay();
     ruler.repaint();
 }
 
@@ -742,6 +773,7 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
         timelineViewport.setViewPosition (newScroll, timelineViewport.getViewPositionY());
         syncVisibleRange();
         refreshLaneLayouts();
+        updateHorizontalScrollBarOverlay();
         repaintGrid();
     }
     else if (e.mods.isShiftDown() || timelineContent.getHeight() <= timelineViewport.getHeight())
@@ -754,6 +786,7 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
                                               timelineViewport.getViewPositionY());
             syncVisibleRange();
             refreshLaneLayouts();
+            updateHorizontalScrollBarOverlay();
             ruler.repaint();
         }
     }
@@ -773,4 +806,4 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

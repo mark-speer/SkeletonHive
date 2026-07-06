@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Shared LRU cache of te::SmartThumbnail instances keyed by audio file identity. */
@@ -35,4 +35,4 @@ private:
     juce::HashMap<juce::int64, Entry> entries;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

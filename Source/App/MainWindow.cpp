@@ -4,7 +4,7 @@
 #include <functional>
 #include <memory>
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -31,7 +31,7 @@ private:
 };
 } // namespace
 
-MainContentComponent::MainContentComponent (ArrangeApplication& app)
+MainContentComponent::MainContentComponent (SkeletonHiveApplication& app)
     : application (app),
       engine (app.getEngine()),
       projectManager (app.getProjectManager())
@@ -73,7 +73,7 @@ void MainContentComponent::prepareForShutdown()
 void MainContentComponent::createDefaultProject()
 {
     auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                   .getChildFile ("ArrangeDAW");
+                   .getChildFile ("SkeletonHive");
     dir.createDirectory();
     auto projectFile = dir.getNonexistentChildFile ("Untitled", ".tracktionedit");
     projectManager.createNewProject (projectFile);
@@ -96,6 +96,8 @@ void MainContentComponent::releaseEditUI()
 
     pluginBrowser = nullptr;
     pluginTray = nullptr;
+    sidechainPanel = nullptr;
+    SidechainRouting::openMatrixForPlugin = nullptr;
     mixerPanel = nullptr;
     timeline = nullptr;
     transportBar = nullptr;
@@ -117,6 +119,12 @@ void MainContentComponent::rebuildEditUI()
     mixerPanel = std::make_unique<MixerPanel> (*edit, telemetryHub.get());
     pluginBrowser = std::make_unique<PluginBrowser> (*pluginScanner, *edit, *pluginStateManager);
     pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager);
+    sidechainPanel = std::make_unique<SidechainMatrixPanel> (*edit);
+
+    SidechainRouting::openMatrixForPlugin = [this] (te::Plugin* plugin)
+    {
+        showSidechainPanelForPlugin (plugin);
+    };
 
     transportBar->onNewProject = [this] { handleNewProject(); };
     transportBar->onOpenProject = [this] { handleOpenProject(); };
@@ -133,6 +141,7 @@ void MainContentComponent::rebuildEditUI()
         resized();
     };
     transportBar->onToggleMixer = [this] { toggleMixer(); };
+    transportBar->onToggleSidechain = [this] { toggleSidechainPanel(); };
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
@@ -163,6 +172,9 @@ void MainContentComponent::rebuildEditUI()
 
     if (mixerVisible)
         addAndMakeVisible (*mixerPanel);
+
+    if (sidechainVisible)
+        addAndMakeVisible (*sidechainPanel);
 
     resized();
 }
@@ -282,6 +294,33 @@ void MainContentComponent::toggleMixer()
     resized();
 }
 
+void MainContentComponent::toggleSidechainPanel()
+{
+    sidechainVisible = ! sidechainVisible;
+    if (sidechainVisible)
+        addAndMakeVisible (*sidechainPanel);
+    else
+        removeChildComponent (sidechainPanel.get());
+    resized();
+}
+
+void MainContentComponent::showSidechainPanelForPlugin (te::Plugin* plugin)
+{
+    if (sidechainPanel == nullptr)
+        return;
+
+    if (! sidechainVisible)
+    {
+        sidechainVisible = true;
+        addAndMakeVisible (*sidechainPanel);
+    }
+
+    if (plugin != nullptr)
+        sidechainPanel->focusPlugin (plugin->itemID);
+
+    resized();
+}
+
 void MainContentComponent::setupAutomationPanel (te::Track& track)
 {
     automationLanes.clear();
@@ -316,6 +355,9 @@ void MainContentComponent::resized()
 
     if (mixerVisible)
         mixerPanel->setBounds (r.removeFromBottom (200));
+
+    if (sidechainVisible)
+        sidechainPanel->setBounds (r.removeFromBottom (200));
 
     if (pluginTray != nullptr)
         pluginTray->setBounds (r.removeFromBottom (148));
@@ -377,8 +419,8 @@ bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Componen
     return false;
 }
 
-MainWindow::MainWindow (ArrangeApplication& app)
-    : DocumentWindow ("Arrange DAW",
+MainWindow::MainWindow (SkeletonHiveApplication& app)
+    : DocumentWindow ("SkeletonHive",
                       juce::Desktop::getInstance().getDefaultLookAndFeel()
                           .findColour (juce::ResizableWindow::backgroundColourId),
                       DocumentWindow::allButtons),
@@ -404,4 +446,4 @@ void MainWindow::closeButtonPressed()
     application.systemRequestedQuit();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

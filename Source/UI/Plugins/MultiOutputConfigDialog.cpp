@@ -1,6 +1,6 @@
 #include "MultiOutputConfigDialog.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -180,4 +180,4 @@ void MultiOutputConfigDialog::show (te::AudioTrack& instrumentTrack, te::Plugin&
     opts.launchAsync();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

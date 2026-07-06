@@ -4,12 +4,12 @@
 #include "TracktionCommon.h"
 #include <algorithm>
 
-namespace arrange
+namespace skeletonhive
 {
 
-const juce::Identifier EngineHelpers::clipGroupProperty ("arrangeClipGroup");
-const juce::Identifier EngineHelpers::clipGroupColourProperty ("arrangeClipGroupColour");
-const juce::Identifier EngineHelpers::soloedPluginIdProperty ("arrangeSoloedPluginId");
+const juce::Identifier EngineHelpers::clipGroupProperty ("skeletonHiveClipGroup");
+const juce::Identifier EngineHelpers::clipGroupColourProperty ("skeletonHiveClipGroupColour");
+const juce::Identifier EngineHelpers::soloedPluginIdProperty ("skeletonHiveSoloedPluginId");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
 {
@@ -837,4 +837,4 @@ void EngineHelpers::releaseAudioDevices (te::Engine& engine)
     engine.getDeviceManager().closeDevices();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

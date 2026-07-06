@@ -3,7 +3,7 @@
 #include "TimelineTypes.h"
 #include "EditViewState.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 TimelineOpenGLRenderer::TimelineOpenGLRenderer (EditViewState& viewState, juce::Component& timelineContent)
@@ -87,4 +87,4 @@ void TimelineOpenGLRenderer::renderOpenGL()
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

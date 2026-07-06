@@ -1,6 +1,6 @@
 #include "ProjectManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class AutosaveTimer : public juce::Timer
@@ -77,4 +77,4 @@ void ProjectManager::setupEdit()
     EngineHelpers::setupDefaultTracks (*edit);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

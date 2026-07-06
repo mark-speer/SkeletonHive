@@ -1,6 +1,6 @@
 #include "MixerPanel.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 MixerPanel::MixerPanel (te::Edit& e, UiTelemetryHub* hub)
@@ -146,4 +146,4 @@ void MixerPanel::resized()
     layoutStrips();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

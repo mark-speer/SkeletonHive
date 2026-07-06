@@ -2,7 +2,7 @@
 #include "UI/Mixer/ChannelStrip.h"
 #include "UI/Arrangement/TrackComponents.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 UiTelemetryHub::UiTelemetryHub()
@@ -48,4 +48,4 @@ void UiTelemetryHub::timerCallback()
             meter->updateFromMeasurer();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

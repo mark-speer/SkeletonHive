@@ -1,6 +1,6 @@
 #include "PluginWindow.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 #if JUCE_LINUX
@@ -103,4 +103,4 @@ void PluginWindow::setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEd
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

@@ -3,7 +3,7 @@
 #include "ChannelStrip.h"
 #include "UI/Arrangement/TrackComponents.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class UiTelemetryHub;
@@ -44,4 +44,4 @@ private:
     bool relayoutStrips = false;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

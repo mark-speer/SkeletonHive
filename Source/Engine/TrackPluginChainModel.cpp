@@ -1,7 +1,7 @@
 #include "TrackPluginChainModel.h"
 #include "EngineHelpers.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 TrackPluginChainModel::TrackPluginChainModel (te::AudioTrack& t)
@@ -90,4 +90,4 @@ int TrackPluginChainModel::resolveInsertIndex (int userSlot,
     return juce::jmax (insertIndex, minListIndex);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

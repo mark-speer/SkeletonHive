@@ -3,7 +3,7 @@
 #include "TracktionCommon.h"
 #include "UI/Arrangement/EditViewState.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 enum class AutomationMode { read, touch, latch };
@@ -32,4 +32,4 @@ private:
     te::TimePosition xToTime (int x) const;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

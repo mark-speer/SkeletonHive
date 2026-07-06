@@ -1,6 +1,6 @@
 #include "PluginStateManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -10,7 +10,7 @@ constexpr int maxRecent = 32;
 juce::PropertiesFile::Options makeOptions (const juce::File& file)
 {
     juce::PropertiesFile::Options opts;
-    opts.applicationName = "ArrangeDAW";
+    opts.applicationName = "SkeletonHive";
     opts.filenameSuffix = ".plugins";
     opts.osxLibrarySubFolder = "Application Support";
     opts.commonToAllUsers = false;
@@ -23,7 +23,7 @@ juce::PropertiesFile::Options makeOptions (const juce::File& file)
 
 PluginStateManager::PluginStateManager()
     : storageFile (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                       .getChildFile ("ArrangeDAW")
+                       .getChildFile ("SkeletonHive")
                        .getChildFile ("plugin-state.plugins")),
       properties (storageFile, makeOptions (storageFile))
 {
@@ -120,4 +120,4 @@ void PluginStateManager::clearClipboard()
     clipboardDescription = {};
 }
 
-} // namespace arrange
+} // namespace skeletonhive

@@ -6,7 +6,7 @@
 #include "Engine/TrackPluginChainModel.h"
 #include "PluginSlotComponent.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Bottom-panel device chain for the selected track (Ableton-style workflow). */
@@ -102,4 +102,4 @@ private:
     static constexpr int trayHeight = 148;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

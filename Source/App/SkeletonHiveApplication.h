@@ -7,15 +7,15 @@
 #include "Engine/TransportController.h"
 #include "Engine/PluginScanner.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
-class ArrangeApplication : public juce::JUCEApplication
+class SkeletonHiveApplication : public juce::JUCEApplication
 {
 public:
-    ArrangeApplication() = default;
+    SkeletonHiveApplication() = default;
 
-    const juce::String getApplicationName() override       { return "Arrange DAW"; }
+    const juce::String getApplicationName() override       { return "SkeletonHive"; }
     const juce::String getApplicationVersion() override    { return "0.1.0"; }
     // The out-of-process plugin scanner works by launching a second instance of
     // this executable, so that instance must be allowed to run or scans will hang.
@@ -36,4 +36,4 @@ private:
     std::unique_ptr<juce::DocumentWindow> mainWindow;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

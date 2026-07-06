@@ -1,7 +1,7 @@
 #include "TransportBar.h"
 #include "Engine/EngineHelpers.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 TransportBar::TransportBar (te::Edit& e, TransportController& tc)
@@ -28,6 +28,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     settingsButton.onClick = [this] { if (onAudioSettings) onAudioSettings(); };
     pluginsButton.onClick = [this] { if (onScanPlugins) onScanPlugins(); };
     mixerButton.onClick = [this] { if (onToggleMixer) onToggleMixer(); };
+    sidechainButton.onClick = [this] { if (onToggleSidechain) onToggleSidechain(); };
 
     tempoSlider.setRange (20.0, 300.0, 0.1);
     tempoSlider.setValue (transportController.getTempo(), juce::dontSendNotification);
@@ -69,6 +70,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (settingsButton);
     addAndMakeVisible (pluginsButton);
     addAndMakeVisible (mixerButton);
+    addAndMakeVisible (sidechainButton);
     addAndMakeVisible (positionLabel);
     addAndMakeVisible (tempoSlider);
     addAndMakeVisible (tempoLabel);
@@ -106,7 +108,7 @@ void TransportBar::resized()
     timeSigBox.setBounds (row1.removeFromLeft (60));
 
     auto row2 = r.removeFromTop (h);
-    for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton, &settingsButton, &pluginsButton, &mixerButton })
+    for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton, &settingsButton, &pluginsButton, &mixerButton, &sidechainButton })
     {
         btn->setBounds (row2.removeFromLeft (btnW + 10).reduced (1));
     }
@@ -130,4 +132,4 @@ void TransportBar::updateButtonStates()
     punchButton.setToggleState (transportController.isPunchInEnabled(), juce::dontSendNotification);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

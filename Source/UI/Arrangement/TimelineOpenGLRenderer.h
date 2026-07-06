@@ -4,7 +4,7 @@
 #include "EditViewState.h"
 #include <juce_opengl/juce_opengl.h>
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Optional OpenGL acceleration for lane grid backgrounds (uses LaneBackgroundCache images). */
@@ -39,4 +39,4 @@ private:
     int contentWidth = 0;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

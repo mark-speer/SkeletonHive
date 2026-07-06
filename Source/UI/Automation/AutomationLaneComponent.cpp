@@ -1,7 +1,7 @@
 #include "AutomationLaneComponent.h"
 #include "UI/Arrangement/EditViewState.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 AutomationLaneComponent::AutomationLaneComponent (te::AutomatableParameter& param, te::Edit& e,
@@ -91,4 +91,4 @@ te::TimePosition AutomationLaneComponent::xToTime (int x) const
     return editViewState.xToTime (x);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

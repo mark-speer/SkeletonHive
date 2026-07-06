@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class PluginWindow : public juce::DocumentWindow
@@ -29,4 +29,4 @@ private:
     bool updateStoredBounds = false;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

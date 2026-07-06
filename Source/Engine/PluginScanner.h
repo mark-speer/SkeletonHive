@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class PluginScanner
@@ -40,4 +40,4 @@ private:
                       std::function<void (int numFound)> onComplete);
 };
 
-} // namespace arrange
+} // namespace skeletonhive

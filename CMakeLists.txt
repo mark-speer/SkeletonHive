@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ArrangeDAW VERSION 0.1.0 LANGUAGES CXX)
+project(SkeletonHive VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,19 +35,20 @@ else()
     FetchContent_MakeAvailable(tracktion_engine)
 endif()
 
-juce_add_gui_app(ArrangeDAW
-    PRODUCT_NAME "Arrange DAW"
-    COMPANY_NAME "ArrangeDAW"
-    BUNDLE_ID "com.arrangedaw.app"
+juce_add_gui_app(SkeletonHive
+    PRODUCT_NAME "SkeletonHive"
+    COMPANY_NAME "SkeletonHive"
+    BUNDLE_ID "com.skeletonhive.app"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/SkeletonHive.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "Audio recording requires microphone access"
 )
 
-juce_generate_juce_header(ArrangeDAW)
+juce_generate_juce_header(SkeletonHive)
 
-target_sources(ArrangeDAW PRIVATE
+target_sources(SkeletonHive PRIVATE
     Source/App/Main.cpp
-    Source/App/Application.h
+    Source/App/SkeletonHiveApplication.h
     Source/App/MainWindow.h
     Source/App/MainWindow.cpp
     Source/Engine/ProjectManager.h
@@ -62,6 +63,8 @@ target_sources(ArrangeDAW PRIVATE
     Source/Engine/EngineHelpers.cpp
     Source/Engine/MultiOutputRouting.h
     Source/Engine/MultiOutputRouting.cpp
+    Source/Engine/SidechainRouting.h
+    Source/Engine/SidechainRouting.cpp
     Source/Engine/WaveformCache.h
     Source/Engine/WaveformCache.cpp
     Source/Engine/PluginDragManager.h
@@ -85,6 +88,8 @@ target_sources(ArrangeDAW PRIVATE
     Source/UI/Arrangement/TimelineGrid.cpp
     Source/UI/Arrangement/LaneBackgroundCache.h
     Source/UI/Arrangement/LaneBackgroundCache.cpp
+    Source/UI/Arrangement/LaneClipSummaryPaint.h
+    Source/UI/Arrangement/LaneClipSummaryPaint.cpp
     Source/UI/Arrangement/TimelineTypes.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.cpp
@@ -102,6 +107,10 @@ target_sources(ArrangeDAW PRIVATE
     Source/UI/Plugins/PluginTrayComponent.cpp
     Source/UI/Plugins/MultiOutputConfigDialog.h
     Source/UI/Plugins/MultiOutputConfigDialog.cpp
+    Source/UI/Routing/SidechainMenu.h
+    Source/UI/Routing/SidechainMenu.cpp
+    Source/UI/Routing/SidechainMatrixPanel.h
+    Source/UI/Routing/SidechainMatrixPanel.cpp
     Source/UI/Plugins/PluginWindow.h
     Source/UI/Plugins/PluginWindow.cpp
     Source/UI/Midi/PianoRollEditor.h
@@ -110,7 +119,7 @@ target_sources(ArrangeDAW PRIVATE
     Source/UI/Automation/AutomationLaneComponent.cpp
 )
 
-target_compile_definitions(ArrangeDAW PRIVATE
+target_compile_definitions(SkeletonHive PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1
@@ -119,11 +128,11 @@ target_compile_definitions(ArrangeDAW PRIVATE
     JUCE_PLUGINHOST_AU=1
     JUCE_PLUGINHOST_LADSPA=1
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:ArrangeDAW,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:SkeletonHive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
 )
 
-target_link_libraries(ArrangeDAW PRIVATE
+target_link_libraries(SkeletonHive PRIVATE
     tracktion::tracktion_core
     tracktion::tracktion_engine
     tracktion::tracktion_graph
@@ -138,15 +147,15 @@ target_link_libraries(ArrangeDAW PRIVATE
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(ArrangeDAW PRIVATE "-latomic")
+    target_link_libraries(SkeletonHive PRIVATE "-latomic")
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(ArrangeDAW PRIVATE -Wall -Wextra)
+    target_compile_options(SkeletonHive PRIVATE -Wall -Wextra)
 elseif(MSVC)
-    target_compile_options(ArrangeDAW PRIVATE /W4)
+    target_compile_options(SkeletonHive PRIVATE /W4)
 endif()
 
-target_include_directories(ArrangeDAW PRIVATE
+target_include_directories(SkeletonHive PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source
 )

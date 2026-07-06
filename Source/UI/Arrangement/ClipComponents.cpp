@@ -3,7 +3,7 @@
 #include "TrackComponents.h"
 #include "Engine/EngineHelpers.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle<int> area, te::TimeRange viewRange)
@@ -629,4 +629,4 @@ void MidiClipComponent::paint (juce::Graphics& g)
     paintSelectionAndGroupIndicators (g);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

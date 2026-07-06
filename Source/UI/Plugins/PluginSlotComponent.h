@@ -3,7 +3,7 @@
 #include "UI/Arrangement/EditViewState.h"
 #include "Engine/PluginStateManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class PluginTrayComponent;
@@ -72,4 +72,4 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                            PluginStateManager* stateManager,
                            std::function<void()> onChanged);
 
-} // namespace arrange
+} // namespace skeletonhive

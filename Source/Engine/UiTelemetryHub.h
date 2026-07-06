@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class LevelMeter;
@@ -28,4 +28,4 @@ private:
     juce::Array<LevelMeter*> meters;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

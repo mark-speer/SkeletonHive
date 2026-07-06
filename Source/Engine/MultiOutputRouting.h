@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Describes one output bus on a multi-out instrument (TE ExternalPlugin / JUCE buses). */
@@ -49,4 +49,4 @@ struct MultiOutputRouting
                                             juce::Component* centreAround);
 };
 
-} // namespace arrange
+} // namespace skeletonhive

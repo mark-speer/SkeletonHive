@@ -1,6 +1,6 @@
 #include "PluginPresetManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 juce::ValueTree PluginPresetManager::capturePluginState (const te::Plugin& plugin)
@@ -35,4 +35,4 @@ bool PluginPresetManager::loadPresetFromFile (te::Plugin& plugin, const juce::Fi
     return applyPluginState (plugin, juce::ValueTree::fromXml (*xml));
 }
 
-} // namespace arrange
+} // namespace skeletonhive

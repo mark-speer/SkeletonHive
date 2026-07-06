@@ -3,7 +3,7 @@
 #include "EngineHelpers.h"
 #include "ExtendedUIBehaviour.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class ProjectManager
@@ -35,4 +35,4 @@ private:
     void setupEdit();
 };
 
-} // namespace arrange
+} // namespace skeletonhive

@@ -2,17 +2,17 @@
 #include "EngineHelpers.h"
 #include "UI/Plugins/MultiOutputConfigDialog.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
-const juce::Identifier MultiOutputRouting::routesProperty ("arrangeMultiOutRoutes");
-const juce::Identifier MultiOutputRouting::routeTypeProperty ("arrangeMultiOutRoute");
-const juce::Identifier MultiOutputRouting::routeBusIndexProperty ("arrangeMultiOutBusIndex");
-const juce::Identifier MultiOutputRouting::routeTrackIdProperty ("arrangeMultiOutTrackId");
-const juce::Identifier MultiOutputRouting::routeEnabledProperty ("arrangeMultiOutEnabled");
-const juce::Identifier MultiOutputRouting::childSourcePluginIdProperty ("arrangeMultiOutSourcePluginId");
-const juce::Identifier MultiOutputRouting::childBusIndexProperty ("arrangeMultiOutChildBusIndex");
-const juce::Identifier MultiOutputRouting::childParentTrackIdProperty ("arrangeMultiOutParentTrackId");
+const juce::Identifier MultiOutputRouting::routesProperty ("skeletonHiveMultiOutRoutes");
+const juce::Identifier MultiOutputRouting::routeTypeProperty ("skeletonHiveMultiOutRoute");
+const juce::Identifier MultiOutputRouting::routeBusIndexProperty ("skeletonHiveMultiOutBusIndex");
+const juce::Identifier MultiOutputRouting::routeTrackIdProperty ("skeletonHiveMultiOutTrackId");
+const juce::Identifier MultiOutputRouting::routeEnabledProperty ("skeletonHiveMultiOutEnabled");
+const juce::Identifier MultiOutputRouting::childSourcePluginIdProperty ("skeletonHiveMultiOutSourcePluginId");
+const juce::Identifier MultiOutputRouting::childBusIndexProperty ("skeletonHiveMultiOutChildBusIndex");
+const juce::Identifier MultiOutputRouting::childParentTrackIdProperty ("skeletonHiveMultiOutParentTrackId");
 
 namespace
 {
@@ -306,4 +306,4 @@ void MultiOutputRouting::showConfigureOutputsDialog (te::AudioTrack& instrumentT
     MultiOutputConfigDialog::show (instrumentTrack, instrument, centreAround);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

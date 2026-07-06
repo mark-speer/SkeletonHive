@@ -4,7 +4,7 @@
 #include "Engine/PluginDragManager.h"
 #include <functional>
 
-namespace arrange
+namespace skeletonhive
 {
 
 class UiTelemetryHub;
@@ -160,6 +160,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
     void resized() override;
 
@@ -193,6 +194,9 @@ private:
     void createMidiClipFromRangeSelection();
     void showLaneContextMenu (const juce::MouseEvent& e);
     void paintRangeSelection (juce::Graphics& g, te::TimePosition start, te::TimePosition end) const;
+    te::Clip* findClipAtX (int x) const;
+    bool isLaneLevelRendering() const;
+    void placePlayheadAtX (int x);
 
     EditViewState& editViewState;
     te::Track::Ptr track;
@@ -200,11 +204,15 @@ private:
     bool updateClips = false, updatePositions = false;
 
     bool dragCreateActive = false;
+    bool pendingTimelineInteraction = false;
     bool rangeSelectionActive = false;
+    juce::Point<int> pendingDragStartPos;
     te::TimePosition dragCreateAnchor;
     te::TimePosition dragCreateCurrent;
     te::TimePosition rangeSelectionStart;
     te::TimePosition rangeSelectionEnd;
+
+    static constexpr int timelineClickDragThresholdPx = 4;
 };
 
 class PlayheadOverlay : public juce::Component
@@ -214,10 +222,6 @@ public:
     ~PlayheadOverlay() override;
 
     void paint (juce::Graphics& g) override;
-    bool hitTest (int x, int y) override;
-    void mouseDown (const juce::MouseEvent& e) override;
-    void mouseDrag (const juce::MouseEvent& e) override;
-
     void updateFromTransport();
 
 private:
@@ -227,4 +231,4 @@ private:
     int xPosition = 0;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

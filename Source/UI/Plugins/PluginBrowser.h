@@ -3,7 +3,7 @@
 #include "Engine/PluginScanner.h"
 #include "Engine/PluginStateManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 enum class PluginBrowserFilter
@@ -55,4 +55,4 @@ private:
     juce::PluginDescription selectedPlugin;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

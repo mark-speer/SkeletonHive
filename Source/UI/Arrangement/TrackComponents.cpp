@@ -1,12 +1,14 @@
 #include "TrackComponents.h"
 #include "TimelineComponent.h"
 #include "TimelineLOD.h"
+#include "LaneClipSummaryPaint.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/UiTelemetryHub.h"
+#include "UI/Routing/SidechainMenu.h"
 #include "TracktionCommon.h"
 #include "TimelineGrid.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -234,7 +236,7 @@ void PluginSlotButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHi
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
     }
 
-    if (plugin->canSidechain() && plugin->getSidechainSourceName().isNotEmpty())
+    if (plugin->canSidechain() && plugin->getSidechainSourceID().isValid())
     {
         g.setColour (juce::Colours::cyan);
         g.fillEllipse (4.0f, 4.0f, 6.0f, 6.0f);
@@ -341,7 +343,6 @@ void PluginSlotButton::showSlotMenu()
     {
         bypass = 1, moveLeft, moveRight, remove,
         wetDry = 100, soloDevice = 110, showMacros = 120,
-        sidechainBase = 200,
         moveToRackBase = 300
     };
 
@@ -363,16 +364,7 @@ void PluginSlotButton::showSlotMenu()
     }
 
     if (plugin->canSidechain())
-    {
-        juce::PopupMenu sidechainMenu;
-        const auto sources = plugin->getSidechainSourceNames (true);
-        const auto current = plugin->getSidechainSourceName();
-
-        for (int i = 0; i < sources.size(); ++i)
-            sidechainMenu.addItem (sidechainBase + i, sources[i], true, sources[i] == current);
-
-        menu.addSubMenu ("Sidechain Source", sidechainMenu, true);
-    }
+        SidechainMenu::addSidechainMenuItems (menu, *plugin);
 
     if (dynamic_cast<te::RackInstance*> (plugin.get()) == nullptr)
     {
@@ -412,14 +404,13 @@ void PluginSlotButton::showSlotMenu()
             return;
         auto& track = *trackPtr;
 
-        if (result >= sidechainBase && result < moveToRackBase)
+        if (SidechainMenu::handleSidechainMenuResult (result, p, moveToRackBase,
+                                                      [safeThis]
         {
-            const auto sources = p.getSidechainSourceNames (true);
-            const int idx = result - sidechainBase;
-            if (juce::isPositiveAndBelow (idx, sources.size()))
-                p.setSidechainSourceByName (sources[idx]);
+            if (safeThis != nullptr)
+                safeThis->repaint();
+        }))
             return;
-        }
 
         if (result >= moveToRackBase)
         {
@@ -797,6 +788,12 @@ void TrackLaneComponent::paint (juce::Graphics& g)
     editViewState.laneBackgroundCache.renderOrFetch (g, editViewState.edit, editViewState,
                                                      track->itemID, getLocalBounds());
 
+    if (isLaneLevelRendering())
+    {
+        if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get()))
+            paintLaneClipSummaries (g, editViewState, *clipTrack, getLocalBounds());
+    }
+
     if (dragCreateActive)
         paintRangeSelection (g, dragCreateAnchor, dragCreateCurrent);
     else if (rangeSelectionActive)
@@ -833,6 +830,26 @@ bool TrackLaneComponent::canDragCreateClips() const
     return EngineHelpers::canHostMidiClips (*track);
 }
 
+bool TrackLaneComponent::isLaneLevelRendering() const
+{
+    return useLaneLevelRendering (editViewState.getPixelsPerBeat());
+}
+
+te::Clip* TrackLaneComponent::findClipAtX (int x) const
+{
+    if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get()))
+        return skeletonhive::findClipAtX (editViewState, *clipTrack, x);
+
+    return nullptr;
+}
+
+void TrackLaneComponent::placePlayheadAtX (int x)
+{
+    const auto time = TimelineGrid::snapTime (editViewState.edit, editViewState,
+                                              editViewState.xToTime (x));
+    editViewState.edit.getTransport().setPosition (juce::jmax (te::TimePosition(), time));
+}
+
 void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
 {
     if (e.mods.isRightButtonDown())
@@ -841,20 +858,56 @@ void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (e.mods.isLeftButtonDown() && canDragCreateClips())
+    if (isLaneLevelRendering() && e.mods.isLeftButtonDown())
     {
-        clearRangeSelection();
+        if (auto* clip = findClipAtX (e.x))
+        {
+            editViewState.selectionManager.selectOnly (clip);
+            repaint();
+            return;
+        }
 
-        const auto time = editViewState.xToTime (e.x);
-        dragCreateAnchor = TimelineGrid::snapTime (editViewState.edit, editViewState, time);
-        dragCreateCurrent = dragCreateAnchor;
-        dragCreateActive = true;
+        editViewState.selectionManager.deselectAll();
         repaint();
+    }
+
+    if (! e.mods.isLeftButtonDown())
+        return;
+
+    pendingTimelineInteraction = true;
+    pendingDragStartPos = e.getPosition();
+    dragCreateActive = false;
+    clearRangeSelection();
+
+    const auto time = editViewState.xToTime (e.x);
+    dragCreateAnchor = TimelineGrid::snapTime (editViewState.edit, editViewState, time);
+    dragCreateCurrent = dragCreateAnchor;
+}
+
+void TrackLaneComponent::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (! isLaneLevelRendering())
+        return;
+
+    if (auto* clip = findClipAtX (e.x))
+    {
+        if (onClipDoubleClick)
+            onClipDoubleClick (*clip);
     }
 }
 
 void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (! pendingTimelineInteraction)
+        return;
+
+    if (! dragCreateActive
+        && e.getDistanceFromDragStart() >= timelineClickDragThresholdPx
+        && canDragCreateClips())
+    {
+        dragCreateActive = true;
+    }
+
     if (! dragCreateActive)
         return;
 
@@ -865,19 +918,26 @@ void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 
 void TrackLaneComponent::mouseUp (const juce::MouseEvent& e)
 {
-    juce::ignoreUnused (e);
-
-    if (! dragCreateActive)
+    if (! pendingTimelineInteraction)
         return;
 
-    dragCreateActive = false;
+    pendingTimelineInteraction = false;
 
-    rangeSelectionStart = juce::jmin (dragCreateAnchor, dragCreateCurrent);
-    rangeSelectionEnd = juce::jmax (dragCreateAnchor, dragCreateCurrent);
-    rangeSelectionActive = true;
+    if (dragCreateActive)
+    {
+        dragCreateActive = false;
 
-    if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
-        timeline->clearRangeSelectionsExcept (this);
+        rangeSelectionStart = juce::jmin (dragCreateAnchor, dragCreateCurrent);
+        rangeSelectionEnd = juce::jmax (dragCreateAnchor, dragCreateCurrent);
+        rangeSelectionActive = true;
+
+        if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
+            timeline->clearRangeSelectionsExcept (this);
+    }
+    else
+    {
+        placePlayheadAtX (e.x);
+    }
 
     repaint();
 }
@@ -991,6 +1051,14 @@ void TrackLaneComponent::updateClipBounds()
 {
     const int height = getHeight();
 
+    if (isLaneLevelRendering())
+    {
+        for (auto* cc : clips)
+            cc->setVisible (false);
+
+        return;
+    }
+
     // Cull clip components that are outside the visible viewport (plus a margin
     // so small scrolls don't immediately require re-showing components).
     const int visibleStartX = editViewState.timeToX (editViewState.viewX1.get());
@@ -1053,7 +1121,7 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
 PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHub* hub)
     : edit (e), editViewState (evs), telemetryHub (hub)
 {
-    setInterceptsMouseClicks (true, false);
+    setInterceptsMouseClicks (false, false);
 
     if (telemetryHub != nullptr)
         telemetryHub->registerPlayhead (this);
@@ -1071,23 +1139,6 @@ void PlayheadOverlay::paint (juce::Graphics& g)
     g.fillRect (xPosition, 0, 2, getHeight());
 }
 
-bool PlayheadOverlay::hitTest (int x, int y)
-{
-    juce::ignoreUnused (y);
-    return std::abs (x - xPosition) <= 4;
-}
-
-void PlayheadOverlay::mouseDown (const juce::MouseEvent& e)
-{
-    mouseDrag (e);
-}
-
-void PlayheadOverlay::mouseDrag (const juce::MouseEvent& e)
-{
-    const auto time = editViewState.xToTime (e.x);
-    edit.getTransport().setPosition (TimelineGrid::snapTime (edit, editViewState, time));
-}
-
 void PlayheadOverlay::updateFromTransport()
 {
     if (getWidth() <= 0)
@@ -1101,4 +1152,4 @@ void PlayheadOverlay::updateFromTransport()
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

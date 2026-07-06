@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Persists favorites, recently-used plugins, and clipboard outside the Edit. */
@@ -35,4 +35,4 @@ private:
     juce::PluginDescription clipboardDescription;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

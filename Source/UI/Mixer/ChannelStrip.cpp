@@ -2,7 +2,7 @@
 #include "Engine/EngineHelpers.h"
 #include "Engine/UiTelemetryHub.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 LevelMeter::LevelMeter (te::LevelMeasurer& m, UiTelemetryHub* hub)
@@ -322,4 +322,4 @@ void ChannelStrip::resized()
     fader.setBounds (r);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

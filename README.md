@@ -1,4 +1,4 @@
-# Arrange DAW
+# SkeletonHive
 
 Cross-platform arrangement-view digital audio workstation built with **JUCE** and **Tracktion Engine**.
 
@@ -51,8 +51,8 @@ cmake --build build --config Release
 Run:
 
 ```bash
-./build/ArrangeDAW_artefacts/Release/ArrangeDAW.exe   # Windows
-./build/ArrangeDAW_artefacts/Release/ArrangeDAW        # macOS/Linux
+./build/SkeletonHive_artefacts/Release/SkeletonHive.exe   # Windows
+./build/SkeletonHive_artefacts/Release/SkeletonHive        # macOS/Linux
 ```
 
 ## Plugin paths

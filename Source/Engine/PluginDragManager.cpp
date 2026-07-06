@@ -1,6 +1,6 @@
 #include "PluginDragManager.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 PluginDragPayload PluginDragPayload::parse (const juce::var& description)
@@ -64,4 +64,4 @@ juce::String PluginDragPayload::encode() const
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

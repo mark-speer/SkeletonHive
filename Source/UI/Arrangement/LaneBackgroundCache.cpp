@@ -2,7 +2,7 @@
 #include "EditViewState.h"
 #include "TimelineGrid.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -108,4 +108,4 @@ void LaneBackgroundCache::renderOrFetch (juce::Graphics& g,
         g.drawImageAt (images.getReference (key), bounds.getX(), bounds.getY());
 }
 
-} // namespace arrange
+} // namespace skeletonhive

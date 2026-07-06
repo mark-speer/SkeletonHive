@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 struct TrackRowInfo
@@ -12,4 +12,4 @@ struct TrackRowInfo
     int height = 0;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

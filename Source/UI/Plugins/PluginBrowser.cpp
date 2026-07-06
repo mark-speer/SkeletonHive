@@ -3,7 +3,7 @@
 #include "Engine/PluginDragManager.h"
 #include "Engine/TrackPluginChainModel.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class PluginBrowser::PluginListModel : public juce::ListBoxModel
@@ -276,4 +276,4 @@ void PluginBrowser::scanPlugins()
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

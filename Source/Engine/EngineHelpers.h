@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class ExtendedUIBehaviour;
@@ -24,7 +24,7 @@ struct EngineHelpers
 
     static te::AudioTrack* getOrInsertTrackForMidi (te::Edit& edit, int index);
 
-    // TE tracks are content-agnostic (arrangeTrackKind was a removed UI-only
+    // TE tracks are content-agnostic (skeletonHiveTrackKind was a removed UI-only
     // property); these infer the track's apparent kind purely from its clips
     // so they never gate engine behaviour, only presentation.
     /** True if the track has only MIDI clips (used for the header badge). */
@@ -143,4 +143,4 @@ struct EngineHelpers
     static void releaseAudioDevices (te::Engine& engine);
 };
 
-} // namespace arrange
+} // namespace skeletonhive

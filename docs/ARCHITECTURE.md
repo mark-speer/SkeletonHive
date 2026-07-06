@@ -1,4 +1,4 @@
-# Arrange DAW — Architecture and Modernization Roadmap
+# SkeletonHive — Architecture and Modernization Roadmap
 
 This document captures the findings of the full-codebase architecture review
 (July 2026), the decisions made during the Phase 1 modernization pass, the
@@ -16,7 +16,7 @@ graph; keep the UI a thin, change-driven view.
 ## 1. System overview
 
 ```
-ArrangeApplication (juce::JUCEApplication)
+SkeletonHiveApplication (juce::JUCEApplication)
  ├─ te::Engine                     (ExtendedUIBehaviour / ExtendedEngineBehaviour)
  ├─ ProjectManager                 (owns te::Edit, te::SelectionManager, autosave)
  └─ MainWindow
@@ -117,15 +117,15 @@ how they were resolved. They double as guidelines for future work.
    external change, survive undo) without forcing note objects to be
    `Selectable`.
 
-9. **Known deviation — `arrangeTrackKind` property.** TE `AudioTrack`s are
-   content-agnostic; the persisted `arrangeTrackKind` property is UI sugar
+9. **Known deviation — `skeletonHiveTrackKind` property.** TE `AudioTrack`s are
+   content-agnostic; the persisted `skeletonHiveTrackKind` property is UI sugar
    for the MIDI/AUDIO badge and drag-to-create defaults, with the clip-type
    inspection fallback in `EngineHelpers::getTrackKind`. It must never gate
    engine behaviour, only presentation. Candidate for removal in Phase 2 in
    favour of pure clip-type inference.
 
-10. **Known deviation — `arrangeClipGroup` property.** Minimal clip grouping
-    is a custom `ValueTree` property (`arrangeClipGroup`, a shared UUID) plus
+10. **Known deviation — `skeletonHiveClipGroup` property.** Minimal clip grouping
+    is a custom `ValueTree` property (`skeletonHiveClipGroup`, a shared UUID) plus
     group-aware drag in `ClipComponent`. TE has no first-class clip-group
     concept, so this is additive, undo-safe, and persists with the edit.
 
@@ -275,7 +275,7 @@ Current state and the reasoning behind it:
 
 - Nested clip groups, grouped resize, fade curve type UI, cross-track clip moves.
 - Nested folder drag/reparent UI.
-- Measure UI telemetry at 200+ tracks; lane-level LOD at extreme zoom (see Phase 3).
+- Measure UI telemetry at 200+ tracks (lane-level LOD implemented; see Phase 3).
 
 ---
 
@@ -291,17 +291,25 @@ Current state and the reasoning behind it:
   - **Detail** (near zoom): full waveforms, MIDI note previews, fade curves.
   Wired through `AudioClipComponent`, `MidiClipComponent`, and
   `TrackLaneComponent::updateClipBounds` (thumbnail/preview release at coarse LOD).
+- **Lane-level LOD** (`LaneClipSummaryPaint`, `TimelineLOD::useLaneLevelRendering`) —
+  at `pixelsPerBeat <= 4`, clip `ClipComponent`s are hidden and summaries are painted
+  in `TrackLaneComponent::paint`: per-clip blocks when width ≥ 2 px, bar-bucket strips
+  at the lane bottom for sub-pixel clips. Selection and double-click work at this zoom;
+  move/resize/fade require zooming in.
 - **Multi-output instrument routing** (`MultiOutputRouting`, `MultiOutputConfigDialog`)
   — instrument slot → **Configure Outputs…**; TE `ExternalPlugin::setBusLayout`,
   child tracks, `assignTrackAsInput` / `InputDeviceInstance::setTarget`.
+- **Sidechain routing matrix** (`SidechainRouting`, `SidechainMatrixPanel`,
+  `SidechainMenu`) — edit-wide matrix panel (transport **Sidechain** toggle) with
+  radio selection of one source audio track per sidechain-capable plugin; quick-pick
+  submenu + **Sidechain Routing…** entry on plugin slots; TE `sidechainSourceID` +
+  `guessSidechainRouting`. One source per plugin (TE model). Rack-internal plugins
+  excluded (`canSidechain()` false). Sidechain sources stay audible when muted.
 
 ### Remaining
 
 - VST3-specific sandboxing / quirks handling (out-of-process scanning is
   already in place via TE's child-process scanner).
-- Sidechain routing UI with full source matrix.
-- Lane-level LOD (bar summaries drawn in lane paint instead of per-clip components
-  at extreme zoom).
 - Collaborative / session-safe persistence (edit-file merge strategy,
   autosave versioning).
 

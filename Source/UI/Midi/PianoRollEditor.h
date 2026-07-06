@@ -2,7 +2,7 @@
 
 #include "UI/Arrangement/EditViewState.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Ableton-style MIDI editor: multi-select, marquee, velocity lane, ghost notes,
@@ -39,7 +39,7 @@ public:
     void nudgeSelectedNotes (double beatDelta, int pitchDelta);
 
 private:
-    enum class DragMode { none, marquee, move, resizeStart, resizeEnd, velocity };
+    enum class DragMode { none, marquee, move, resizeStart, resizeEnd, velocity, scrollKeyboard };
 
     struct NoteOrigin
     {
@@ -69,8 +69,13 @@ private:
     // Zoom / scroll (juce::ScrollBar::Listener)
     void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override;
     void zoomAt (int mouseX, double factor);
+    void zoomVerticalAt (int mouseY, double factor);
     void clampScroll();
+    void clampVerticalScroll();
     void updateHorizontalScrollBar();
+    float minPixelsPerRowForView() const;
+    float contentHeightPx() const;
+    void fitRowsToView();
 
     // Step input: advances stepCursorBeat by one note-length per key/click, committing
     // any chord pitches staged (via Shift-click on the keyboard) at the same start beat.
@@ -144,13 +149,19 @@ private:
     int dragAnchorPitch = 60;
     int lastAuditionedPitch = -1;
     bool velocityPaintMode = false;
+    bool keyboardPendingClick = false;
+    int keyboardPendingPitch = 60;
+    double dragStartScrollRowOffset = 0.0;
 
     juce::Array<int> foldedPitches;   // descending, only used when folded
 
-    // Zoom / scroll viewport state (horizontal only; rows always fit gridBounds height)
+    // Zoom / scroll viewport state
     double pixelsPerBeat = 40.0;
     double scrollBeat = 0.0;
+    float pixelsPerRow = 12.0f;
+    double scrollRowOffset = 0.0;
     bool zoomInitialised = false;
+    bool verticalZoomInitialised = false;
 
     // Note-length draw tool: remembers the last drawn/resized note's length so the
     // next drawn or step-input note reuses it.
@@ -174,8 +185,10 @@ private:
     static constexpr double minNoteLengthBeats = 1.0 / 32.0;
     static constexpr double minPixelsPerBeat = 8.0;
     static constexpr double maxPixelsPerBeat = 400.0;
+    static constexpr float maxPixelsPerRow = 64.0f;
+    static constexpr int keyboardDragScrollThresholdPx = 4;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollEditor)
 };
 
-} // namespace arrange
+} // namespace skeletonhive

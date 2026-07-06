@@ -57,19 +57,19 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ArrangeDAW-${{ matrix.os }}
-          path: build/ArrangeDAW_artefacts/Release/ArrangeDAW.exe
+          name: SkeletonHive-${{ matrix.os }}
+          path: build/SkeletonHive_artefacts/Release/SkeletonHive.exe
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: ArrangeDAW-${{ matrix.os }}
-          path: build/ArrangeDAW_artefacts/Release/ArrangeDAW.app
+          name: SkeletonHive-${{ matrix.os }}
+          path: build/SkeletonHive_artefacts/Release/SkeletonHive.app
 
       - name: Upload artifact (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: ArrangeDAW-${{ matrix.os }}
-          path: build/ArrangeDAW_artefacts/Release/ArrangeDAW
+          name: SkeletonHive-${{ matrix.os }}
+          path: build/SkeletonHive_artefacts/Release/SkeletonHive

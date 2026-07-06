@@ -2,7 +2,7 @@
 
 #include "Engine/TransportController.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class TransportBar : public juce::Component,
@@ -23,6 +23,7 @@ public:
     std::function<void()> onAudioSettings;
     std::function<void()> onScanPlugins;
     std::function<void()> onToggleMixer;
+    std::function<void()> onToggleSidechain;
 
 private:
     void resized() override;
@@ -38,11 +39,11 @@ private:
     juce::TextButton newButton { "New" }, openButton { "Open" }, saveButton { "Save" },
         importButton { "Import" }, addAudioButton { "+ Audio" }, addMidiButton { "+ MIDI" },
         addClipButton { "+ Clip" }, settingsButton { "Audio" }, pluginsButton { "Plugins" },
-        mixerButton { "Mixer" };
+        mixerButton { "Mixer" }, sidechainButton { "Sidechain" };
     juce::Label positionLabel { {}, "00:00:00.000" };
     juce::Slider tempoSlider;
     juce::Label tempoLabel { {}, "BPM" };
     juce::ComboBox timeSigBox;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

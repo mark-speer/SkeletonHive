@@ -4,7 +4,7 @@
 #include "TimelineGrid.h"
 #include "TimelineTypes.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class UiTelemetryHub;
@@ -80,6 +80,7 @@ private:
     void createVisibleTrackUI (const struct TrackRowInfo& row);
     void layoutTracks();
     void updateTimelineWidth();
+    void updateHorizontalScrollBarOverlay();
     void refreshLaneLayouts();
     void syncVisibleRange();
     void invalidateLaneBackgrounds();
@@ -103,10 +104,12 @@ private:
     juce::ToggleButton snapButton { "Snap" };
     juce::ToggleButton rippleButton { "Ripple" };
     juce::ComboBox gridDivisionBox;
+    juce::ScrollBar hScrollBarOverlay { false };
 
     static constexpr int headerWidth = 190;
     static constexpr int rulerHeight = 24;
     static constexpr int footerHeight = 28;
+    static constexpr int hScrollBarHeight = 14;
     static constexpr int minTrackHeight = 36;
     static constexpr int maxTrackHeight = 240;
 
@@ -123,6 +126,7 @@ private:
 
     bool updateTracks = false;
     bool relayoutTracks = false;
+    bool laneLevelRenderingActive = false;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

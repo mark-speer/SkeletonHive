@@ -4,7 +4,7 @@
 #include "Engine/PluginPresetManager.h"
 #include "UI/Arrangement/TrackComponents.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 PluginTrayComponent::PluginTrayComponent (EditViewState& evs, PluginStateManager& sm)
@@ -563,4 +563,4 @@ bool PluginTrayComponent::handleKeyPress (const juce::KeyPress& key)
     return false;
 }
 
-} // namespace arrange
+} // namespace skeletonhive

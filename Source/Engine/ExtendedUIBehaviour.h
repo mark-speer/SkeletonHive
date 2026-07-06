@@ -3,7 +3,7 @@
 #include "EngineHelpers.h"
 #include "UI/Plugins/PluginWindow.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class ExtendedUIBehaviour : public te::UIBehaviour
@@ -26,4 +26,4 @@ public:
     }
 };
 
-} // namespace arrange
+} // namespace skeletonhive

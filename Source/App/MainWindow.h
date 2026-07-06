@@ -1,18 +1,20 @@
 #pragma once
 
-#include "Application.h"
+#include "SkeletonHiveApplication.h"
 #include "UI/Transport/TransportBar.h"
 #include "UI/Arrangement/TimelineComponent.h"
 #include "UI/Mixer/MixerPanel.h"
 #include "UI/Plugins/PluginBrowser.h"
 #include "UI/Plugins/PluginTrayComponent.h"
+#include "UI/Routing/SidechainMatrixPanel.h"
 #include "Engine/PluginStateManager.h"
+#include "Engine/SidechainRouting.h"
 #include "UI/Midi/PianoRollEditor.h"
 #include "UI/Automation/AutomationLaneComponent.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/UiTelemetryHub.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class MainContentComponent : public juce::Component,
@@ -20,7 +22,7 @@ class MainContentComponent : public juce::Component,
                              private juce::KeyListener
 {
 public:
-    MainContentComponent (ArrangeApplication& app);
+    MainContentComponent (SkeletonHiveApplication& app);
     ~MainContentComponent() override;
 
     void prepareForShutdown();
@@ -43,9 +45,11 @@ private:
     void handleAddPlugin (te::Track& track);
     void showPianoRoll (te::MidiClip& clip);
     void toggleMixer();
+    void toggleSidechainPanel();
+    void showSidechainPanelForPlugin (te::Plugin* plugin);
     void setupAutomationPanel (te::Track& track);
 
-    ArrangeApplication& application;
+    SkeletonHiveApplication& application;
     te::Engine& engine;
     ProjectManager& projectManager;
     std::unique_ptr<TransportController> transportController;
@@ -58,6 +62,7 @@ private:
     std::unique_ptr<MixerPanel> mixerPanel;
     std::unique_ptr<PluginBrowser> pluginBrowser;
     std::unique_ptr<PluginTrayComponent> pluginTray;
+    std::unique_ptr<SidechainMatrixPanel> sidechainPanel;
 
     std::unique_ptr<juce::DocumentWindow> pianoRollWindow;
     juce::OwnedArray<AutomationLaneComponent> automationLanes;
@@ -66,20 +71,21 @@ private:
         automationLatchButton { "Latch" };
     juce::Component automationPanel;
     bool mixerVisible = false;
+    bool sidechainVisible = false;
     AutomationMode automationMode = AutomationMode::read;
 };
 
 class MainWindow : public juce::DocumentWindow
 {
 public:
-    MainWindow (ArrangeApplication& app);
+    MainWindow (SkeletonHiveApplication& app);
     ~MainWindow() override;
 
     void closeButtonPressed() override;
     void prepareForShutdown();
 
 private:
-    ArrangeApplication& application;
+    SkeletonHiveApplication& application;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

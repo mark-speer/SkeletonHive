@@ -1,6 +1,6 @@
 #include "TimelineGrid.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -231,4 +231,4 @@ juce::String TimelineGrid::gridDivisionLabel (GridDivision division)
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

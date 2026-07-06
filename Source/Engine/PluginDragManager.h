@@ -2,15 +2,15 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Central drag-and-drop payload types for the device chain. */
 namespace PluginDragTypes
 {
-inline constexpr const char* slotReorder   = "arrangePluginSlot";
-inline constexpr const char* browserInsert = "arrangePluginBrowser";
-inline constexpr const char* crossTrack    = "arrangePluginCrossTrack";
+inline constexpr const char* slotReorder   = "skeletonHivePluginSlot";
+inline constexpr const char* browserInsert = "skeletonHivePluginBrowser";
+inline constexpr const char* crossTrack    = "skeletonHivePluginCrossTrack";
 } // namespace PluginDragTypes
 
 struct PluginDragPayload
@@ -27,4 +27,4 @@ struct PluginDragPayload
     juce::String encode() const;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

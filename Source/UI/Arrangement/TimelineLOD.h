@@ -1,7 +1,15 @@
 #pragma once
 
-namespace arrange
+namespace skeletonhive
 {
+
+/** Below this zoom, clips are painted in the lane background instead of ClipComponents. */
+constexpr double laneLevelPixelsPerBeatThreshold = 4.0;
+
+inline bool useLaneLevelRendering (double pixelsPerBeat)
+{
+    return pixelsPerBeat <= laneLevelPixelsPerBeatThreshold;
+}
 
 /** Zoom-driven clip detail for the arrangement timeline. */
 enum class TimelineClipDetailLevel
@@ -61,4 +69,4 @@ inline bool shouldHoldWaveformThumbnail (TimelineClipDetailLevel level, bool dra
     return shouldShowWaveforms (level, drawWaveformsPref);
 }
 
-} // namespace arrange
+} // namespace skeletonhive

@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -111,6 +111,7 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
     foldButton.onClick = [this]
     {
         rebuildFoldedPitches();
+        clampVerticalScroll();
         repaint();
     };
 
@@ -233,7 +234,21 @@ void PianoRollEditor::resized()
         zoomInitialised = true;
     }
 
+    if (! verticalZoomInitialised && gridBounds.getHeight() > 0)
+    {
+        fitRowsToView();
+        verticalZoomInitialised = true;
+    }
+    else if (verticalZoomInitialised)
+    {
+        if (pixelsPerRow <= minPixelsPerRowForView() + 0.5f)
+            fitRowsToView();
+        else
+            clampVerticalScroll();
+    }
+
     clampScroll();
+    clampVerticalScroll();
     updateHorizontalScrollBar();
 }
 
@@ -281,12 +296,35 @@ int PianoRollEditor::rowForPitch (int pitch) const
 
 float PianoRollEditor::rowHeight() const
 {
+    return pixelsPerRow;
+}
+
+float PianoRollEditor::minPixelsPerRowForView() const
+{
     return gridBounds.getHeight() / (float) juce::jmax (1, numVisibleRows());
+}
+
+float PianoRollEditor::contentHeightPx() const
+{
+    return pixelsPerRow * (float) numVisibleRows();
+}
+
+void PianoRollEditor::fitRowsToView()
+{
+    pixelsPerRow = minPixelsPerRowForView();
+    scrollRowOffset = 0.0;
+}
+
+void PianoRollEditor::clampVerticalScroll()
+{
+    const float maxScroll = juce::jmax (0.0f, contentHeightPx() - (float) gridBounds.getHeight());
+    scrollRowOffset = juce::jlimit (0.0, (double) maxScroll, scrollRowOffset);
 }
 
 int PianoRollEditor::pitchAtY (int y) const
 {
-    const int row = (int) ((y - gridBounds.getY()) / rowHeight());
+    const float contentY = (float) (y - gridBounds.getY()) + (float) scrollRowOffset;
+    const int row = (int) (contentY / juce::jmax (0.001f, pixelsPerRow));
     return pitchForRow (juce::jlimit (0, numVisibleRows() - 1, row));
 }
 
@@ -295,7 +333,7 @@ int PianoRollEditor::yForPitchTop (int pitch) const
     const int row = rowForPitch (pitch);
     if (row < 0)
         return -1000;
-    return gridBounds.getY() + (int) (row * rowHeight());
+    return gridBounds.getY() + (int) (row * pixelsPerRow - scrollRowOffset);
 }
 
 double PianoRollEditor::clipLengthBeats() const
@@ -345,6 +383,22 @@ void PianoRollEditor::zoomAt (int mouseX, double factor)
     updateHorizontalScrollBar();
     repaint (gridBounds);
     repaint (velocityBounds);
+}
+
+void PianoRollEditor::zoomVerticalAt (int mouseY, double factor)
+{
+    const float rowAtMouse = ((float) (mouseY - gridBounds.getY()) + (float) scrollRowOffset) / pixelsPerRow;
+    const float minRowPx = minPixelsPerRowForView();
+    const float newPixelsPerRow = juce::jlimit (minRowPx, maxPixelsPerRow, pixelsPerRow * (float) factor);
+
+    if (newPixelsPerRow == pixelsPerRow)
+        return;
+
+    pixelsPerRow = newPixelsPerRow;
+    scrollRowOffset = rowAtMouse * pixelsPerRow - (float) (mouseY - gridBounds.getY());
+    clampVerticalScroll();
+    repaint (gridBounds);
+    repaint (keyboardBounds);
 }
 
 void PianoRollEditor::scrollBarMoved (juce::ScrollBar* bar, double newRangeStart)
@@ -532,11 +586,17 @@ int PianoRollEditor::nearestInScalePitch (int pitch) const
 void PianoRollEditor::paintKeyboard (juce::Graphics& g) const
 {
     const float h = rowHeight();
+    const float viewTop = (float) gridBounds.getY();
+    const float viewBottom = (float) gridBounds.getBottom();
 
     for (int row = 0; row < numVisibleRows(); ++row)
     {
         const int pitch = pitchForRow (row);
-        const float y = gridBounds.getY() + row * h;
+        const float y = viewTop + row * h - (float) scrollRowOffset;
+
+        if (y + h < viewTop || y > viewBottom)
+            continue;
+
         const bool black = isBlackKey (pitch);
 
         g.setColour (black ? juce::Colour (0xff20203a) : juce::Colour (0xffd8d8e8));
@@ -559,11 +619,16 @@ void PianoRollEditor::paintGrid (juce::Graphics& g) const
 {
     const float h = rowHeight();
     const bool scaleOn = scaleBox.getSelectedId() > 1;
+    const float viewTop = (float) gridBounds.getY();
+    const float viewBottom = (float) gridBounds.getBottom();
 
     for (int row = 0; row < numVisibleRows(); ++row)
     {
         const int pitch = pitchForRow (row);
-        const float y = gridBounds.getY() + row * h;
+        const float y = viewTop + row * h - (float) scrollRowOffset;
+
+        if (y + h < viewTop || y > viewBottom)
+            continue;
 
         juce::Colour rowColour;
         if (scaleOn)
@@ -693,13 +758,9 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
 
     if (keyboardBounds.contains (e.getPosition()))
     {
-        const int pitch = pitchAtY (e.y);
-
-        if (stepButton.getToggleState())
-            commitStepNote (pitch, defaultVelocity, true);
-        else
-            auditionPitch (pitch, defaultVelocity);
-
+        keyboardPendingPitch = pitchAtY (e.y);
+        keyboardPendingClick = true;
+        dragStartScrollRowOffset = scrollRowOffset;
         return;
     }
 
@@ -873,10 +934,28 @@ void PianoRollEditor::mouseDoubleClick (const juce::MouseEvent& e)
 
 void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
 {
+    if (keyboardPendingClick
+        && e.getDistanceFromDragStart() >= keyboardDragScrollThresholdPx
+        && keyboardBounds.contains (dragStartPos))
+    {
+        keyboardPendingClick = false;
+        dragMode = DragMode::scrollKeyboard;
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    }
+
     switch (dragMode)
     {
         case DragMode::none:
             return;
+
+        case DragMode::scrollKeyboard:
+        {
+            scrollRowOffset = dragStartScrollRowOffset - (double) (e.y - dragStartPos.y);
+            clampVerticalScroll();
+            repaint (gridBounds);
+            repaint (keyboardBounds);
+            return;
+        }
 
         case DragMode::marquee:
         {
@@ -932,9 +1011,8 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
             const double beatDelta = snappedStart - dragAnchorBeat;
 
             const int anchorRow = rowForPitch (dragAnchorPitch);
-            const int currentRow = juce::jlimit (0, numVisibleRows() - 1,
-                                                 (int) ((e.y - gridBounds.getY()) / rowHeight()));
-            const int rowDelta = anchorRow >= 0 ? currentRow - anchorRow : 0;
+            const int currentRow = rowForPitch (pitchAtY (e.y));
+            const int rowDelta = (anchorRow >= 0 && currentRow >= 0) ? currentRow - anchorRow : 0;
 
             const double offsetBeats = clip->getOffsetInBeats().inBeats();
             const double lengthBeats = clipLengthBeats();
@@ -1030,9 +1108,20 @@ void PianoRollEditor::mouseUp (const juce::MouseEvent&)
         if (auto* n = clip->getSequence().getNoteFor (dragOrigins.getReference (0).state))
             currentNoteLengthBeats = juce::jmax (minNoteLengthBeats, n->getLengthBeats().inBeats());
 
+    if (keyboardPendingClick)
+    {
+        if (stepButton.getToggleState())
+            commitStepNote (keyboardPendingPitch, defaultVelocity, true);
+        else
+            auditionPitch (keyboardPendingPitch, defaultVelocity);
+
+        keyboardPendingClick = false;
+    }
+
     dragMode = DragMode::none;
     velocityTargets.clear();
     stopAudition();
+    setMouseCursor (juce::MouseCursor::NormalCursor);
     repaint();
 }
 
@@ -1040,6 +1129,12 @@ void PianoRollEditor::mouseMove (const juce::MouseEvent& e)
 {
     if (dragMode != DragMode::none)
         return;
+
+    if (keyboardBounds.contains (e.getPosition()))
+    {
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        return;
+    }
 
     if (auto* n = noteAtPosition (e.getPosition()))
     {
@@ -1065,7 +1160,23 @@ void PianoRollEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::Mou
 
     if (e.mods.isCtrlDown() || e.mods.isCommandDown())
     {
-        zoomAt (e.x, wheel.deltaY > 0 ? 1.2 : 0.833);
+        if (e.mods.isShiftDown())
+            zoomVerticalAt (e.y, wheel.deltaY > 0 ? 1.2 : 0.833);
+        else
+            zoomAt (e.x, wheel.deltaY > 0 ? 1.2 : 0.833);
+
+        return;
+    }
+
+    const bool verticalOverflow = contentHeightPx() > (float) gridBounds.getHeight() + 0.5f;
+
+    if (verticalOverflow)
+    {
+        const double delta = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : -wheel.deltaY);
+        scrollRowOffset += delta * rowHeight() * 2.0;
+        clampVerticalScroll();
+        repaint (gridBounds);
+        repaint (keyboardBounds);
         return;
     }
 
@@ -1428,4 +1539,4 @@ void PianoRollEditor::stopAudition()
     lastAuditionedPitch = -1;
 }
 
-} // namespace arrange
+} // namespace skeletonhive

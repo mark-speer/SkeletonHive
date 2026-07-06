@@ -2,7 +2,7 @@
 
 #include "EngineHelpers.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class TransportController
@@ -41,4 +41,4 @@ private:
     bool punchInEnabled = false;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

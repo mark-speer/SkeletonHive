@@ -3,7 +3,7 @@
 #include "TracktionCommon.h"
 #include "Engine/MultiOutputRouting.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Dialog listing instrument output buses and linked child tracks. */
@@ -14,4 +14,4 @@ public:
                       juce::Component* centreAround);
 };
 
-} // namespace arrange
+} // namespace skeletonhive

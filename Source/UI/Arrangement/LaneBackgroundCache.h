@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 class EditViewState;
@@ -36,4 +36,4 @@ private:
     juce::HashMap<juce::String, juce::Image> images;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

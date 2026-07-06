@@ -4,7 +4,7 @@
 #include "Engine/WaveformCache.h"
 #include "LaneBackgroundCache.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 enum class GridDivision
@@ -157,4 +157,4 @@ public:
     LaneBackgroundCache laneBackgroundCache;
 };
 
-} // namespace arrange
+} // namespace skeletonhive

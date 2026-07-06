@@ -4,8 +4,9 @@
 #include "Engine/PluginDragManager.h"
 #include "Engine/PluginPresetManager.h"
 #include "UI/Arrangement/TrackComponents.h"
+#include "UI/Routing/SidechainMenu.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 namespace
@@ -185,6 +186,12 @@ void PluginSlotComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (bounds, 4.0f);
     }
 
+    if (plugin->canSidechain() && plugin->getSidechainSourceID().isValid())
+    {
+        g.setColour (juce::Colours::cyan);
+        g.fillEllipse (4.0f, 4.0f, 6.0f, 6.0f);
+    }
+
     auto titleArea = getLocalBounds().reduced (6).withTrimmedRight (bypassButtonSize + 2);
     if (rackHeader)
         titleArea = titleArea.withTrimmedLeft (expandButtonSize + 2);
@@ -308,7 +315,6 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
         bypass = 1, rename, duplicate, copy, paste, moveLeft, moveRight, remove,
         wetDry = 100, soloDevice = 110, collapse = 115,
         expandRack = 116, showRackMacros = 117, configureOutputs = 118,
-        sidechainBase = 200,
         moveToRackBase = 300,
         favorite = 400,
         savePreset = 500,
@@ -350,15 +356,7 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
     menu.addItem (savePreset, "Save Preset...");
     menu.addItem (loadPreset, "Load Preset...");
 
-    if (plugin.canSidechain())
-    {
-        juce::PopupMenu sidechainMenu;
-        const auto sources = plugin.getSidechainSourceNames (true);
-        const auto current = plugin.getSidechainSourceName();
-        for (int i = 0; i < sources.size(); ++i)
-            sidechainMenu.addItem (sidechainBase + i, sources[i], true, sources[i] == current);
-        menu.addSubMenu ("Sidechain Source", sidechainMenu, true);
-    }
+    SidechainMenu::addSidechainMenuItems (menu, plugin);
 
     menu.addSeparator();
     menu.addItem (moveLeft, "Move Earlier");
@@ -380,14 +378,17 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
 
         auto& track = *trackPtr2;
 
-        if (result >= sidechainBase && result < moveToRackBase)
+        if (SidechainMenu::handleSidechainMenuResult (result, plugin, moveToRackBase,
+                                                      [safeSlot, onChanged]
         {
-            const auto sources = plugin.getSidechainSourceNames (true);
-            const int idx = result - sidechainBase;
-            if (juce::isPositiveAndBelow (idx, sources.size()))
-                plugin.setSidechainSourceByName (sources[idx]);
+            if (safeSlot != nullptr)
+            {
+                safeSlot->repaint();
+                if (onChanged)
+                    onChanged();
+            }
+        }))
             return;
-        }
 
         switch (result)
         {
@@ -510,4 +511,4 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
     });
 }
 
-} // namespace arrange
+} // namespace skeletonhive

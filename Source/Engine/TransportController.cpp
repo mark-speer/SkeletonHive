@@ -1,7 +1,7 @@
 #include "TransportController.h"
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 TransportController::TransportController (te::Edit& e)
@@ -111,4 +111,4 @@ bool TransportController::isRecording() const
     return edit.getTransport().isRecording();
 }
 
-} // namespace arrange
+} // namespace skeletonhive

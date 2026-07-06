@@ -1,6 +1,6 @@
 #include "WaveformCache.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 WaveformCache::WaveformCache (int maxEntriesIn)
@@ -95,4 +95,4 @@ void WaveformCache::trimToSize()
     }
 }
 
-} // namespace arrange
+} // namespace skeletonhive

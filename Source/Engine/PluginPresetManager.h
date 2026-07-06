@@ -2,7 +2,7 @@
 
 #include "TracktionCommon.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 /** Thin wrapper for plugin preset / state persistence via TE ValueTree. */
@@ -16,4 +16,4 @@ public:
     static bool loadPresetFromFile (te::Plugin& plugin, const juce::File& file);
 };
 
-} // namespace arrange
+} // namespace skeletonhive

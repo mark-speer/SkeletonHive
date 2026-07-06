@@ -2,7 +2,7 @@
 
 #include "EditViewState.h"
 
-namespace arrange
+namespace skeletonhive
 {
 
 struct TimelineGrid
@@ -32,4 +32,4 @@ struct TimelineGrid
     static juce::String gridDivisionLabel (GridDivision division);
 };
 
-} // namespace arrange
+} // namespace skeletonhive
