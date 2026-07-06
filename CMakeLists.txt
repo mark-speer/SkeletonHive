@@ -61,6 +61,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
     Source/Engine/EngineHelpers.cpp
+    Source/Engine/ExportManager.h
+    Source/Engine/ExportManager.cpp
     Source/Engine/MultiOutputRouting.h
     Source/Engine/MultiOutputRouting.cpp
     Source/Engine/SidechainRouting.h
@@ -117,6 +119,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Midi/PianoRollEditor.cpp
     Source/UI/Automation/AutomationLaneComponent.h
     Source/UI/Automation/AutomationLaneComponent.cpp
+    Source/UI/Automation/AutomationPanel.h
+    Source/UI/Automation/AutomationPanel.cpp
 )
 
 target_compile_definitions(SkeletonHive PRIVATE

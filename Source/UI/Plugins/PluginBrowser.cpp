@@ -79,6 +79,7 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
     pluginList.setRowHeight (24);
 
     scanButton.onClick = [this] { scanPlugins(); };
+    failedButton.onClick = [this] { showFailedPluginsDialog(); };
     insertButton.onClick = [this]
     {
         if (selectedTrack == nullptr || ! selectedPlugin.name.isNotEmpty())
@@ -101,6 +102,10 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
                     pluginStateManager.recordRecentUse (selectedPlugin.createIdentifierString());
                 }
             }
+            else
+            {
+                EngineHelpers::showPluginInsertFailureAlert (this, selectedPlugin);
+            }
         }
     };
 
@@ -111,18 +116,21 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
     addAndMakeVisible (vendorFilter);
     addAndMakeVisible (pluginList);
     addAndMakeVisible (scanButton);
+    addAndMakeVisible (failedButton);
     addAndMakeVisible (insertButton);
     addAndMakeVisible (statusLabel);
 
     refreshList();
+    updateFailedButton();
 }
 
 void PluginBrowser::resized()
 {
     auto r = getLocalBounds().reduced (4);
     auto top = r.removeFromTop (26);
-    scanButton.setBounds (top.removeFromRight (52).reduced (1));
     insertButton.setBounds (top.removeFromRight (64).reduced (1));
+    failedButton.setBounds (top.removeFromRight (58).reduced (1));
+    scanButton.setBounds (top.removeFromRight (52).reduced (1));
 
     auto filters = r.removeFromTop (26);
     categoryFilter.setBounds (filters.removeFromLeft (110).reduced (1));
@@ -228,15 +236,99 @@ void PluginBrowser::timerCallback()
                          juce::dontSendNotification);
 }
 
-void PluginBrowser::finishScan (int numFound)
+void PluginBrowser::finishScan (const PluginScanReport& report)
 {
     stopTimer();
     scanButton.setEnabled (true);
     refreshList();
+    updateFailedButton();
 
-    const int total = pluginScanner.getKnownPluginList().getNumTypes();
-    statusLabel.setText (juce::String (numFound) + " new, " + juce::String (total) + " total",
-                         juce::dontSendNotification);
+    juce::String status = juce::String (report.newPluginsFound) + " new, "
+                        + juce::String (report.totalPlugins) + " total";
+
+    if (report.skippedBlacklisted > 0)
+        status << ", " + juce::String (report.skippedBlacklisted) + " blacklisted";
+
+    if (report.newlyFailed > 0)
+        status << ", " + juce::String (report.newlyFailed) + " failed";
+
+    statusLabel.setText (status, juce::dontSendNotification);
+}
+
+void PluginBrowser::updateFailedButton()
+{
+    const int count = pluginScanner.getBlacklistedFiles().size();
+    failedButton.setButtonText (count > 0 ? "Failed (" + juce::String (count) + ")" : "Failed");
+    failedButton.setEnabled (count > 0 || ! pluginScanner.isScanning());
+}
+
+void PluginBrowser::showFailedPluginsDialog()
+{
+    const auto blacklisted = pluginScanner.getBlacklistedFiles();
+
+    if (blacklisted.isEmpty())
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::InfoIcon,
+                                                "Failed Plugins",
+                                                "No plugins are currently blacklisted.",
+                                                "OK",
+                                                this);
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Failed / blacklisted plugins");
+
+    for (int i = 0; i < blacklisted.size(); ++i)
+    {
+        const auto file = blacklisted[i];
+        const auto label = juce::File (file).getFileName().isNotEmpty() ? juce::File (file).getFileName() : file;
+        menu.addItem (1000 + i, "Retry: " + label);
+    }
+
+    menu.addSeparator();
+    menu.addItem (1, "Retry All Failed Plugins");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&failedButton),
+                        [this, blacklisted] (int result)
+    {
+        if (result == 0)
+            return;
+
+        if (result == 1)
+        {
+            failedButton.setEnabled (false);
+            statusLabel.setText ("Retrying failed plugins...", juce::dontSendNotification);
+            startTimer (100);
+
+            const auto safeThis = juce::Component::SafePointer<PluginBrowser> (this);
+
+            pluginScanner.rescanFailedPlugins ([safeThis] (const PluginScanReport& report)
+            {
+                if (safeThis != nullptr)
+                    safeThis->finishScan (report);
+            });
+            return;
+        }
+
+        const int index = result - 1000;
+
+        if (! juce::isPositiveAndBelow (index, blacklisted.size()))
+            return;
+
+        const auto file = blacklisted[index];
+        failedButton.setEnabled (false);
+        statusLabel.setText ("Retrying " + juce::File (file).getFileName() + "...", juce::dontSendNotification);
+        startTimer (100);
+
+        const auto safeThis = juce::Component::SafePointer<PluginBrowser> (this);
+
+        pluginScanner.rescanBlacklistedFile (file, [safeThis] (const PluginScanReport& report)
+        {
+            if (safeThis != nullptr)
+                safeThis->finishScan (report);
+        });
+    });
 }
 
 void PluginBrowser::mouseDrag (const juce::MouseEvent& e)
@@ -264,10 +356,10 @@ void PluginBrowser::scanPlugins()
 
     const auto safeThis = juce::Component::SafePointer<PluginBrowser> (this);
 
-    if (! pluginScanner.scanDefaultLocations ([safeThis] (int numFound)
+    if (! pluginScanner.scanDefaultLocations ([safeThis] (const PluginScanReport& report)
     {
         if (safeThis != nullptr)
-            safeThis->finishScan (numFound);
+            safeThis->finishScan (report);
     }))
     {
         stopTimer();

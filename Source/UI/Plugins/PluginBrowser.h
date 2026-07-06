@@ -27,16 +27,18 @@ public:
 
     void refreshList();
     void scanPlugins();
+    void showFailedPluginsDialog();
     void resized() override;
 
 private:
     class PluginListModel;
 
     void timerCallback() override;
-    void finishScan (int numFound);
+    void finishScan (const PluginScanReport& report);
     void textEditorTextChanged (juce::TextEditor&) override;
     void comboBoxChanged (juce::ComboBox*) override;
     void mouseDrag (const juce::MouseEvent& e) override;
+    void updateFailedButton();
 
     juce::Array<juce::PluginDescription> getFilteredPlugins() const;
     void rebuildListBox();
@@ -49,7 +51,7 @@ private:
     juce::ComboBox categoryFilter;
     juce::ComboBox vendorFilter;
     juce::ListBox pluginList;
-    juce::TextButton scanButton { "Scan" }, insertButton { "Insert" };
+    juce::TextButton scanButton { "Scan" }, failedButton { "Failed" }, insertButton { "Insert" };
     juce::Label statusLabel;
     std::unique_ptr<PluginListModel> listModel;
     juce::PluginDescription selectedPlugin;

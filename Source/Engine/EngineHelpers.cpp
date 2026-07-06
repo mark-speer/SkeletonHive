@@ -609,6 +609,68 @@ juce::PluginDescription EngineHelpers::lookupKnownPlugin (te::Engine& engine, co
     return {};
 }
 
+EngineHelpers::PluginLoadState EngineHelpers::getExternalPluginLoadState (te::Plugin& plugin,
+                                                                          juce::String& statusMessage)
+{
+    auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin);
+
+    if (external == nullptr)
+    {
+        statusMessage = {};
+        return PluginLoadState::ok;
+    }
+
+    if (external->isInitialisingAsync())
+    {
+        statusMessage = "Loading plugin...";
+        return PluginLoadState::loading;
+    }
+
+    if (external->getAudioPluginInstance() != nullptr)
+    {
+        statusMessage = {};
+        return PluginLoadState::ok;
+    }
+
+    statusMessage = external->getLoadError();
+
+    if (statusMessage.isEmpty())
+        statusMessage = "Plugin failed to load.";
+
+    return PluginLoadState::failed;
+}
+
+juce::String EngineHelpers::getExternalPluginLoadError (te::Plugin& plugin)
+{
+    juce::String message;
+    getExternalPluginLoadState (plugin, message);
+    return message;
+}
+
+void EngineHelpers::showPluginLoadFailureAlert (juce::Component* parent,
+                                                const juce::String& pluginName,
+                                                const juce::String& errorMessage)
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                            "Plugin Load Failed",
+                                            pluginName + "\n\n" + errorMessage,
+                                            "OK",
+                                            parent);
+}
+
+void EngineHelpers::showPluginLoadFailureAlert (juce::Component* parent, te::Plugin& plugin)
+{
+    showPluginLoadFailureAlert (parent, plugin.getName(), getExternalPluginLoadError (plugin));
+}
+
+void EngineHelpers::showPluginInsertFailureAlert (juce::Component* parent,
+                                                  const juce::PluginDescription& desc)
+{
+    showPluginLoadFailureAlert (parent,
+                                desc.name.isNotEmpty() ? desc.name : "Plugin",
+                                "The plugin could not be created. It may have failed to load or is still initialising.");
+}
+
 te::AuxSendPlugin* EngineHelpers::addAuxSend (te::AudioTrack& track, int busNumber)
 {
     return getOrCreateAuxSend (track, busNumber);
@@ -1039,6 +1101,69 @@ bool EngineHelpers::isTrackArmed (te::AudioTrack& track, int position)
         if (te::isOnTargetTrack (*instance, track, position))
             return instance->isRecordingEnabled (track.itemID);
     return false;
+}
+
+juce::Array<te::InputDeviceInstance*> EngineHelpers::getInputInstancesForTrack (te::AudioTrack& track)
+{
+    juce::Array<te::InputDeviceInstance*> result;
+
+    for (auto* instance : track.edit.getAllInputDevices())
+        if (te::isOnTargetTrack (*instance, track, 0))
+            result.add (instance);
+
+    return result;
+}
+
+void EngineHelpers::assignDefaultInputToTrack (te::AudioTrack& track, bool preferMidi)
+{
+    auto& edit = track.edit;
+
+    for (auto* instance : edit.getAllInputDevices())
+    {
+        const auto type = instance->getInputDevice().getDeviceType();
+        const bool isMidiInput = type == te::InputDevice::physicalMidiDevice
+                                 || type == te::InputDevice::virtualMidiDevice;
+
+        if (isMidiInput != preferMidi)
+            continue;
+
+        setInputAssignedToTrack (*instance, track, true);
+
+        if (! preferMidi)
+            return;   // one wave input is enough; MIDI inputs are all assigned
+    }
+}
+
+void EngineHelpers::armTrackWithDefaultInput (te::AudioTrack& track, bool arm)
+{
+    // Prefer MIDI inputs only when the track's content is MIDI; empty tracks
+    // default to audio ("+ MIDI" tracks get MIDI inputs assigned at creation).
+    if (arm && getInputInstancesForTrack (track).isEmpty())
+        assignDefaultInputToTrack (track, isMidiTrack (track));
+
+    armTrack (track, arm);
+}
+
+bool EngineHelpers::isInputAssignedToTrack (te::InputDeviceInstance& instance, te::AudioTrack& track)
+{
+    return te::isOnTargetTrack (instance, track, 0);
+}
+
+void EngineHelpers::setInputAssignedToTrack (te::InputDeviceInstance& instance, te::AudioTrack& track, bool assign)
+{
+    auto& edit = track.edit;
+
+    if (assign)
+    {
+        // Add as an extra destination first so an input can feed several
+        // tracks; some devices only allow one target, so fall back to moving.
+        if (! instance.setTarget (track.itemID, false, &edit.getUndoManager(), 0))
+            [[maybe_unused]] const auto result = instance.setTarget (track.itemID, true, &edit.getUndoManager(), 0);
+    }
+    else
+    {
+        [[maybe_unused]] const auto result = instance.removeTarget (track.itemID, &edit.getUndoManager());
+    }
 }
 
 void EngineHelpers::enableAllInputs (te::Edit& edit)

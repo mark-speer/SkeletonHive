@@ -9,12 +9,18 @@ namespace skeletonhive
 
 class UiTelemetryHub;
 
-/** Bar/beat ruler with a draggable loop brace bound to the transport's loop range. */
-class TimelineRulerComponent : public juce::Component
+/** Bar/beat ruler with a draggable loop brace bound to the transport's loop
+    range. Also shows arrangement markers and tempo/time-sig change flags;
+    right-click for marker and tempo-map editing. */
+class TimelineRulerComponent : public juce::Component,
+                               private juce::ChangeListener
 {
 public:
-    TimelineRulerComponent (te::Edit& edit, EditViewState& viewState)
-        : editRef (edit), editViewState (viewState) {}
+    TimelineRulerComponent (te::Edit& edit, EditViewState& viewState);
+    ~TimelineRulerComponent() override;
+
+    /** Called after tempo/time-sig edits so the owner can re-layout clips. */
+    std::function<void()> onTempoMapChanged;
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -28,9 +34,20 @@ private:
     static constexpr int loopBraceHeight = 9;
     static constexpr int handleTolerancePx = 5;
 
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+
     int xForTime (te::TimePosition time) const;
     te::TimePosition timeForX (int x) const;
     DragTarget targetForPosition (juce::Point<int> pos) const;
+
+    void showRulerContextMenu (const juce::MouseEvent& e);
+    void promptForTempoChange (te::TimePosition time);
+    void renameMarker (te::MarkerClip& marker);
+    te::MarkerClip* markerNearX (int x) const;
+    void notifyTempoMapChanged();
+
+    void paintMarkers (juce::Graphics& g);
+    void paintTempoChanges (juce::Graphics& g);
 
     te::Edit& editRef;
     EditViewState& editViewState;
@@ -91,6 +108,7 @@ private:
 
     void duplicateSelectedClips();
     bool deleteSelectedClips();
+    void jumpToMarker (bool next);
     void groupSelectedClips (bool group);
     void toggleRippleMode();
     void rippleAfterInsert (te::Clip& originalClip, te::Clip& insertedCopy);

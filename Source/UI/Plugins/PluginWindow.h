@@ -11,17 +11,20 @@ public:
     explicit PluginWindow (te::Plugin& plugin);
     ~PluginWindow() override;
 
-    static std::unique_ptr<juce::Component> create (te::Plugin& plugin);
+    static std::unique_ptr<juce::Component> create (te::Plugin& plugin, juce::Component* alertParent = nullptr);
     void show();
     void recreateEditorAsync();
 
 private:
     void moved() override;
+    void resized() override;
+    void childBoundsChanged (juce::Component* child) override;
     void closeButtonPressed() override;
     float getDesktopScaleFactor() const override { return 1.0f; }
 
     void recreateEditor();
     void setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor);
+    void resizeToFitEditorContent();
 
     te::Plugin& plugin;
     te::PluginWindowState& windowState;

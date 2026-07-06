@@ -65,6 +65,7 @@ private:
 
     void updateKindBadge();
     void showHeaderContextMenu (juce::Point<int> screenPosition);
+    void showInputSelectionMenu();
     EngineHelpers::TrackDropZone dropZoneForPosition (juce::Point<int> localPos) const;
     void moveSelectedTracksToDropZone (EngineHelpers::TrackDropZone zone);
 
@@ -79,10 +80,12 @@ private:
     bool dragStarted = false;
 };
 
-class PluginSlotButton : public juce::TextButton
+class PluginSlotButton : public juce::TextButton,
+                         private juce::Timer
 {
 public:
     PluginSlotButton (EditViewState& evs, te::Plugin::Ptr p);
+    ~PluginSlotButton() override;
     te::Plugin::Ptr getPlugin() { return plugin; }
 
     void mouseDown (const juce::MouseEvent& e) override;
@@ -94,12 +97,16 @@ public:
     std::function<void (te::Plugin&, int targetSlotIndex)> onDropAtSlot;
 
 private:
+    void timerCallback() override;
     void showSlotMenu();
     void showWetDryDialog();
     void updateEnabledLook();
+    void refreshLoadState();
 
     EditViewState& editViewState;
     te::Plugin::Ptr plugin;
+    EngineHelpers::PluginLoadState loadState = EngineHelpers::PluginLoadState::ok;
+    juce::String loadStatusMessage;
 };
 
 class RackMacroPanel : public juce::Component

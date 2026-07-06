@@ -22,13 +22,26 @@ public:
     void setLoopRange (te::TimeRange range);
     te::TimeRange getLoopRange() const;
 
-    void setPunchRange (te::TimeRange range);
+    // TE derives the punch range from the loop in/out markers, so there is no
+    // separate punch range: enabling punch records only inside the loop brace.
     void enablePunchIn (bool enabled);
     bool isPunchInEnabled() const;
 
+    void setClickEnabled (bool enabled);
+    bool isClickEnabled() const;
+    void setClickVolume (float gain);
+    float getClickVolume() const;
+    void setClickRecordingOnly (bool onlyRecording);
+    bool isClickRecordingOnly() const;
+    void setCountInMode (te::Edit::CountIn mode);
+    te::Edit::CountIn getCountInMode() const;
+
+    // Tempo/time-sig edits apply to the setting in effect at the playhead, so
+    // the transport controls stay usable in edits with tempo changes.
     void setTempo (double bpm);
     double getTempo() const;
     void setTimeSignature (int numerator, int denominator);
+    juce::String getTimeSignatureString() const;
 
     te::TimePosition getPosition() const;
     void setPosition (te::TimePosition pos);
@@ -38,7 +51,6 @@ public:
 
 private:
     te::Edit& edit;
-    bool punchInEnabled = false;
 };
 
 } // namespace skeletonhive

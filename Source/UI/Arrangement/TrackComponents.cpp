@@ -30,7 +30,8 @@ enum class TimelineMenuResult
     fadeOutSCurve,
     moveTrackUp = 200,
     moveTrackDown,
-    moveTrackOutOfFolder
+    moveTrackOutOfFolder,
+    freezeTrack = 300
 };
 
 void setFadeCurveOnAudioClips (EditViewState& editViewState, bool fadeIn, te::AudioFadeCurve::Type type)
@@ -191,18 +192,25 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     updateKindBadge();
 
     // Recording arm only makes sense for AudioTrack; folders/returns hide it.
-    armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr);
+    armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
+                          && ! EngineHelpers::isReturnTrack (*track));
+    armButton.setTooltip ("Arm for recording (right-click to choose inputs)");
+    armButton.setToggleState (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
+                                  && EngineHelpers::isTrackArmed (*dynamic_cast<te::AudioTrack*> (track.get())),
+                              juce::dontSendNotification);
 
     armButton.onClick = [this]
     {
         if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
         {
             const bool arm = ! EngineHelpers::isTrackArmed (*audioTrack);
-            EngineHelpers::armTrack (*audioTrack, arm);
-            armButton.setToggleState (arm, juce::dontSendNotification);
+            EngineHelpers::armTrackWithDefaultInput (*audioTrack, arm);
+            armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
             if (onArmChanged) onArmChanged (*track);
         }
     };
+
+    armButton.addMouseListener (this, false);
 
     muteButton.onClick = [this]
     {
@@ -261,6 +269,17 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
         }
     }
 
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
+        audioTrack != nullptr && audioTrack->isFrozen (te::Track::anyFreeze))
+    {
+        g.setColour (juce::Colour (0xff4cc9f0).withAlpha (0.12f));
+        g.fillRect (getLocalBounds());
+        g.setColour (juce::Colour (0xff4cc9f0));
+        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.drawText ("FROZEN", getLocalBounds().removeFromBottom (12).withTrimmedLeft (4),
+                    juce::Justification::centredLeft, false);
+    }
+
     g.setColour (juce::Colours::white.withAlpha (0.2f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 }
@@ -283,6 +302,13 @@ void TrackHeaderComponent::resized()
 
 void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
 {
+    if (e.eventComponent == &armButton)
+    {
+        if (e.mods.isPopupMenu())
+            showInputSelectionMenu();
+        return;
+    }
+
     dragStarted = false;
 
     if (e.mods.isPopupMenu())
@@ -352,6 +378,43 @@ void TrackHeaderComponent::moveSelectedTracksToDropZone (EngineHelpers::TrackDro
     }
 }
 
+void TrackHeaderComponent::showInputSelectionMenu()
+{
+    auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
+    if (audioTrack == nullptr)
+        return;
+
+    auto& edit = editViewState.edit;
+    juce::PopupMenu menu;
+    juce::Array<te::InputDeviceInstance*> instances;
+
+    for (auto* instance : edit.getAllInputDevices())
+    {
+        instances.add (instance);
+        menu.addItem (instances.size(), instance->getInputDevice().getName(), true,
+                      EngineHelpers::isInputAssignedToTrack (*instance, *audioTrack));
+    }
+
+    if (instances.isEmpty())
+        menu.addItem (-1, "No input devices available", false);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&armButton),
+                        [safeThis = juce::Component::SafePointer (this), instances] (int result)
+    {
+        if (result <= 0 || safeThis == nullptr)
+            return;
+
+        auto* at = dynamic_cast<te::AudioTrack*> (safeThis->track.get());
+        auto* instance = instances[result - 1];
+        if (at == nullptr || instance == nullptr)
+            return;
+
+        EngineHelpers::setInputAssignedToTrack (*instance, *at,
+                                                ! EngineHelpers::isInputAssignedToTrack (*instance, *at));
+        safeThis->armButton.setToggleState (EngineHelpers::isTrackArmed (*at), juce::dontSendNotification);
+    });
+}
+
 void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPosition)
 {
     juce::PopupMenu menu;
@@ -360,6 +423,14 @@ void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPositio
 
     if (track->getParentFolderTrack() != nullptr)
         menu.addItem ((int) TimelineMenuResult::moveTrackOutOfFolder, "Move Out of Folder");
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
+        audioTrack != nullptr && ! EngineHelpers::isReturnTrack (*track))
+    {
+        menu.addSeparator();
+        menu.addItem ((int) TimelineMenuResult::freezeTrack,
+                      audioTrack->isFrozen (te::Track::individualFreeze) ? "Unfreeze Track" : "Freeze Track");
+    }
 
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
@@ -375,6 +446,16 @@ void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPositio
                 break;
             case TimelineMenuResult::moveTrackOutOfFolder:
                 EngineHelpers::moveTrackOutOfFolder (*track);
+                break;
+            case TimelineMenuResult::freezeTrack:
+                if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+                {
+                    // Kicks off an async background render; TE swaps playback
+                    // to the freeze file and disables the frozen plugins.
+                    audioTrack->setFrozen (! audioTrack->isFrozen (te::Track::individualFreeze),
+                                           te::Track::individualFreeze);
+                    repaint();
+                }
                 break;
             default:
                 break;
@@ -423,6 +504,8 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
 {
     if (id == te::IDs::name)
         trackName.setText (track->getName(), juce::dontSendNotification);
+    else if (id == te::IDs::frozen || id == te::IDs::frozenIndividually)
+        repaint();
 }
 
 void TrackHeaderComponent::updateKindBadge()
@@ -455,6 +538,7 @@ PluginSlotButton::PluginSlotButton (EditViewState& evs, te::Plugin::Ptr p)
 
     setTooltip (plugin->getName() + " (right-click for options, drag to reorder)");
     updateEnabledLook();
+    refreshLoadState();
 
     onClick = [this]
     {
@@ -472,8 +556,24 @@ PluginSlotButton::PluginSlotButton (EditViewState& evs, te::Plugin::Ptr p)
     };
 }
 
+PluginSlotButton::~PluginSlotButton()
+{
+    stopTimer();
+}
+
 void PluginSlotButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
+    if (loadState == EngineHelpers::PluginLoadState::failed)
+    {
+        g.setColour (juce::Colour (0xff9b2226).withAlpha (0.55f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+    }
+    else if (loadState == EngineHelpers::PluginLoadState::loading)
+    {
+        g.setColour (juce::Colour (0xffca6702).withAlpha (0.45f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+    }
+
     if (EngineHelpers::isPluginSoloed (*te::getTrackContainingPlugin (plugin->edit, plugin.get()), *plugin))
     {
         g.setColour (juce::Colours::gold.withAlpha (0.35f));
@@ -492,6 +592,37 @@ void PluginSlotButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHi
 void PluginSlotButton::updateEnabledLook()
 {
     setAlpha (plugin->isEnabled() ? 1.0f : 0.4f);
+}
+
+void PluginSlotButton::refreshLoadState()
+{
+    const auto previous = loadState;
+    loadState = EngineHelpers::getExternalPluginLoadState (*plugin, loadStatusMessage);
+
+    if (loadState == EngineHelpers::PluginLoadState::loading)
+    {
+        if (! isTimerRunning())
+            startTimerHz (10);
+    }
+    else
+    {
+        stopTimer();
+    }
+
+    if (loadState == EngineHelpers::PluginLoadState::failed)
+        setTooltip (plugin->getName() + " — " + loadStatusMessage);
+    else if (loadState == EngineHelpers::PluginLoadState::loading)
+        setTooltip (plugin->getName() + " — Loading...");
+    else
+        setTooltip (plugin->getName() + " (right-click for options, drag to reorder)");
+
+    if (previous != loadState)
+        repaint();
+}
+
+void PluginSlotButton::timerCallback()
+{
+    refreshLoadState();
 }
 
 void PluginSlotButton::mouseDown (const juce::MouseEvent& e)
@@ -899,6 +1030,10 @@ void TrackFooterComponent::insertBrowserPlugin (const juce::PluginDescription& d
             const int baseIndex = EngineHelpers::getUserChainInsertIndex (*audioTrack);
             const int insertIndex = baseIndex + juce::jlimit (0, plugins.size(), slotIndex);
             EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+        }
+        else
+        {
+            EngineHelpers::showPluginInsertFailureAlert (this, desc);
         }
     }
 }
@@ -1369,8 +1504,12 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
         return;
 
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
         if (auto plugin = createPlugin (pd))
             EngineHelpers::insertPluginOnTrack (*audioTrack, plugin);
+        else
+            EngineHelpers::showPluginInsertFailureAlert (this, pd);
+    }
 }
 
 PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHub* hub)

@@ -22,6 +22,12 @@ PluginSlotComponent::PluginSlotComponent (EditViewState& evs,
 {
     setRepaintsOnMouseActivity (true);
     updateEnabledLook();
+    refreshLoadState();
+}
+
+PluginSlotComponent::~PluginSlotComponent()
+{
+    stopTimer();
 }
 
 void PluginSlotComponent::setSelected (bool isSelected)
@@ -66,6 +72,30 @@ juce::Rectangle<int> PluginSlotComponent::getExpandButtonArea() const
 void PluginSlotComponent::updateEnabledLook()
 {
     setAlpha (plugin->isEnabled() ? 1.0f : 0.45f);
+}
+
+void PluginSlotComponent::refreshLoadState()
+{
+    const auto previous = loadState;
+    loadState = EngineHelpers::getExternalPluginLoadState (*plugin, loadStatusMessage);
+
+    if (loadState == EngineHelpers::PluginLoadState::loading)
+    {
+        if (! isTimerRunning())
+            startTimerHz (10);
+    }
+    else
+    {
+        stopTimer();
+    }
+
+    if (previous != loadState)
+        repaint();
+}
+
+void PluginSlotComponent::timerCallback()
+{
+    refreshLoadState();
 }
 
 void PluginSlotComponent::openEditor()
@@ -160,6 +190,11 @@ void PluginSlotComponent::paint (juce::Graphics& g)
     const bool rackInstance = dynamic_cast<te::RackInstance*> (plugin.get()) != nullptr;
     auto baseColour = instrument ? juce::Colour (0xff5a189a) : juce::Colour (0xff1d3557);
 
+    if (loadState == EngineHelpers::PluginLoadState::failed)
+        baseColour = juce::Colour (0xff9b2226);
+    else if (loadState == EngineHelpers::PluginLoadState::loading)
+        baseColour = juce::Colour (0xffca6702);
+
     if (rackInstance)
         baseColour = juce::Colour (0xff4a4e69);
     if (nestedInRack)
@@ -205,7 +240,11 @@ void PluginSlotComponent::paint (juce::Graphics& g)
         g.setFont (juce::FontOptions (9.0f));
         g.setColour (juce::Colours::white.withAlpha (0.55f));
         juce::String kind = instrument ? "Instrument" : "Audio Effect";
-        if (rackInstance)
+        if (loadState == EngineHelpers::PluginLoadState::failed)
+            kind = "Load failed";
+        else if (loadState == EngineHelpers::PluginLoadState::loading)
+            kind = "Loading...";
+        else if (rackInstance)
             kind = "Rack";
         else if (nestedInRack)
             kind = "In Rack";
@@ -427,6 +466,10 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                         {
                             EngineHelpers::insertPluginOnTrack (*at, newPlugin);
                             PluginPresetManager::applyPluginState (*newPlugin, stateManager->getClipboardState());
+                        }
+                        else if (safeSlot != nullptr)
+                        {
+                            EngineHelpers::showPluginInsertFailureAlert (safeSlot.getComponent(), desc);
                         }
                     }
                 }

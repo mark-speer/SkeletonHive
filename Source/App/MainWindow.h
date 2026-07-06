@@ -10,7 +10,7 @@
 #include "Engine/PluginStateManager.h"
 #include "Engine/SidechainRouting.h"
 #include "UI/Midi/PianoRollEditor.h"
-#include "UI/Automation/AutomationLaneComponent.h"
+#include "UI/Automation/AutomationPanel.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/UiTelemetryHub.h"
 
@@ -19,24 +19,30 @@ namespace skeletonhive
 
 class MainContentComponent : public juce::Component,
                              public juce::DragAndDropContainer,
-                             private juce::KeyListener
+                             private juce::KeyListener,
+                             private juce::Timer
 {
 public:
     MainContentComponent (SkeletonHiveApplication& app);
     ~MainContentComponent() override;
 
     void prepareForShutdown();
+    bool confirmQuit (juce::Component* parent);
 
 private:
     void resized() override;
     bool keyPressed (const juce::KeyPress& key, juce::Component* originatingComponent) override;
+    void timerCallback() override;
 
     void createDefaultProject();
     void releaseEditUI();
     void rebuildEditUI();
+    void updateWindowTitle();
     void handleNewProject();
     void handleOpenProject();
     void handleSaveProject();
+    void handleSaveProjectAs();
+    void handleExport();
     void handleImportAudio();
     void handleAddAudioTrack();
     void handleAddMidiTrack();
@@ -47,7 +53,7 @@ private:
     void toggleMixer();
     void toggleSidechainPanel();
     void showSidechainPanelForPlugin (te::Plugin* plugin);
-    void setupAutomationPanel (te::Track& track);
+    void toggleAutomationPanel();
 
     SkeletonHiveApplication& application;
     te::Engine& engine;
@@ -65,14 +71,11 @@ private:
     std::unique_ptr<SidechainMatrixPanel> sidechainPanel;
 
     std::unique_ptr<juce::DocumentWindow> pianoRollWindow;
-    juce::OwnedArray<AutomationLaneComponent> automationLanes;
+    std::unique_ptr<AutomationPanel> automationPanel;
 
-    juce::TextButton automationReadButton { "Read" }, automationTouchButton { "Touch" },
-        automationLatchButton { "Latch" };
-    juce::Component automationPanel;
     bool mixerVisible = false;
     bool sidechainVisible = false;
-    AutomationMode automationMode = AutomationMode::read;
+    bool automationVisible = false;
 };
 
 class MainWindow : public juce::DocumentWindow
@@ -83,6 +86,7 @@ public:
 
     void closeButtonPressed() override;
     void prepareForShutdown();
+    bool confirmClose();
 
 private:
     SkeletonHiveApplication& application;

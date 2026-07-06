@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "TracktionCommon.h"
+#include "Engine/ExportManager.h"
 #include <JuceHeader.h>
 #include <functional>
 #include <memory>
@@ -42,24 +43,11 @@ MainContentComponent::MainContentComponent (SkeletonHiveApplication& app)
     createDefaultProject();
     rebuildEditUI();
 
-    automationReadButton.setRadioGroupId (1);
-    automationTouchButton.setRadioGroupId (1);
-    automationLatchButton.setRadioGroupId (1);
-    automationReadButton.setToggleState (true, juce::dontSendNotification);
-
-    automationReadButton.onClick = [this] { automationMode = AutomationMode::read; };
-    automationTouchButton.onClick = [this] { automationMode = AutomationMode::touch; };
-    automationLatchButton.onClick = [this] { automationMode = AutomationMode::latch; };
-
-    addAndMakeVisible (automationPanel);
-    addAndMakeVisible (automationReadButton);
-    addAndMakeVisible (automationTouchButton);
-    addAndMakeVisible (automationLatchButton);
-
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
     projectManager.enableAutosave (60);
+    startTimerHz (2);
     setSize (1200, 800);
 }
 
@@ -76,7 +64,7 @@ void MainContentComponent::createDefaultProject()
                    .getChildFile ("SkeletonHive");
     dir.createDirectory();
     auto projectFile = dir.getNonexistentChildFile ("Untitled", ".tracktionedit");
-    projectManager.createNewProject (projectFile);
+    projectManager.createNewProject (projectFile, this);
 
     if (auto* edit = projectManager.getEdit())
     {
@@ -91,8 +79,7 @@ void MainContentComponent::createDefaultProject()
 void MainContentComponent::releaseEditUI()
 {
     pianoRollWindow = nullptr;
-    automationLanes.clear();
-    automationPanel.removeAllChildren();
+    automationPanel = nullptr;
 
     pluginBrowser = nullptr;
     pluginTray = nullptr;
@@ -120,6 +107,7 @@ void MainContentComponent::rebuildEditUI()
     pluginBrowser = std::make_unique<PluginBrowser> (*pluginScanner, *edit, *pluginStateManager);
     pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager);
     sidechainPanel = std::make_unique<SidechainMatrixPanel> (*edit);
+    automationPanel = std::make_unique<AutomationPanel> (*edit, timeline->getEditViewState());
 
     SidechainRouting::openMatrixForPlugin = [this] (te::Plugin* plugin)
     {
@@ -129,6 +117,8 @@ void MainContentComponent::rebuildEditUI()
     transportBar->onNewProject = [this] { handleNewProject(); };
     transportBar->onOpenProject = [this] { handleOpenProject(); };
     transportBar->onSaveProject = [this] { handleSaveProject(); };
+    transportBar->onSaveProjectAs = [this] { handleSaveProjectAs(); };
+    transportBar->onExport = [this] { handleExport(); };
     transportBar->onImportAudio = [this] { handleImportAudio(); };
     transportBar->onAddAudioTrack = [this] { handleAddAudioTrack(); };
     transportBar->onAddMidiTrack = [this] { handleAddMidiTrack(); };
@@ -142,6 +132,7 @@ void MainContentComponent::rebuildEditUI()
     };
     transportBar->onToggleMixer = [this] { toggleMixer(); };
     transportBar->onToggleSidechain = [this] { toggleSidechainPanel(); };
+    transportBar->onToggleAutomation = [this] { toggleAutomationPanel(); };
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
@@ -149,6 +140,13 @@ void MainContentComponent::rebuildEditUI()
     {
         if (pluginTray != nullptr)
             pluginTray->setTrack (&t);
+
+        if (automationPanel != nullptr)
+        {
+            automationPanel->setTrack (&t);
+            if (automationVisible)
+                resized();
+        }
     };
     timeline->createPlugin = [this] (const juce::PluginDescription& desc)
     {
@@ -176,48 +174,107 @@ void MainContentComponent::rebuildEditUI()
     if (sidechainVisible)
         addAndMakeVisible (*sidechainPanel);
 
+    if (automationVisible)
+        addAndMakeVisible (*automationPanel);
+
     resized();
+    updateWindowTitle();
+}
+
+void MainContentComponent::updateWindowTitle()
+{
+    if (auto* window = findParentComponentOfClass<MainWindow>())
+        window->setName (projectManager.getWindowTitle());
+}
+
+void MainContentComponent::timerCallback()
+{
+    updateWindowTitle();
+}
+
+bool MainContentComponent::confirmQuit (juce::Component* parent)
+{
+    return projectManager.confirmDiscardOrSave (parent);
 }
 
 void MainContentComponent::handleNewProject()
 {
+    if (! projectManager.confirmDiscardOrSave (this))
+        return;
+
     auto fc = std::make_shared<juce::FileChooser> ("New Project", juce::File(), "*.tracktionedit");
     fc->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                      [this, fc] (const juce::FileChooser&)
                      {
                          const auto f = fc->getResult();
-                         if (f != juce::File())
-                         {
-                             releaseEditUI();
-                             projectManager.createNewProject (f);
+                         if (f == juce::File())
+                             return;
+
+                         releaseEditUI();
+
+                         if (projectManager.createNewProject (f, this) == ProjectManager::LoadResult::success)
                              rebuildEditUI();
-                         }
                      });
 }
 
 void MainContentComponent::handleOpenProject()
 {
+    if (! projectManager.confirmDiscardOrSave (this))
+        return;
+
     auto fc = std::make_shared<juce::FileChooser> ("Open Project", juce::File(), "*.tracktionedit");
     fc->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                      [this, fc] (const juce::FileChooser&)
                      {
                          const auto f = fc->getResult();
-                         if (f.existsAsFile())
-                         {
-                             releaseEditUI();
-                             projectManager.loadProject (f);
+                         if (! f.existsAsFile())
+                             return;
 
-                             // Even if the load failed we must rebuild against
-                             // whatever Edit the ProjectManager now holds.
-                             if (projectManager.getEdit() != nullptr)
-                                 rebuildEditUI();
-                         }
+                         releaseEditUI();
+
+                         if (projectManager.loadProject (f, this) == ProjectManager::LoadResult::success)
+                             rebuildEditUI();
                      });
 }
 
 void MainContentComponent::handleSaveProject()
 {
-    projectManager.saveProject (false);
+    switch (projectManager.saveProject (false, this))
+    {
+        case ProjectManager::SaveResult::promptSaveAs:
+            handleSaveProjectAs();
+            break;
+        case ProjectManager::SaveResult::reloaded:
+            releaseEditUI();
+            rebuildEditUI();
+            break;
+        default:
+            updateWindowTitle();
+            break;
+    }
+}
+
+void MainContentComponent::handleSaveProjectAs()
+{
+    auto fc = std::make_shared<juce::FileChooser> ("Save Project As",
+                                                     projectManager.getCurrentProjectFile(),
+                                                     "*.tracktionedit");
+    fc->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                     [this, fc] (const juce::FileChooser&)
+                     {
+                         const auto f = fc->getResult();
+                         if (f == juce::File())
+                             return;
+
+                         if (projectManager.saveProjectAs (f, this))
+                             updateWindowTitle();
+                     });
+}
+
+void MainContentComponent::handleExport()
+{
+    if (auto* edit = projectManager.getEdit())
+        ExportManager::showExportDialog (*edit, this);
 }
 
 void MainContentComponent::handleImportAudio()
@@ -238,7 +295,8 @@ void MainContentComponent::handleAddAudioTrack()
 void MainContentComponent::handleAddMidiTrack()
 {
     const int idx = (int) te::getAudioTracks (*projectManager.getEdit()).size();
-    EngineHelpers::getOrInsertTrackForMidi (*projectManager.getEdit(), idx);
+    if (auto* track = EngineHelpers::getOrInsertTrackForMidi (*projectManager.getEdit(), idx))
+        EngineHelpers::assignDefaultInputToTrack (*track, true);
     timeline->rebuildTracks();
 }
 
@@ -321,25 +379,27 @@ void MainContentComponent::showSidechainPanelForPlugin (te::Plugin* plugin)
     resized();
 }
 
-void MainContentComponent::setupAutomationPanel (te::Track& track)
+void MainContentComponent::toggleAutomationPanel()
 {
-    automationLanes.clear();
-    automationPanel.removeAllChildren();
+    automationVisible = ! automationVisible;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track))
+    if (automationPanel == nullptr)
+        return;
+
+    if (automationVisible)
     {
-        if (auto* vol = audioTrack->getVolumePlugin())
-        {
-            for (auto param : vol->getAutomatableParameters())
-            {
-                auto* lane = new AutomationLaneComponent (*param, *projectManager.getEdit(),
-                                                          timeline->getEditViewState());
-                lane->setAutomationMode (automationMode);
-                automationPanel.addAndMakeVisible (lane);
-                automationLanes.add (lane);
-            }
-        }
+        // Follow the current track selection when opening
+        if (automationPanel->getTrack() == nullptr)
+            if (auto* selected = projectManager.getSelectionManager().getFirstItemOfType<te::Track>())
+                automationPanel->setTrack (selected);
+
+        addAndMakeVisible (*automationPanel);
     }
+    else
+    {
+        removeChildComponent (automationPanel.get());
+    }
+
     resized();
 }
 
@@ -348,16 +408,14 @@ void MainContentComponent::resized()
     auto r = getLocalBounds();
     transportBar->setBounds (r.removeFromTop (60));
 
-    auto automationRow = r.removeFromBottom (24);
-    automationReadButton.setBounds (automationRow.removeFromLeft (60).reduced (2));
-    automationTouchButton.setBounds (automationRow.removeFromLeft (60).reduced (2));
-    automationLatchButton.setBounds (automationRow.removeFromLeft (60).reduced (2));
-
     if (mixerVisible)
         mixerPanel->setBounds (r.removeFromBottom (200));
 
     if (sidechainVisible)
         sidechainPanel->setBounds (r.removeFromBottom (200));
+
+    if (automationVisible && automationPanel != nullptr)
+        automationPanel->setBounds (r.removeFromBottom (automationPanel->getPreferredHeight()));
 
     if (pluginTray != nullptr)
         pluginTray->setBounds (r.removeFromBottom (148));
@@ -367,9 +425,6 @@ void MainContentComponent::resized()
         auto pluginArea = r.removeFromRight (250);
         pluginBrowser->setBounds (pluginArea);
     }
-
-    if (! automationLanes.isEmpty())
-        automationPanel.setBounds (r.removeFromBottom (80));
 
     timeline->setBounds (r);
 }
@@ -416,6 +471,18 @@ bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Componen
         handleSaveProject();
         return true;
     }
+    if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)
+        || key == juce::KeyPress ('s', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
+    {
+        handleSaveProjectAs();
+        return true;
+    }
+    if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)
+        || key == juce::KeyPress ('e', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier, 0))
+    {
+        handleExport();
+        return true;
+    }
     return false;
 }
 
@@ -441,9 +508,18 @@ void MainWindow::prepareForShutdown()
         content->prepareForShutdown();
 }
 
+bool MainWindow::confirmClose()
+{
+    if (auto* content = dynamic_cast<MainContentComponent*> (getContentComponent()))
+        return content->confirmQuit (this);
+
+    return true;
+}
+
 void MainWindow::closeButtonPressed()
 {
-    application.systemRequestedQuit();
+    if (confirmClose())
+        application.systemRequestedQuit();
 }
 
 } // namespace skeletonhive

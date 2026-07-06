@@ -325,10 +325,17 @@ Current state and the reasoning behind it:
 
 ### Remaining
 
-- VST3-specific sandboxing / quirks handling (out-of-process scanning is
-  already in place via TE's child-process scanner).
-- Collaborative / session-safe persistence (edit-file merge strategy,
-  autosave versioning).
+- *(none — Phase 3 backlog complete)*
+
+### Implemented (plugin hardening + session-safe persistence)
+
+- **Persistent plugin blacklist** — scan no longer clears `KnownPluginList` blacklist or dead-man's-pedal state; crashed plugins stay blacklisted across sessions (TE property storage). `PluginScanner::rescanFailedPlugins()` and per-file retry are explicit opt-in. Failed-plugins UI in the plugin browser lists blacklisted entries with Retry / Retry All.
+- **Plugin load-failure UX** — tray slots, track-footer slots, and plugin windows surface loading/failed states (amber/red tint, tooltips with TE `getLoadError()`). Failed inserts show an alert instead of failing silently.
+- **VST3 editor resize** — `PluginWindow` resizes to follow editor content size changes (`childBoundsChanged` / `resizeToFitEditorContent`). Runtime plugin hosting remains in-process; sandboxing covers scan-time only (TE child-process scanner + blacklist).
+- **Versioned autosave** — 60s timer writes TE `saveTempVersion()` when the edit is dirty (never overwrites the project file). Manual save creates rotating snapshots in `<project>/Autosave/` (newest 10 retained) and deletes the temp version.
+- **Crash recovery** — on Open, if `.tmp_<project>` exists and is newer than the saved file, offers Recover autosaved version / Open last saved / Cancel.
+- **Save As + dirty tracking** — Save As button and Ctrl/Cmd+Shift+S; window title shows `*` when dirty; unsaved-changes prompts on New/Open/Close.
+- **External-change + multi-instance guards** — before save, warns if the project file mtime changed externally (Overwrite / Reload / Save As / Cancel). Sidecar `<project>.lock` (PID + timestamp) warns when opening a project that appears live in another instance; stale locks are cleaned automatically.
 
 ---
 
@@ -381,7 +388,69 @@ is built; horizontal scroll for long chains.
 
 ---
 
-## 8. Conventions for contributors
+## 8. Phase 4 — core production loop (implemented)
+
+### Export / render
+- **`ExportManager`** (`Source/Engine/ExportManager.*`) — bounce via `te::Renderer`:
+  WAV/FLAC, 44.1–96 kHz, 16/24/32-bit, entire project or loop selection, master
+  plugins included, dithering below 32-bit. Transport **Export** button and
+  Ctrl/Cmd+Shift+E. `ExtendedUIBehaviour::runTaskWithProgressBar` runs TE render
+  tasks (export **and** track freeze) behind a modal cancellable progress dialog.
+
+### Metronome, count-in, punch
+- Transport **Click** toggle (`edit.clickTrackEnabled`), volume slider
+  (`setClickTrackVolume`, 0.2–1.0) and count-in combo (`Edit::setCountInMode`:
+  off / 1 bar / 2 bars / 2 beats / 1 beat).
+- **Punch fixed**: the Punch button now drives `edit.recordingPunchInOut` (it
+  previously only set a dead local flag). TE derives the punch range from the
+  loop in/out markers, so the loop brace doubles as the punch region;
+  the misleading `setPunchRange` (which called `setLoopRange`) was removed.
+
+### Automation panel (resurrected)
+- **`AutomationPanel`** (`Source/UI/Automation/AutomationPanel.*`) — bottom
+  panel toggled by the transport **Auto** button; follows the selected track.
+  Lanes for volume/pan plus every parameter with automation; an "Add lane…"
+  combo exposes **all** of the track's automatable parameters.
+- **`AutomationLaneComponent`** rewritten: maps the visible timeline range,
+  normalised-value editing (click adds, drag moves with grid snapping,
+  right-click deletes points), live value marker, repaints on
+  `curveHasChanged`/`currentValueChanged`. All edits use the Edit UndoManager.
+- **Read/Touch/Latch** set the track's `te::AutomationMode` and toggle
+  `AutomationRecordManager` read/write, so control moves during playback are
+  recorded by TE itself (touch punches out on release, latch on stop).
+
+### Recording workflow
+- Arm button arms via `armTrackWithDefaultInput`: tracks with only MIDI clips
+  get all physical/virtual MIDI inputs, others get the first wave input;
+  right-click the arm button for an input-assignment picker (multi-target
+  `InputDeviceInstance::setTarget`, falls back to move when a device only
+  allows one target). "+ MIDI" tracks get MIDI inputs assigned at creation.
+
+### Markers
+- Ruler paints marker flags (TE `MarkerManager` / `MarkerClip`), right-click:
+  add / rename / delete. **M** adds a marker at the playhead; **Alt+Left/Right**
+  jump to the previous/next marker (falls back to 0:00 going left).
+
+### Tempo map
+- Ruler right-click: **Insert Tempo Change Here…** (BPM prompt) and **Insert
+  Time Signature Here** (submenu), remove either when clicked near a change
+  flag; changes are painted in the ruler (orange = tempo, blue = time-sig,
+  index 0 is never treated as a "change"). Tempo edits trigger a full timeline
+  re-layout via `TimelineRulerComponent::onTempoMapChanged` since the
+  beat↔time mapping shifts.
+- The transport BPM slider / time-sig combo now edit the setting **at the
+  playhead** (`getTempoAt`/`getTimeSigAt`) and follow it during playback,
+  instead of always editing `getTempo(0)`.
+
+### Track freeze
+- Track-header context menu **Freeze/Unfreeze Track** using
+  `AudioTrack::setFrozen (…, individualFreeze)` (TE background render +
+  freeze-point plugin). Frozen tracks show a blue tint + FROZEN tag in the
+  header and repaint on the `frozen`/`frozenIndividually` properties.
+
+---
+
+## 9. Conventions for contributors
 
 - UI code lives under `Source/UI/…`, engine-facing helpers under
   `Source/Engine/…`. UI never talks to `juce::AudioDeviceManager` or the

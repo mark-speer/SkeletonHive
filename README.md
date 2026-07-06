@@ -6,11 +6,14 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 
 - Multi-track arrangement timeline (audio + MIDI)
 - MIDI sequencing with piano roll editor
-- Audio and MIDI recording with punch/loop modes
+- Audio and MIDI recording with punch/loop modes, metronome and count-in
+- Audio export/bounce to WAV or FLAC
 - VST3 plugin hosting (AU on macOS)
-- Mixer with level meters
-- Parameter automation (Read / Touch / Latch)
-- Project save/load (`.tracktionedit` format)
+- Mixer with level meters, sends and sidechain routing
+- Parameter automation (Read / Touch / Latch) with editable lanes
+- Arrangement markers and tempo/time-signature map editing
+- Track freeze
+- Project save/load (`.tracktionedit` format) with autosave and crash recovery
 
 ## Requirements
 

@@ -8,6 +8,17 @@ namespace skeletonhive
 //==============================================================================
 // TimelineRulerComponent
 
+TimelineRulerComponent::TimelineRulerComponent (te::Edit& edit, EditViewState& viewState)
+    : editRef (edit), editViewState (viewState)
+{
+    editRef.getMarkerManager().addChangeListener (this);
+}
+
+TimelineRulerComponent::~TimelineRulerComponent()
+{
+    editRef.getMarkerManager().removeChangeListener (this);
+}
+
 int TimelineRulerComponent::xForTime (te::TimePosition time) const
 {
     return editViewState.timeToXInView (time, getWidth());
@@ -42,6 +53,75 @@ void TimelineRulerComponent::paint (juce::Graphics& g)
             g.fillRect (x2 - 2, 0, 4, loopBraceHeight);
         }
     }
+
+    paintTempoChanges (g);
+    paintMarkers (g);
+}
+
+void TimelineRulerComponent::paintMarkers (juce::Graphics& g)
+{
+    const int flagTop = loopBraceHeight + 1;
+    const int flagHeight = getHeight() - flagTop;
+
+    for (auto marker : editRef.getMarkerManager().getMarkers())
+    {
+        const int x = xForTime (marker->getPosition().getStart());
+        if (x < -80 || x > getWidth() + 4)
+            continue;
+
+        const auto colour = marker->getColour().withAlpha (1.0f);
+
+        g.setColour (colour);
+        g.fillRect (x, flagTop, 2, flagHeight);
+
+        juce::Path flag;
+        flag.addTriangle ((float) x + 2.0f, (float) flagTop,
+                          (float) x + 10.0f, (float) flagTop + 4.0f,
+                          (float) x + 2.0f, (float) flagTop + 8.0f);
+        g.fillPath (flag);
+
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.setFont (juce::FontOptions (10.0f));
+        g.drawText (marker->getName(), x + 12, flagTop, 90, flagHeight,
+                    juce::Justification::centredLeft, true);
+    }
+}
+
+void TimelineRulerComponent::paintTempoChanges (juce::Graphics& g)
+{
+    auto& sequence = editRef.tempoSequence;
+    g.setFont (juce::FontOptions (9.0f));
+
+    // Skip index 0: the initial tempo/time-sig isn't a "change"
+    for (int i = 1; i < sequence.getNumTempos(); ++i)
+    {
+        if (auto* tempo = sequence.getTempo (i))
+        {
+            const int x = xForTime (sequence.toTime (tempo->getStartBeat()));
+            if (x < -40 || x > getWidth() + 4)
+                continue;
+
+            g.setColour (juce::Colour (0xffef8354));
+            g.fillEllipse ((float) x - 2.5f, (float) getHeight() - 6.0f, 5.0f, 5.0f);
+            g.drawText (juce::String (tempo->getBpm(), 1), x + 4, getHeight() - 11, 36, 10,
+                        juce::Justification::centredLeft, false);
+        }
+    }
+
+    for (int i = 1; i < sequence.getNumTimeSigs(); ++i)
+    {
+        if (auto* sig = sequence.getTimeSig (i))
+        {
+            const int x = xForTime (sequence.toTime (sig->getStartBeat()));
+            if (x < -40 || x > getWidth() + 4)
+                continue;
+
+            g.setColour (juce::Colour (0xff4cc9f0));
+            g.fillEllipse ((float) x - 2.5f, (float) getHeight() - 6.0f, 5.0f, 5.0f);
+            g.drawText (sig->getStringTimeSig(), x + 4, getHeight() - 11, 30, 10,
+                        juce::Justification::centredLeft, false);
+        }
+    }
 }
 
 TimelineRulerComponent::DragTarget TimelineRulerComponent::targetForPosition (juce::Point<int> pos) const
@@ -65,6 +145,13 @@ TimelineRulerComponent::DragTarget TimelineRulerComponent::targetForPosition (ju
 
 void TimelineRulerComponent::mouseDown (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu())
+    {
+        dragTarget = DragTarget::none;
+        showRulerContextMenu (e);
+        return;
+    }
+
     dragTarget = targetForPosition (e.getPosition());
     dragStartLoopRange = editRef.getTransport().getLoopRange();
     dragAnchorTime = timeForX (e.x);
@@ -120,6 +207,193 @@ void TimelineRulerComponent::mouseUp (const juce::MouseEvent&)
 {
     dragTarget = DragTarget::none;
     repaint();
+}
+
+te::MarkerClip* TimelineRulerComponent::markerNearX (int x) const
+{
+    te::MarkerClip* best = nullptr;
+    int bestDistance = 8;
+
+    for (auto marker : editRef.getMarkerManager().getMarkers())
+    {
+        const int distance = std::abs (xForTime (marker->getPosition().getStart()) - x);
+        if (distance <= bestDistance)
+        {
+            bestDistance = distance;
+            best = marker;
+        }
+    }
+
+    return best;
+}
+
+void TimelineRulerComponent::notifyTempoMapChanged()
+{
+    if (onTempoMapChanged)
+        onTempoMapChanged();
+
+    repaint();
+}
+
+void TimelineRulerComponent::renameMarker (te::MarkerClip& marker)
+{
+    auto w = std::make_shared<juce::AlertWindow> ("Rename Marker", "Marker name:",
+                                                  juce::AlertWindow::QuestionIcon);
+    w->addTextEditor ("name", marker.getName());
+    w->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    te::Clip::Ptr keepAlive (&marker);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([w, keepAlive] (int r)
+    {
+        if (r == 1 && w->getTextEditorContents ("name").isNotEmpty())
+            keepAlive->setName (w->getTextEditorContents ("name"));
+    }));
+}
+
+void TimelineRulerComponent::promptForTempoChange (te::TimePosition time)
+{
+    auto w = std::make_shared<juce::AlertWindow> ("Insert Tempo Change",
+                                                  "BPM from this point onwards:",
+                                                  juce::AlertWindow::QuestionIcon);
+    w->addTextEditor ("bpm", juce::String (editRef.tempoSequence.getBpmAt (time), 1));
+    w->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    w->enterModalState (true, juce::ModalCallbackFunction::create (
+        [w, this, time] (int r)
+        {
+            if (r != 1)
+                return;
+
+            const double bpm = w->getTextEditorContents ("bpm").getDoubleValue();
+            if (bpm < 20.0 || bpm > 300.0)
+                return;
+
+            if (auto tempo = editRef.tempoSequence.insertTempo (time))
+            {
+                tempo->setBpm (bpm);
+                notifyTempoMapChanged();
+            }
+        }));
+}
+
+void TimelineRulerComponent::showRulerContextMenu (const juce::MouseEvent& e)
+{
+    enum MenuIds
+    {
+        addMarkerId = 1,
+        renameMarkerId,
+        deleteMarkerId,
+        insertTempoId,
+        removeTempoId,
+        removeTimeSigId,
+        timeSigBaseId = 100
+    };
+
+    const auto clickTime = juce::jmax (te::TimePosition(),
+                                       TimelineGrid::snapTime (editRef, editViewState, timeForX (e.x)));
+    auto* nearbyMarker = markerNearX (e.x);
+    auto& sequence = editRef.tempoSequence;
+
+    // A tempo/time-sig change is "here" if it sits within a small pixel radius
+    int nearbyTempoIndex = -1;
+    for (int i = 1; i < sequence.getNumTempos(); ++i)
+        if (auto* tempo = sequence.getTempo (i))
+            if (std::abs (xForTime (sequence.toTime (tempo->getStartBeat())) - e.x) <= 8)
+                nearbyTempoIndex = i;
+
+    int nearbyTimeSigIndex = -1;
+    for (int i = 1; i < sequence.getNumTimeSigs(); ++i)
+        if (auto* sig = sequence.getTimeSig (i))
+            if (std::abs (xForTime (sequence.toTime (sig->getStartBeat())) - e.x) <= 8)
+                nearbyTimeSigIndex = i;
+
+    juce::PopupMenu menu;
+    menu.addItem (addMarkerId, "Add Marker Here");
+
+    if (nearbyMarker != nullptr)
+    {
+        menu.addItem (renameMarkerId, "Rename \"" + nearbyMarker->getName() + "\"...");
+        menu.addItem (deleteMarkerId, "Delete \"" + nearbyMarker->getName() + "\"");
+    }
+
+    menu.addSeparator();
+    menu.addItem (insertTempoId, "Insert Tempo Change Here...");
+
+    juce::PopupMenu timeSigMenu;
+    const juce::StringArray timeSigs { "4/4", "3/4", "6/8", "2/4", "5/4", "7/8", "12/8" };
+    for (int i = 0; i < timeSigs.size(); ++i)
+        timeSigMenu.addItem (timeSigBaseId + i, timeSigs[i]);
+    menu.addSubMenu ("Insert Time Signature Here", timeSigMenu);
+
+    if (nearbyTempoIndex > 0)
+        menu.addItem (removeTempoId, "Remove Tempo Change");
+
+    if (nearbyTimeSigIndex > 0)
+        menu.addItem (removeTimeSigId, "Remove Time Signature Change");
+
+    const te::Clip::Ptr markerRef (nearbyMarker);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                            .withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }),
+                        [this, clickTime, markerRef, nearbyTempoIndex, nearbyTimeSigIndex, timeSigs] (int result)
+    {
+        auto& seq = editRef.tempoSequence;
+
+        if (result >= timeSigBaseId)
+        {
+            const auto sigText = timeSigs[result - timeSigBaseId];
+            if (auto sig = seq.insertTimeSig (clickTime))
+            {
+                sig->setStringTimeSig (sigText);
+                notifyTempoMapChanged();
+            }
+            return;
+        }
+
+        switch (result)
+        {
+            case addMarkerId:
+                editRef.getMarkerManager().createMarker (-1, clickTime, {}, &editViewState.selectionManager);
+                repaint();
+                break;
+
+            case renameMarkerId:
+                if (auto* marker = dynamic_cast<te::MarkerClip*> (markerRef.get()))
+                    renameMarker (*marker);
+                break;
+
+            case deleteMarkerId:
+                if (markerRef != nullptr)
+                    markerRef->removeFromParent();
+                repaint();
+                break;
+
+            case insertTempoId:
+                promptForTempoChange (clickTime);
+                break;
+
+            case removeTempoId:
+                if (nearbyTempoIndex > 0 && nearbyTempoIndex < seq.getNumTempos())
+                {
+                    seq.removeTempo (nearbyTempoIndex, false);
+                    notifyTempoMapChanged();
+                }
+                break;
+
+            case removeTimeSigId:
+                if (nearbyTimeSigIndex > 0 && nearbyTimeSigIndex < seq.getNumTimeSigs())
+                {
+                    seq.removeTimeSig (nearbyTimeSigIndex);
+                    notifyTempoMapChanged();
+                }
+                break;
+
+            default:
+                break;
+        }
+    });
 }
 
 void TimelineRulerComponent::mouseMove (const juce::MouseEvent& e)
@@ -212,6 +486,14 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
         repaintGrid();
     };
 
+    ruler.onTempoMapChanged = [this]
+    {
+        // Tempo edits change the beat<->time mapping, so clip bounds, lane
+        // backgrounds and the timeline width must all be recalculated.
+        updateTimelineWidth();
+        repaintGrid();
+    };
+
     edit.state.addListener (this);
 
     buildTracks();
@@ -271,10 +553,33 @@ bool TimelineComponent::handleKeyPress (const juce::KeyPress& key)
         toggleRippleMode();
         return true;
     }
+    if (key == juce::KeyPress ('m', juce::ModifierKeys(), 0))
+    {
+        edit.getMarkerManager().createMarker (-1, edit.getTransport().getPosition(), {},
+                                              &editViewState.selectionManager);
+        return true;
+    }
+    if (key == juce::KeyPress (juce::KeyPress::leftKey, juce::ModifierKeys::altModifier, 0)
+        || key == juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::altModifier, 0))
+    {
+        jumpToMarker (key.getKeyCode() == juce::KeyPress::rightKey);
+        return true;
+    }
     if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
         return deleteSelectedClips();
 
     return false;
+}
+
+void TimelineComponent::jumpToMarker (bool next)
+{
+    auto& markers = edit.getMarkerManager();
+    const auto pos = edit.getTransport().getPosition();
+
+    if (auto* marker = next ? markers.getNextMarker (pos) : markers.getPrevMarker (pos))
+        edit.getTransport().setPosition (marker->getPosition().getStart());
+    else if (! next)
+        edit.getTransport().setPosition (0s);
 }
 
 void TimelineComponent::toggleRippleMode()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UI/Arrangement/EditViewState.h"
+#include "Engine/EngineHelpers.h"
 #include "Engine/PluginStateManager.h"
 
 namespace skeletonhive
@@ -9,12 +10,14 @@ namespace skeletonhive
 class PluginTrayComponent;
 
 /** Single device slot in the plugin tray (Ableton-style device block). */
-class PluginSlotComponent : public juce::Component
+class PluginSlotComponent : public juce::Component,
+                            private juce::Timer
 {
 public:
     PluginSlotComponent (EditViewState& evs,
                          te::Plugin::Ptr plugin,
                          PluginStateManager* stateManager = nullptr);
+    ~PluginSlotComponent() override;
 
     te::Plugin::Ptr getPlugin() const { return plugin; }
 
@@ -50,8 +53,10 @@ public:
     static constexpr int nestedWidth = 112;
 
 private:
+    void timerCallback() override;
     void showContextMenu();
     void updateEnabledLook();
+    void refreshLoadState();
     void openEditor();
     juce::Rectangle<int> getExpandButtonArea() const;
 
@@ -64,6 +69,8 @@ private:
     bool nestedInRack = false;
     bool rackHeader = false;
     bool rackExpanded = false;
+    EngineHelpers::PluginLoadState loadState = EngineHelpers::PluginLoadState::ok;
+    juce::String loadStatusMessage;
 };
 
 void showPluginDeviceMenu (PluginSlotComponent& slot,

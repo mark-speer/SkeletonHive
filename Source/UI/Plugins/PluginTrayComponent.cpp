@@ -470,6 +470,10 @@ void PluginTrayComponent::insertBrowserPlugin (const juce::PluginDescription& de
                 pluginStateManager.recordRecentUse (desc.createIdentifierString());
             }
         }
+        else
+        {
+            EngineHelpers::showPluginInsertFailureAlert (this, desc);
+        }
     }
 }
 

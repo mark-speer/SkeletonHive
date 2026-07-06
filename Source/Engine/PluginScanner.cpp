@@ -37,29 +37,125 @@ float PluginScanner::getScanProgress() const
     return scanProgress;
 }
 
-bool PluginScanner::scanDefaultLocations (std::function<void (int numFound)> onComplete)
+juce::StringArray PluginScanner::getBlacklistedFiles() const
 {
-    return performScan ({}, true, std::move (onComplete));
+    return engine.getPluginManager().knownPluginList.getBlacklistedFiles();
 }
 
-bool PluginScanner::scanPath (const juce::File& path, std::function<void (int numFound)> onComplete)
+juce::StringArray PluginScanner::readDeadMansPedal (const juce::File& pedalFile)
 {
-    return performScan (juce::FileSearchPath (path.getFullPathName()), false, std::move (onComplete));
+    juce::StringArray lines;
+    if (pedalFile.existsAsFile())
+        pedalFile.readLines (lines);
+
+    lines.removeEmptyStrings();
+    return lines;
 }
 
-bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath, bool useDefaultLocations,
-                                 std::function<void (int numFound)> onComplete)
+void PluginScanner::blacklistRemainingPedalEntries (juce::KnownPluginList& list, const juce::File& pedalFile)
+{
+    for (const auto& crashed : readDeadMansPedal (pedalFile))
+        if (! list.getBlacklistedFiles().contains (crashed))
+            list.addToBlacklist (crashed);
+}
+
+bool PluginScanner::scanDefaultLocations (std::function<void (const PluginScanReport&)> onComplete)
+{
+    return performScan ({}, true, false, std::move (onComplete));
+}
+
+bool PluginScanner::scanPath (const juce::File& path, std::function<void (const PluginScanReport&)> onComplete)
+{
+    return performScan (juce::FileSearchPath (path.getFullPathName()), false, false, std::move (onComplete));
+}
+
+bool PluginScanner::rescanFailedPlugins (std::function<void (const PluginScanReport&)> onComplete)
+{
+    return performScan ({}, true, true, std::move (onComplete));
+}
+
+bool PluginScanner::rescanBlacklistedFile (const juce::String& fileOrIdentifier,
+                                           std::function<void (const PluginScanReport&)> onComplete)
 {
     if (scanning.exchange (true))
         return false;
 
-    const int typesBefore = getKnownPluginList().getNumTypes();
+    getKnownPluginList().removeFromBlacklist (fileOrIdentifier);
 
-    // Retry plugins that earlier failed scans blacklisted, and drop stale
-    // dead-man's-pedal entries so they aren't re-blacklisted immediately.
-    getKnownPluginList().clearBlacklistedFiles();
+    const int typesBefore = getKnownPluginList().getNumTypes();
+    const int blacklistedBefore = getKnownPluginList().getBlacklistedFiles().size();
     const auto deadMansPedal = engine.getTemporaryFileManager().getTempFile ("PluginScanDeadMansPedal");
-    deadMansPedal.deleteFile();
+
+    {
+        const juce::ScopedLock sl (scanStatusLock);
+        currentScanTarget = fileOrIdentifier;
+        scanProgress = 0.0f;
+    }
+
+    scanPool.addJob ([this, fileOrIdentifier, onComplete = std::move (onComplete),
+                      deadMansPedal, typesBefore, blacklistedBefore]
+    {
+        PluginScanReport report;
+        report.skippedBlacklisted = blacklistedBefore;
+
+        const int numFormats = getFormatManager().getNumFormats();
+
+        for (int i = 0; i < numFormats; ++i)
+        {
+            auto* format = getFormatManager().getFormat (i);
+            juce::OwnedArray<juce::PluginDescription> typesFound;
+
+            if (getKnownPluginList().scanAndAddFile (fileOrIdentifier, false, typesFound, *format))
+                report.newPluginsFound += typesFound.size();
+        }
+
+        blacklistRemainingPedalEntries (getKnownPluginList(), deadMansPedal);
+
+        for (const auto& failed : readDeadMansPedal (deadMansPedal))
+        {
+            if (! report.newlyFailedFiles.contains (failed))
+            {
+                report.newlyFailedFiles.add (failed);
+                ++report.newlyFailed;
+            }
+        }
+
+        report.newPluginsFound = juce::jmax (report.newPluginsFound,
+                                             getKnownPluginList().getNumTypes() - typesBefore);
+        report.totalPlugins = getKnownPluginList().getNumTypes();
+
+        juce::MessageManager::callAsync ([this, onComplete = std::move (onComplete), report]
+        {
+            scanning = false;
+            getKnownPluginList().scanFinished();
+
+            {
+                const juce::ScopedLock sl (scanStatusLock);
+                scanProgress = 1.0f;
+            }
+
+            if (onComplete)
+                onComplete (report);
+        });
+    });
+
+    return true;
+}
+
+bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath,
+                                 bool useDefaultLocations,
+                                 bool clearBlacklistFirst,
+                                 std::function<void (const PluginScanReport&)> onComplete)
+{
+    if (scanning.exchange (true))
+        return false;
+
+    if (clearBlacklistFirst)
+        getKnownPluginList().clearBlacklistedFiles();
+
+    const int typesBefore = getKnownPluginList().getNumTypes();
+    const int blacklistedBefore = getKnownPluginList().getBlacklistedFiles().size();
+    const auto deadMansPedal = engine.getTemporaryFileManager().getTempFile ("PluginScanDeadMansPedal");
 
     {
         const juce::ScopedLock sl (scanStatusLock);
@@ -67,10 +163,12 @@ bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath, bool 
         scanProgress = 0.0f;
     }
 
-    scanPool.addJob ([this, explicitPath, useDefaultLocations,
-                      onComplete = std::move (onComplete), deadMansPedal, typesBefore]
+    scanPool.addJob ([this, explicitPath, useDefaultLocations, clearBlacklistFirst,
+                      onComplete = std::move (onComplete), deadMansPedal,
+                      typesBefore, blacklistedBefore]
     {
         const int numFormats = getFormatManager().getNumFormats();
+        juce::StringArray failedDuringScan;
 
         for (int i = 0; i < numFormats; ++i)
         {
@@ -96,11 +194,38 @@ bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath, bool 
                                                       : scanner.getNextPluginFileThatWillBeScanned();
                 scanProgress = ((float) i + scanner.getProgress()) / (float) juce::jmax (1, numFormats);
             }
+
+            for (const auto& failed : scanner.getFailedFiles())
+                if (! failedDuringScan.contains (failed))
+                    failedDuringScan.add (failed);
         }
 
-        const int result = numFormats > 0 ? getKnownPluginList().getNumTypes() - typesBefore : -1;
+        blacklistRemainingPedalEntries (getKnownPluginList(), deadMansPedal);
 
-        juce::MessageManager::callAsync ([this, onComplete = std::move (onComplete), result]
+        PluginScanReport report;
+        report.newPluginsFound = getKnownPluginList().getNumTypes() - typesBefore;
+        report.skippedBlacklisted = clearBlacklistFirst ? 0 : blacklistedBefore;
+        report.totalPlugins = getKnownPluginList().getNumTypes();
+
+        for (const auto& failed : readDeadMansPedal (deadMansPedal))
+        {
+            if (! report.newlyFailedFiles.contains (failed))
+            {
+                report.newlyFailedFiles.add (failed);
+                ++report.newlyFailed;
+            }
+        }
+
+        for (const auto& failed : failedDuringScan)
+        {
+            if (! report.newlyFailedFiles.contains (failed))
+            {
+                report.newlyFailedFiles.add (failed);
+                ++report.newlyFailed;
+            }
+        }
+
+        juce::MessageManager::callAsync ([this, onComplete = std::move (onComplete), report]
         {
             scanning = false;
             getKnownPluginList().scanFinished();
@@ -111,7 +236,7 @@ bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath, bool 
             }
 
             if (onComplete)
-                onComplete (result);
+                onComplete (report);
         });
     });
 

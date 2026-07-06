@@ -6,30 +6,50 @@
 namespace skeletonhive
 {
 
-enum class AutomationMode { read, touch, latch };
-
-class AutomationLaneComponent : public juce::Component
+/** One automation curve for a single parameter, mapped to the currently
+    visible timeline range. Points can be added (click), moved (drag) and
+    deleted (right-click); all edits go through the Edit's UndoManager.
+*/
+class AutomationLaneComponent : public juce::Component,
+                                private te::AutomatableParameter::Listener
 {
 public:
-    AutomationLaneComponent (te::AutomatableParameter& param, te::Edit& edit, EditViewState& viewState);
+    AutomationLaneComponent (te::AutomatableParameter::Ptr param, EditViewState& viewState);
+    ~AutomationLaneComponent() override;
 
-    void setAutomationMode (AutomationMode mode);
-    AutomationMode getAutomationMode() const { return automationMode; }
+    te::AutomatableParameter& getParameter() { return *parameter; }
+
+    std::function<void (AutomationLaneComponent&)> onRemoveLane;
 
     void paint (juce::Graphics& g) override;
+    void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
 
 private:
-    te::AutomatableParameter& parameter;
-    te::Edit& edit;
-    EditViewState& editViewState;
-    AutomationMode automationMode = AutomationMode::read;
-    bool isRecordingAutomation = false;
+    // te::AutomatableParameter::Listener
+    void curveHasChanged (te::AutomatableParameter&) override { repaint(); }
+    void currentValueChanged (te::AutomatableParameter&) override { repaint(); }
 
-    float yToValue (int y) const;
-    int valueToY (float value) const;
+    juce::Rectangle<int> getCurveArea() const;
+    int hitTestPoint (juce::Point<int> pos) const;
+    float yToNormalisedValue (int y) const;
+    int normalisedValueToY (float normalised) const;
     te::TimePosition xToTime (int x) const;
+    int timeToX (te::TimePosition time) const;
+
+    te::AutomatableParameter::Ptr parameter;
+    EditViewState& editViewState;
+    juce::Label nameLabel;
+    juce::TextButton removeButton { "x" };
+
+    int draggedPointIndex = -1;
+    int hoveredPointIndex = -1;
+
+    static constexpr int labelWidth = 130;
+    static constexpr int pointHitRadius = 6;
 };
 
 } // namespace skeletonhive

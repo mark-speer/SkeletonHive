@@ -1,4 +1,5 @@
 #include "PluginWindow.h"
+#include "Engine/EngineHelpers.h"
 
 namespace skeletonhive
 {
@@ -41,15 +42,27 @@ void PluginWindow::show()
     setBoundsConstrained (getBounds());
 }
 
-std::unique_ptr<juce::Component> PluginWindow::create (te::Plugin& plugin)
+std::unique_ptr<juce::Component> PluginWindow::create (te::Plugin& plugin, juce::Component* alertParent)
 {
     if (auto* externalPlugin = dynamic_cast<te::ExternalPlugin*> (&plugin))
-        if (externalPlugin->getAudioPluginInstance() == nullptr)
+    {
+        if (externalPlugin->isInitialisingAsync())
             return nullptr;
 
+        if (externalPlugin->getAudioPluginInstance() == nullptr)
+        {
+            EngineHelpers::showPluginLoadFailureAlert (alertParent, plugin);
+            return nullptr;
+        }
+    }
+
     auto w = std::make_unique<PluginWindow> (plugin);
+
     if (w->getContentComponent() == nullptr)
+    {
+        EngineHelpers::showPluginLoadFailureAlert (alertParent, plugin);
         return nullptr;
+    }
 
     w->show();
     return w;
@@ -79,10 +92,45 @@ void PluginWindow::closeButtonPressed()
     plugin.windowState->closeWindowExplicitly();
 }
 
+void PluginWindow::resized()
+{
+    DocumentWindow::resized();
+    resizeToFitEditorContent();
+}
+
+void PluginWindow::childBoundsChanged (juce::Component* child)
+{
+    if (editor != nullptr && (child == editor.get() || editor->isParentOf (child)))
+        resizeToFitEditorContent();
+
+    DocumentWindow::childBoundsChanged (child);
+}
+
+void PluginWindow::resizeToFitEditorContent()
+{
+    if (editor == nullptr)
+        return;
+
+    const int contentW = editor->getWidth();
+    const int contentH = editor->getHeight();
+
+    if (contentW <= 0 || contentH <= 0)
+        return;
+
+    const auto border = getBorderThickness();
+    const int titleBar = (int) getTitleBarHeight();
+    const int targetW = contentW + border.getLeftAndRight();
+    const int targetH = contentH + border.getTopAndBottom() + titleBar;
+
+    if (targetW != getWidth() || targetH != getHeight())
+        setSize (targetW, targetH);
+}
+
 void PluginWindow::recreateEditor()
 {
     setEditor (nullptr);
     setEditor (plugin.createEditor());
+    resizeToFitEditorContent();
 }
 
 void PluginWindow::setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor)

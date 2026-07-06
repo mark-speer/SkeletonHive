@@ -127,6 +127,21 @@ struct EngineHelpers
 
     static juce::PluginDescription lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString);
 
+    enum class PluginLoadState
+    {
+        ok,
+        loading,
+        failed
+    };
+
+    static PluginLoadState getExternalPluginLoadState (te::Plugin& plugin, juce::String& statusMessage);
+    static juce::String getExternalPluginLoadError (te::Plugin& plugin);
+    static void showPluginLoadFailureAlert (juce::Component* parent,
+                                            const juce::String& pluginName,
+                                            const juce::String& errorMessage);
+    static void showPluginLoadFailureAlert (juce::Component* parent, te::Plugin& plugin);
+    static void showPluginInsertFailureAlert (juce::Component* parent, const juce::PluginDescription& desc);
+
     // Wet/dry mix (ExternalPlugin + RackInstance)
     static bool hasWetDryMix (const te::Plugin& plugin);
     static te::AutomatableParameter* getDryParam (te::Plugin& plugin);
@@ -154,6 +169,24 @@ struct EngineHelpers
     static void armTrack (te::AudioTrack& track, bool arm, int position = 0);
 
     static bool isTrackArmed (te::AudioTrack& track, int position = 0);
+
+    /** Input device instances currently targeting the track. */
+    static juce::Array<te::InputDeviceInstance*> getInputInstancesForTrack (te::AudioTrack& track);
+
+    /** Assigns all physical/virtual MIDI inputs (preferMidi) or the first wave
+        input to the track so it can be armed for recording. */
+    static void assignDefaultInputToTrack (te::AudioTrack& track, bool preferMidi);
+
+    /** Arms the track for recording. If no input targets it yet, a default
+        input is assigned first: MIDI inputs for tracks whose content is MIDI,
+        otherwise the first wave input. */
+    static void armTrackWithDefaultInput (te::AudioTrack& track, bool arm);
+
+    /** True if the input instance is assigned to the track (either direction). */
+    static bool isInputAssignedToTrack (te::InputDeviceInstance& instance, te::AudioTrack& track);
+
+    /** Assigns or removes a specific input instance on the track. */
+    static void setInputAssignedToTrack (te::InputDeviceInstance& instance, te::AudioTrack& track, bool assign);
 
     static void enableAllInputs (te::Edit& edit);
 

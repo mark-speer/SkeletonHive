@@ -59,36 +59,75 @@ te::TimeRange TransportController::getLoopRange() const
     return edit.getTransport().getLoopRange();
 }
 
-void TransportController::setPunchRange (te::TimeRange range)
-{
-    edit.getTransport().setLoopRange (range);
-}
-
 void TransportController::enablePunchIn (bool enabled)
 {
-    punchInEnabled = enabled;
+    edit.recordingPunchInOut = enabled;
 }
 
 bool TransportController::isPunchInEnabled() const
 {
-    return punchInEnabled;
+    return edit.recordingPunchInOut;
+}
+
+void TransportController::setClickEnabled (bool enabled)
+{
+    edit.clickTrackEnabled = enabled;
+}
+
+bool TransportController::isClickEnabled() const
+{
+    return edit.clickTrackEnabled;
+}
+
+void TransportController::setClickVolume (float gain)
+{
+    edit.setClickTrackVolume (gain);
+}
+
+float TransportController::getClickVolume() const
+{
+    return edit.getClickTrackVolume();
+}
+
+void TransportController::setClickRecordingOnly (bool onlyRecording)
+{
+    edit.clickTrackRecordingOnly = onlyRecording;
+}
+
+bool TransportController::isClickRecordingOnly() const
+{
+    return edit.clickTrackRecordingOnly;
+}
+
+void TransportController::setCountInMode (te::Edit::CountIn mode)
+{
+    edit.setCountInMode (mode);
+}
+
+te::Edit::CountIn TransportController::getCountInMode() const
+{
+    return edit.getCountInMode();
 }
 
 void TransportController::setTempo (double bpm)
 {
-    if (auto* tempo = edit.tempoSequence.getTempo (0))
-        tempo->setBpm (bpm);
+    edit.tempoSequence.getTempoAt (getPosition()).setBpm (bpm);
 }
 
 double TransportController::getTempo() const
 {
-    return edit.tempoSequence.getTempo (0)->getBpm();
+    return edit.tempoSequence.getTempoAt (getPosition()).getBpm();
 }
 
 void TransportController::setTimeSignature (int numerator, int denominator)
 {
-    if (auto* tempo = edit.tempoSequence.getTempo (0))
-        tempo->getMatchingTimeSig().setStringTimeSig (juce::String (numerator) + "/" + juce::String (denominator));
+    edit.tempoSequence.getTimeSigAt (getPosition())
+        .setStringTimeSig (juce::String (numerator) + "/" + juce::String (denominator));
+}
+
+juce::String TransportController::getTimeSignatureString() const
+{
+    return edit.tempoSequence.getTimeSigAt (getPosition()).getStringTimeSig();
 }
 
 te::TimePosition TransportController::getPosition() const
