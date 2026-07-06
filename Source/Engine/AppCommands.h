@@ -30,6 +30,9 @@ enum
     addMarker,
     prevMarker,
     nextMarker,
+    toggleTakeLanes,
+
+    consolidateClips,
 
     pluginCopy,
     pluginPaste,

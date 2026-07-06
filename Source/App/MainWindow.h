@@ -12,6 +12,7 @@
 #include "Engine/AppCommands.h"
 #include "UI/Midi/PianoRollEditor.h"
 #include "UI/Automation/AutomationPanel.h"
+#include "UI/Arrangement/ClipInspectorPanel.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/UiTelemetryHub.h"
 
@@ -68,6 +69,7 @@ private:
     void showSidechainPanelForPlugin (te::Plugin* plugin);
     void toggleAutomationPanel();
     void toggleMidiLearn();
+    void syncClipInspector();
 
     PianoRollEditor* getActivePianoRollEditor() const;
     bool isPluginTrayContext() const;
@@ -94,6 +96,7 @@ private:
     std::unique_ptr<juce::DocumentWindow> pianoRollWindow;
     PianoRollEditor* pianoRollEditor = nullptr;
     std::unique_ptr<AutomationPanel> automationPanel;
+    std::unique_ptr<ClipInspectorPanel> clipInspector;
 
     juce::Label learnStatusLabel;
 

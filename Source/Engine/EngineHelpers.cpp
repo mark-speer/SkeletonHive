@@ -1,5 +1,9 @@
 #include "EngineHelpers.h"
+#include "ExportManager.h"
+#include "TrackPluginChainModel.h"
 #include "UI/AppLookAndFeel.h"
+#include "UI/Arrangement/EditViewState.h"
+#include "UI/Arrangement/TimelineTypes.h"
 #include "TrackPluginChainModel.h"
 #include "PluginPresetManager.h"
 #include "TracktionCommon.h"
@@ -396,6 +400,15 @@ juce::Colour EngineHelpers::getClipGroupColour (const te::Clip& clip)
 void EngineHelpers::setClipGroupColour (te::Clip& clip, juce::Colour colour)
 {
     clip.state.setProperty (clipGroupColourProperty, colour.toString(), &clip.edit.getUndoManager());
+}
+
+juce::Colour EngineHelpers::getClipFillColour (const te::Clip& clip, juce::Colour defaultColour)
+{
+    const auto colour = clip.getColour();
+    if (colour != clip.getDefaultColour())
+        return colour;
+
+    return defaultColour;
 }
 
 te::AudioTrack* EngineHelpers::getOrCreateReturnTrack (te::Edit& edit, int busNumber)
@@ -1280,6 +1293,432 @@ void EngineHelpers::prepareEngineForShutdown (te::Engine& engine, te::Edit* edit
 void EngineHelpers::releaseAudioDevices (te::Engine& engine)
 {
     engine.getDeviceManager().closeDevices();
+}
+
+bool EngineHelpers::hasMultipleTakes (const te::Clip& clip)
+{
+    return getTakeCount (clip, true) > 1;
+}
+
+int EngineHelpers::getTakeCount (const te::Clip& clip, bool includeComps)
+{
+    if (auto* wave = dynamic_cast<const te::WaveAudioClip*> (&clip))
+        return const_cast<te::WaveAudioClip*> (wave)->getNumTakes (includeComps);
+
+    if (auto* midi = dynamic_cast<const te::MidiClip*> (&clip))
+        return const_cast<te::MidiClip*> (midi)->getNumTakes (includeComps);
+
+    return 0;
+}
+
+juce::String EngineHelpers::getTakeName (const te::Clip& clip, int index)
+{
+    const auto descriptions = getTakeDescriptions (clip);
+
+    if (juce::isPositiveAndBelow (index, descriptions.size()))
+        return descriptions[index];
+
+    return "Take " + juce::String (index + 1);
+}
+
+juce::StringArray EngineHelpers::getTakeDescriptions (const te::Clip& clip)
+{
+    return clip.getTakeDescriptions();
+}
+
+void EngineHelpers::setActiveTake (te::Clip& clip, int takeIndex)
+{
+    clip.setCurrentTake (takeIndex);
+}
+
+bool EngineHelpers::isCurrentTakeComp (const te::Clip& clip)
+{
+    if (auto* wave = dynamic_cast<const te::WaveAudioClip*> (&clip))
+        return const_cast<te::WaveAudioClip*> (wave)->isCurrentTakeComp();
+
+    if (auto* midi = dynamic_cast<const te::MidiClip*> (&clip))
+        return const_cast<te::MidiClip*> (midi)->isCurrentTakeComp();
+
+    return false;
+}
+
+te::CompManager* EngineHelpers::getCompManager (te::Clip& clip)
+{
+    if (auto* wave = dynamic_cast<te::WaveAudioClip*> (&clip))
+        return &wave->getCompManager();
+
+    if (auto* midi = dynamic_cast<te::MidiClip*> (&clip))
+        return &midi->getCompManager();
+
+    return nullptr;
+}
+
+void EngineHelpers::ensureCompTake (te::Clip& clip)
+{
+    if (auto* cm = getCompManager (clip))
+    {
+        if (! cm->isCurrentTakeComp())
+        {
+            cm->addNewComp();
+            cm->setActiveTakeIndex (cm->getTotalNumTakes() - 1);
+        }
+    }
+}
+
+void EngineHelpers::flattenCompToMain (te::Clip& clip, bool deleteSourceFiles)
+{
+    if (auto* cm = getCompManager (clip))
+        cm->flattenTake (clip.getCurrentTake(), deleteSourceFiles);
+}
+
+juce::File EngineHelpers::getTakeSourceFile (te::Clip& clip, int takeIndex)
+{
+    if (auto* wave = dynamic_cast<te::WaveAudioClip*> (&clip))
+    {
+        const auto takes = wave->getTakes();
+
+        if (! juce::isPositiveAndBelow (takeIndex, takes.size()))
+            return {};
+
+        if (auto item = clip.edit.engine.getProjectManager().getProjectItem (takes.getReference (takeIndex)))
+            return item->getSourceFile();
+    }
+
+    return {};
+}
+
+bool EngineHelpers::isTakeLanesExpanded (EditViewState& editViewState, const te::Clip& clip)
+{
+    return editViewState.expandedTakeClipId.get() == (juce::int64) clip.itemID.getRawID();
+}
+
+void EngineHelpers::setTakeLanesExpanded (EditViewState& editViewState, te::Clip* clip)
+{
+    if (clip != nullptr && hasMultipleTakes (*clip))
+        editViewState.expandedTakeClipId = (juce::int64) clip->itemID.getRawID();
+    else
+        editViewState.expandedTakeClipId = 0;
+}
+
+void EngineHelpers::toggleTakeLanesExpanded (EditViewState& editViewState, te::Clip& clip)
+{
+    if (isTakeLanesExpanded (editViewState, clip))
+        setTakeLanesExpanded (editViewState, nullptr);
+    else
+        setTakeLanesExpanded (editViewState, &clip);
+}
+
+int EngineHelpers::getTakeLaneExtraHeight (EditViewState& editViewState, const te::Track& track)
+{
+    const auto expandedId = editViewState.expandedTakeClipId.get();
+
+    if (expandedId == 0)
+        return 0;
+
+    if (auto* clipTrack = dynamic_cast<const te::ClipTrack*> (&track))
+    {
+        for (auto* c : clipTrack->getClips())
+        {
+            if ((juce::int64) c->itemID.getRawID() == expandedId && hasMultipleTakes (*c))
+            {
+                const int numRawTakes = getTakeCount (*c, false);
+                return compLaneStripHeight + numRawTakes * takeLaneStripHeight;
+            }
+        }
+    }
+
+    return 0;
+}
+
+bool EngineHelpers::isCreateTakesOnLoopEnabled (te::Edit& edit)
+{
+    if (auto state = edit.state.getChildWithName ("EDITVIEWSTATE"); state.isValid())
+        if (state.hasProperty ("createTakesOnLoop"))
+            return (bool) state.getProperty ("createTakesOnLoop");
+
+    auto& dm = edit.engine.getDeviceManager();
+
+    for (auto& midiIn : dm.getMidiInDevices())
+    {
+        if (auto* midi = dynamic_cast<te::MidiInputDevice*> (midiIn.get()))
+            return ! midi->mergeRecordings;
+    }
+
+    return true;
+}
+
+void EngineHelpers::setCreateTakesOnLoopEnabled (te::Edit& edit, bool enabled)
+{
+    if (auto state = edit.state.getOrCreateChildWithName ("EDITVIEWSTATE", nullptr); state.isValid())
+        state.setProperty ("createTakesOnLoop", enabled, nullptr);
+
+    auto& dm = edit.engine.getDeviceManager();
+
+    for (auto& midiIn : dm.getMidiInDevices())
+    {
+        if (auto* midi = dynamic_cast<te::MidiInputDevice*> (midiIn.get()))
+        {
+            midi->mergeRecordings = ! enabled;
+            midi->replaceExistingClips = false;
+        }
+    }
+}
+
+juce::Array<te::Clip*> EngineHelpers::expandWithGroupedPeers (const juce::Array<te::Clip*>& clips)
+{
+    juce::Array<te::Clip*> expanded;
+
+    for (auto* clip : clips)
+    {
+        if (clip == nullptr)
+            continue;
+
+        expanded.addIfNotAlreadyThere (clip);
+
+        for (auto* peer : getGroupedPeers (*clip))
+            expanded.addIfNotAlreadyThere (peer);
+    }
+
+    return expanded;
+}
+
+te::WaveAudioClip* EngineHelpers::insertWaveClipFromFile (te::ClipTrack& track, const juce::File& file,
+                                                          te::TimePosition start, const juce::String& name)
+{
+    te::AudioFile audioFile (track.edit.engine, file);
+    if (! audioFile.isValid())
+        return nullptr;
+
+    const auto length = te::TimeDuration::fromSeconds (audioFile.getLength());
+    const auto clipName = name.isNotEmpty() ? name : file.getFileNameWithoutExtension();
+    const te::ClipPosition clipPos { { start, length }, {} };
+    auto waveClip = te::insertWaveClip (track, clipName, file, clipPos, te::DeleteExistingClips::no);
+
+    if (waveClip != nullptr)
+    {
+        waveClip->setAutoPitch (false);
+        waveClip->setAutoTempo (false);
+    }
+
+    return waveClip.get();
+}
+
+namespace
+{
+juce::File createScopedRenderTempFile (te::Edit& edit, const juce::String& prefix)
+{
+    return edit.engine.getTemporaryFileManager().getTempDirectory()
+               .getNonexistentChildFile (prefix, ".wav");
+}
+
+te::TimeRange boundingRangeForClips (const juce::Array<te::Clip*>& clips)
+{
+    if (clips.isEmpty())
+        return {};
+
+    te::TimePosition start = clips.getFirst()->getPosition().getStart();
+    te::TimePosition end = clips.getFirst()->getPosition().getEnd();
+
+    for (int i = 1; i < clips.size(); ++i)
+    {
+        if (auto* clip = clips[i])
+        {
+            const auto pos = clip->getPosition();
+            start = juce::jmin (start, pos.getStart());
+            end = juce::jmax (end, pos.getEnd());
+        }
+    }
+
+    if (end <= start)
+        return {};
+
+    return { start, end };
+}
+
+juce::Array<te::Clip*> clipsOnTrack (const juce::Array<te::Clip*>& clips, te::ClipTrack& track)
+{
+    juce::Array<te::Clip*> result;
+
+    for (auto* clip : clips)
+        if (clip != nullptr && clip->getClipTrack() == &track)
+            result.add (clip);
+
+    return result;
+}
+} // namespace
+
+juce::Array<te::Clip*> EngineHelpers::consolidateClips (te::Edit& edit, te::SelectionManager& selection,
+                                                      juce::String* errorMessage)
+{
+    auto fail = [errorMessage] (const juce::String& message)
+    {
+        if (errorMessage != nullptr)
+            *errorMessage = message;
+        return juce::Array<te::Clip*> {};
+    };
+
+    const auto selected = selection.getItemsOfType<te::Clip>();
+    if (selected.isEmpty())
+        return fail ("Select one or more clips to consolidate.");
+
+    for (auto* clip : selected)
+        if (hasMultipleTakes (*clip))
+            return fail ("Flatten comp takes before consolidating clips with take lanes.");
+
+    juce::Array<te::ClipTrack*> tracks;
+    for (auto* clip : selected)
+    {
+        if (auto* clipTrack = clip->getClipTrack())
+            tracks.addIfNotAlreadyThere (clipTrack);
+    }
+
+    if (tracks.isEmpty())
+        return fail ("No arrangement clips selected.");
+
+    edit.getUndoManager().beginNewTransaction ("Consolidate");
+
+    juce::Array<te::Clip*> created;
+    juce::Array<te::Clip*> toDelete;
+
+    for (auto* clipTrack : tracks)
+    {
+        const auto trackClips = clipsOnTrack (selected, *clipTrack);
+        const auto range = boundingRangeForClips (trackClips);
+        if (range.getLength() <= 0s)
+            continue;
+
+        const auto tempFile = createScopedRenderTempFile (edit, "consolidate");
+        ExportManager::RenderScope scope;
+        scope.time = range;
+        scope.tracks.add (clipTrack);
+
+        const auto rendered = ExportManager::renderScopeToFile (edit, tempFile, scope);
+        if (! rendered.existsAsFile())
+            return fail ("Consolidate render was cancelled or failed.");
+
+        juce::String clipName = "Consolidated";
+        if (trackClips.size() == 1 && trackClips.getFirst()->getName().isNotEmpty())
+            clipName = trackClips.getFirst()->getName();
+
+        if (auto* newClip = insertWaveClipFromFile (*clipTrack, rendered, range.getStart(), clipName))
+        {
+            created.add (newClip);
+            for (auto* source : trackClips)
+                toDelete.addIfNotAlreadyThere (source);
+        }
+        else
+        {
+            return fail ("Could not create consolidated audio clip.");
+        }
+    }
+
+    for (auto* clip : toDelete)
+        clip->removeFromParent();
+
+    selection.deselectAll();
+    for (auto* clip : created)
+        selection.addToSelection (*clip);
+
+    return created;
+}
+
+te::WaveAudioClip* EngineHelpers::flattenTrackToAudioClip (te::AudioTrack& track, te::TimeRange range,
+                                                           bool deleteCoveredMidiClips,
+                                                           juce::String* errorMessage)
+{
+    auto fail = [errorMessage] (const juce::String& message) -> te::WaveAudioClip*
+    {
+        if (errorMessage != nullptr)
+            *errorMessage = message;
+        return nullptr;
+    };
+
+    if (range.getLength() <= 0s)
+        return fail ("Nothing to flatten in the selected range.");
+
+    auto* clipTrack = dynamic_cast<te::ClipTrack*> (&track);
+    if (clipTrack == nullptr)
+        return fail ("This track cannot host audio clips.");
+
+    const auto tempFile = createScopedRenderTempFile (track.edit, "flatten");
+    ExportManager::RenderScope scope;
+    scope.time = range;
+    scope.tracks.add (&track);
+
+    const auto rendered = ExportManager::renderScopeToFile (track.edit, tempFile, scope);
+    if (! rendered.existsAsFile())
+        return fail ("Flatten render was cancelled or failed.");
+
+    track.edit.getUndoManager().beginNewTransaction ("Flatten Track");
+
+    const juce::String clipName = track.getName().isNotEmpty() ? track.getName() + " (flat)"
+                                                                 : juce::String ("Flattened");
+    auto* newClip = insertWaveClipFromFile (*clipTrack, rendered, range.getStart(), clipName);
+    if (newClip == nullptr)
+        return fail ("Could not create flattened audio clip.");
+
+    if (deleteCoveredMidiClips)
+    {
+        juce::Array<te::Clip*> toRemove;
+
+        for (auto* clip : clipTrack->getClips())
+        {
+            if (clip == newClip)
+                continue;
+
+            if (dynamic_cast<te::MidiClip*> (clip) == nullptr)
+                continue;
+
+            const auto pos = clip->getPosition();
+            if (pos.getStart() >= range.getStart() && pos.getEnd() <= range.getEnd())
+                toRemove.add (clip);
+        }
+
+        for (auto* clip : toRemove)
+            clip->removeFromParent();
+    }
+
+    TrackPluginChainModel model (track);
+    const auto userPlugins = model.getUserChainPlugins();
+
+    for (int i = userPlugins.size(); --i >= 0;)
+    {
+        if (auto* plugin = userPlugins[i])
+        {
+            if (isPluginSoloed (track, *plugin))
+                clearSoloedPlugin (track);
+
+            plugin->deleteFromParent();
+        }
+    }
+
+    return newClip;
+}
+
+te::TimeRange EngineHelpers::resolveProductionRange (te::Edit& edit, te::ClipTrack& track,
+                                                     te::SelectionManager& selection)
+{
+    juce::Array<te::Clip*> trackClips;
+
+    for (auto* clip : selection.getItemsOfType<te::Clip>())
+        if (clip->getClipTrack() == &track)
+            trackClips.add (clip);
+
+    if (! trackClips.isEmpty())
+    {
+        const auto range = boundingRangeForClips (trackClips);
+        if (range.getLength() > 0s)
+            return range;
+    }
+
+    const auto loopRange = edit.getTransport().getLoopRange();
+    if (loopRange.getLength() > 0s)
+        return loopRange;
+
+    if (edit.getLength() > 0s)
+        return te::TimeRange (0s, edit.getLength());
+
+    return {};
 }
 
 } // namespace skeletonhive

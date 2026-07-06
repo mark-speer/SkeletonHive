@@ -44,7 +44,7 @@ private:
 
     juce::TextButton returnButton { "<<" }, playButton { "Play" }, stopButton { "Stop" },
         recordButton { "Rec" }, loopButton { "Loop" }, punchButton { "Punch" },
-        clickButton { "Click" };
+        clickButton { "Click" }, takesButton { "Takes" };
     juce::TextButton newButton { "New" }, openButton { "Open" }, saveButton { "Save" },
         saveAsButton { "Save As" }, exportButton { "Export" },
         importButton { "Import" }, addAudioButton { "+ Audio" }, addMidiButton { "+ MIDI" },

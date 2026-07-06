@@ -98,6 +98,10 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Arrangement/LaneBackgroundCache.cpp
     Source/UI/Arrangement/LaneClipSummaryPaint.h
     Source/UI/Arrangement/LaneClipSummaryPaint.cpp
+    Source/UI/Arrangement/ClipInspectorPanel.h
+    Source/UI/Arrangement/ClipInspectorPanel.cpp
+    Source/UI/Arrangement/TakeLaneComponent.h
+    Source/UI/Arrangement/TakeLaneComponent.cpp
     Source/UI/Arrangement/TimelineTypes.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.h
     Source/UI/Arrangement/TimelineOpenGLRenderer.cpp
@@ -127,6 +131,11 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Plugins/PluginWindow.cpp
     Source/UI/Midi/PianoRollEditor.h
     Source/UI/Midi/PianoRollEditor.cpp
+    Source/UI/Midi/MidiLaneViewport.h
+    Source/UI/Midi/MidiControllerLaneComponent.h
+    Source/UI/Midi/MidiControllerLaneComponent.cpp
+    Source/UI/Midi/MidiLaneEditor.h
+    Source/UI/Midi/MidiLaneEditor.cpp
     Source/UI/Automation/AutomationLaneComponent.h
     Source/UI/Automation/AutomationLaneComponent.cpp
     Source/UI/Automation/AutomationPanel.h

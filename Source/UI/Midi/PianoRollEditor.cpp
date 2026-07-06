@@ -100,7 +100,27 @@ void applyGroove (const juce::Array<te::MidiNote*>& notes, const GrooveTemplate&
 } // namespace
 
 PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& evs)
-    : clip (&c), edit (e), editViewState (evs)
+    : clip (&c),
+      edit (e),
+      editViewState (evs),
+      laneViewport {
+          [this] (double beat) { return (float) ((beat - scrollBeat) * pixelsPerBeat); },
+          [this] (int x)
+          {
+              const double beat = scrollBeat + x / juce::jmax (0.0001, pixelsPerBeat);
+              return juce::jlimit (0.0, clipLengthBeats(), beat);
+          },
+          [this] (double beat, bool altDown)
+          {
+              if (altDown || ! editViewState.snapToGrid.get())
+                  return beat;
+              const auto interval = gridIntervalBeats();
+              return std::round (beat / interval) * interval;
+          },
+          [this]() { return getUndoManager(); },
+          [this]() { return clip->getOffsetInBeats().inBeats(); },
+          evs
+      }
 {
     quantiseButton.setTooltip ("Quantize selected notes to the grid (Q)");
     quantiseButton.onClick = [this] { quantiseNotes(); };
@@ -168,6 +188,14 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
     setWantsKeyboardFocus (true);
     clip->state.addListener (this);
+
+    laneEditor = std::make_unique<MidiLaneEditor> (*clip,
+                                                   laneViewport,
+                                                   [this]() -> const juce::Array<juce::ValueTree>& { return selection; },
+                                                   [this] (const te::MidiNote& n) { return isSelected (n); },
+                                                   [this] { repaint (gridBounds); });
+
+    addAndMakeVisible (*laneEditor);
 }
 
 PianoRollEditor::~PianoRollEditor()
@@ -193,7 +221,17 @@ void PianoRollEditor::valueTreeChanged()
     if (foldButton.getToggleState() && dragMode == DragMode::none)
         rebuildFoldedPitches();
 
-    repaint();
+    if (laneEditor != nullptr)
+        laneEditor->sequenceChanged();
+
+    repaint (gridBounds);
+    repaint (keyboardBounds);
+}
+
+void PianoRollEditor::repaintLaneEditor()
+{
+    if (laneEditor != nullptr)
+        laneEditor->repaint();
 }
 
 void PianoRollEditor::pruneSelection()
@@ -251,6 +289,9 @@ void PianoRollEditor::resized()
     clampScroll();
     clampVerticalScroll();
     updateHorizontalScrollBar();
+
+    if (laneEditor != nullptr)
+        laneEditor->setBounds (velocityBounds);
 }
 
 void PianoRollEditor::rebuildFoldedPitches()
@@ -383,7 +424,7 @@ void PianoRollEditor::zoomAt (int mouseX, double factor)
     clampScroll();
     updateHorizontalScrollBar();
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::zoomVerticalAt (int mouseY, double factor)
@@ -410,7 +451,8 @@ void PianoRollEditor::scrollBarMoved (juce::ScrollBar* bar, double newRangeStart
     scrollBeat = newRangeStart;
     clampScroll();
     repaint (gridBounds);
-    repaint (velocityBounds);
+    if (laneEditor != nullptr)
+        laneEditor->viewportChanged();
 }
 
 double PianoRollEditor::gridIntervalBeats() const
@@ -511,7 +553,7 @@ void PianoRollEditor::commitStepNote (int pitch, int velocity, bool allowStaging
     stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::captureDragOrigins()
@@ -540,7 +582,6 @@ void PianoRollEditor::paint (juce::Graphics& g)
     paintGrid (g);
     paintGhostNotes (g);
     paintNotes (g);
-    paintVelocityLane (g);
 
     if (stepButton.getToggleState())
     {
@@ -727,27 +768,6 @@ void PianoRollEditor::paintNotes (juce::Graphics& g) const
     }
 }
 
-void PianoRollEditor::paintVelocityLane (juce::Graphics& g) const
-{
-    g.setColour (juce::Colour (0xff141428));
-    g.fillRect (velocityBounds);
-    g.setColour (juce::Colours::white.withAlpha (0.25f));
-    g.drawHorizontalLine (velocityBounds.getY(), (float) velocityBounds.getX(), (float) velocityBounds.getRight());
-
-    const double offsetBeats = clip->getOffsetInBeats().inBeats();
-
-    for (auto* n : clip->getSequence().getNotes())
-    {
-        const double startBeat = n->getStartBeat().inBeats() - offsetBeats;
-        const float x = beatToX (startBeat);
-        const float barHeight = (velocityBounds.getHeight() - 4) * (n->getVelocity() / 127.0f);
-        const bool selected = isSelected (*n);
-
-        g.setColour (selected ? juce::Colour (0xffffd166) : juce::Colour (0xff4361ee));
-        g.fillRect (x, velocityBounds.getBottom() - 2 - barHeight, 5.0f, barHeight);
-    }
-}
-
 //==============================================================================
 // Mouse interaction
 
@@ -762,29 +782,6 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
         keyboardPendingPitch = pitchAtY (e.y);
         keyboardPendingClick = true;
         dragStartScrollRowOffset = scrollRowOffset;
-        return;
-    }
-
-    if (velocityBounds.contains (e.getPosition()))
-    {
-        dragMode = DragMode::velocity;
-        velocityTargets.clear();
-        velocityPaintMode = true;
-
-        // If dragging a selected note's bar, edit the whole selection; otherwise paint per-note
-        for (auto* n : clip->getSequence().getNotes())
-        {
-            const double startBeat = n->getStartBeat().inBeats() - clip->getOffsetInBeats().inBeats();
-            const float x = beatToX (startBeat);
-            if (e.x >= x - 1 && e.x <= x + 6 && isSelected (*n))
-            {
-                velocityTargets = selection;
-                velocityPaintMode = false;
-                break;
-            }
-        }
-
-        mouseDrag (e);
         return;
     }
 
@@ -805,7 +802,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
             {
                 clip->getSequence().removeNote (*hitNote, getUndoManager());
                 repaint (gridBounds);
-                repaint (velocityBounds);
+                repaintLaneEditor();
             }
         }
         return;
@@ -821,7 +818,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
             else
                 selection.add (hitNote->state);
             repaint (gridBounds);
-            repaint (velocityBounds);
+            repaintLaneEditor();
             return;
         }
 
@@ -849,7 +846,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
         captureDragOrigins();
         auditionPitch (hitNote->getNoteNumber(), hitNote->getVelocity());
         repaint (gridBounds);
-        repaint (velocityBounds);
+        repaintLaneEditor();
         return;
     }
 
@@ -883,7 +880,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
         }
 
         repaint (gridBounds);
-        repaint (velocityBounds);
+        repaintLaneEditor();
         return;
     }
 
@@ -895,7 +892,7 @@ void PianoRollEditor::mouseDown (const juce::MouseEvent& e)
     dragMode = DragMode::marquee;
     marqueeRect = { e.x, e.y, 0, 0 };
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::mouseDoubleClick (const juce::MouseEvent& e)
@@ -930,7 +927,7 @@ void PianoRollEditor::mouseDoubleClick (const juce::MouseEvent& e)
     }
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
@@ -970,38 +967,7 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
                     selection.add (n->state);
 
             repaint (gridBounds);
-            repaint (velocityBounds);
-            return;
-        }
-
-        case DragMode::velocity:
-        {
-            const int newVelocity = juce::jlimit (1, 127,
-                (int) std::round (127.0 * (velocityBounds.getBottom() - 2 - e.y)
-                                  / (double) juce::jmax (1, velocityBounds.getHeight() - 4)));
-
-            auto& sequence = clip->getSequence();
-
-            if (! velocityPaintMode)
-            {
-                for (const auto& state : velocityTargets)
-                    if (auto* n = sequence.getNoteFor (state))
-                        n->setVelocity (newVelocity, getUndoManager());
-            }
-            else
-            {
-                // Pencil mode: set velocity of any note whose bar is under the cursor
-                const double offsetBeats = clip->getOffsetInBeats().inBeats();
-                for (auto* n : sequence.getNotes())
-                {
-                    const float x = beatToX (n->getStartBeat().inBeats() - offsetBeats);
-                    if (e.x >= x - 1 && e.x <= x + 6)
-                        n->setVelocity (newVelocity, getUndoManager());
-                }
-            }
-
-            repaint (velocityBounds);
-            repaint (gridBounds);
+            repaintLaneEditor();
             return;
         }
 
@@ -1054,7 +1020,7 @@ void PianoRollEditor::mouseDrag (const juce::MouseEvent& e)
                 auditionPitch (auditionedPitch, defaultVelocity);
 
             repaint (gridBounds);
-            repaint (velocityBounds);
+            repaintLaneEditor();
             return;
         }
 
@@ -1120,7 +1086,6 @@ void PianoRollEditor::mouseUp (const juce::MouseEvent&)
     }
 
     dragMode = DragMode::none;
-    velocityTargets.clear();
     stopAudition();
     setMouseCursor (juce::MouseCursor::NormalCursor);
     repaint();
@@ -1186,7 +1151,7 @@ void PianoRollEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::Mou
     clampScroll();
     updateHorizontalScrollBar();
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 //==============================================================================
@@ -1280,7 +1245,7 @@ void PianoRollEditor::quantiseNotes()
     }
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::humaniseNotes()
@@ -1311,7 +1276,7 @@ void PianoRollEditor::humaniseNotes()
     }
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::deleteSelectedNotes()
@@ -1323,7 +1288,7 @@ void PianoRollEditor::deleteSelectedNotes()
         clip->getSequence().removeNote (*n, getUndoManager());
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::selectAllNotes()
@@ -1333,7 +1298,7 @@ void PianoRollEditor::selectAllNotes()
         selection.add (n->state);
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::duplicateSelectedNotes()
@@ -1365,7 +1330,7 @@ void PianoRollEditor::duplicateSelectedNotes()
 
     selection = newSelection;
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 void PianoRollEditor::nudgeSelectedNotes (double beatDelta, int pitchDelta)
@@ -1382,7 +1347,7 @@ void PianoRollEditor::nudgeSelectedNotes (double beatDelta, int pitchDelta)
     }
 
     repaint (gridBounds);
-    repaint (velocityBounds);
+    repaintLaneEditor();
 }
 
 //==============================================================================
@@ -1445,7 +1410,7 @@ void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Ar
 
             stepCursorBeat = juce::jmin (clipLengthBeats(), stepCursorBeat + currentNoteLengthBeats);
             repaint (gridBounds);
-            repaint (velocityBounds);
+            repaintLaneEditor();
         }
         return;
     }
@@ -1495,7 +1460,7 @@ void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Ar
     if (! notesOn.isEmpty() || ! notesOff.isEmpty())
     {
         repaint (gridBounds);
-        repaint (velocityBounds);
+        repaintLaneEditor();
     }
 }
 

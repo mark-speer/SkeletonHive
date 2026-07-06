@@ -24,6 +24,14 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     punchButton.setTooltip ("Punch recording: only record inside the loop brace");
     punchButton.onClick = [this] { transportController.enablePunchIn (punchButton.getToggleState()); };
 
+    takesButton.setClickingTogglesState (true);
+    takesButton.setTooltip ("Create takes on loop record (requires loop brace >= 2 seconds; disables MIDI merge)");
+    takesButton.setToggleState (EngineHelpers::isCreateTakesOnLoopEnabled (edit), juce::dontSendNotification);
+    takesButton.onClick = [this]
+    {
+        EngineHelpers::setCreateTakesOnLoopEnabled (edit, takesButton.getToggleState());
+    };
+
     clickButton.setClickingTogglesState (true);
     clickButton.setTooltip ("Metronome click (volume slider to the right)");
     clickButton.setToggleState (transportController.isClickEnabled(), juce::dontSendNotification);
@@ -101,6 +109,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (recordButton);
     addAndMakeVisible (loopButton);
     addAndMakeVisible (punchButton);
+    addAndMakeVisible (takesButton);
     addAndMakeVisible (newButton);
     addAndMakeVisible (openButton);
     addAndMakeVisible (saveButton);
@@ -125,6 +134,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (timeSigBox);
 
     edit.getTransport().addChangeListener (this);
+    EngineHelpers::setCreateTakesOnLoopEnabled (edit, takesButton.getToggleState());
     startTimerHz (15);
     updateButtonStates();
 }
@@ -146,7 +156,7 @@ void TransportBar::resized()
         btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
     }
     row1.removeFromLeft (8);
-    for (auto* btn : { &returnButton, &playButton, &stopButton, &recordButton, &loopButton, &punchButton })
+    for (auto* btn : { &returnButton, &playButton, &stopButton, &recordButton, &loopButton, &punchButton, &takesButton })
     {
         btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
     }

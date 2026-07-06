@@ -34,6 +34,8 @@ namespace IDs
     DECLARE_ID (gridDivision)
     DECLARE_ID (pixelsPerBeat)
     DECLARE_ID (rippleMode)
+    DECLARE_ID (expandedTakeClipId)
+    DECLARE_ID (createTakesOnLoop)
     #undef DECLARE_ID
 }
 
@@ -57,6 +59,8 @@ public:
         viewX2.referTo (state, IDs::viewX2, um, 60s);
         viewY.referTo (state, IDs::viewY, um, 0);
         trackHeight.referTo (state, IDs::trackHeight, um, 80);
+        expandedTakeClipId.referTo (state, IDs::expandedTakeClipId, um, (juce::int64) 0);
+        createTakesOnLoop.referTo (state, IDs::createTakesOnLoop, um, true);
     }
 
     GridDivision getGridDivision() const
@@ -151,6 +155,8 @@ public:
     juce::CachedValue<double> pixelsPerBeat;
     juce::CachedValue<te::TimePosition> viewX1, viewX2;
     juce::CachedValue<int> viewY, trackHeight;
+    juce::CachedValue<juce::int64> expandedTakeClipId;
+    juce::CachedValue<bool> createTakesOnLoop;
     juce::ValueTree state;
 
     WaveformCache waveformCache;

@@ -102,6 +102,7 @@ void MainContentComponent::releaseEditUI()
     pianoRollWindow = nullptr;
     pianoRollEditor = nullptr;
     automationPanel = nullptr;
+    clipInspector = nullptr;
 
     pluginBrowser = nullptr;
     pluginTray = nullptr;
@@ -130,6 +131,8 @@ void MainContentComponent::rebuildEditUI()
     pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager);
     sidechainPanel = std::make_unique<SidechainMatrixPanel> (*edit);
     automationPanel = std::make_unique<AutomationPanel> (*edit, timeline->getEditViewState());
+    clipInspector = std::make_unique<ClipInspectorPanel> (*edit, projectManager.getSelectionManager());
+    clipInspector->setVisible (false);
 
     SidechainRouting::openMatrixForPlugin = [this] (te::Plugin* plugin)
     {
@@ -160,6 +163,8 @@ void MainContentComponent::rebuildEditUI()
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
+    timeline->onClipSelectionChanged = [this] { syncClipInspector(); };
+    timeline->onShowClipProperties = [this] { syncClipInspector(); };
     timeline->onTrackSelected = [this] (te::Track& t)
     {
         if (pluginTray != nullptr)
@@ -202,6 +207,7 @@ void MainContentComponent::rebuildEditUI()
         addAndMakeVisible (*automationPanel);
 
     updateLearnStatus();
+    syncClipInspector();
     resized();
     updateWindowTitle();
 }
@@ -430,6 +436,26 @@ void MainContentComponent::toggleAutomationPanel()
     resized();
 }
 
+void MainContentComponent::syncClipInspector()
+{
+    if (clipInspector == nullptr)
+        return;
+
+    clipInspector->setClips (projectManager.getSelectionManager().getItemsOfType<te::Clip>());
+
+    if (clipInspector->hasAudioSelection())
+    {
+        if (clipInspector->getParentComponent() == nullptr)
+            addAndMakeVisible (*clipInspector);
+    }
+    else if (clipInspector->getParentComponent() != nullptr)
+    {
+        removeChildComponent (clipInspector.get());
+    }
+
+    resized();
+}
+
 void MainContentComponent::resized()
 {
     auto r = getLocalBounds();
@@ -446,6 +472,9 @@ void MainContentComponent::resized()
 
     if (automationVisible && automationPanel != nullptr)
         automationPanel->setBounds (r.removeFromBottom (automationPanel->getPreferredHeight()));
+
+    if (clipInspector != nullptr && clipInspector->hasAudioSelection())
+        clipInspector->setBounds (r.removeFromBottom (clipInspector->getPreferredHeight()));
 
     if (pluginTray != nullptr)
         pluginTray->setBounds (r.removeFromBottom (148));
@@ -500,6 +529,7 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
         AppCommandIDs::addMarker,
         AppCommandIDs::prevMarker,
         AppCommandIDs::nextMarker,
+        AppCommandIDs::toggleTakeLanes,
         AppCommandIDs::pluginCopy,
         AppCommandIDs::pluginPaste,
         AppCommandIDs::pluginDuplicate,
@@ -630,6 +660,8 @@ bool MainContentComponent::perform (const InvocationInfo& info)
         case AppCommandIDs::addMarker:
         case AppCommandIDs::prevMarker:
         case AppCommandIDs::nextMarker:
+        case AppCommandIDs::toggleTakeLanes:
+        case AppCommandIDs::consolidateClips:
             if (timeline != nullptr)
                 return timeline->performCommand (info.commandID);
             break;

@@ -73,6 +73,8 @@ public:
     std::function<void (te::Clip&)> onClipDoubleClick;
     std::function<void (te::Track&)> onAddPlugin;
     std::function<void (te::Track&)> onTrackSelected;
+    std::function<void()> onClipSelectionChanged;
+    std::function<void()> onShowClipProperties;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
 
     void rebuildTracks();
@@ -108,6 +110,7 @@ private:
     void syncGridControls();
 
     void duplicateSelectedClips();
+    bool consolidateSelectedClips();
     bool deleteSelectedClips();
     void jumpToMarker (bool next);
     void groupSelectedClips (bool group);

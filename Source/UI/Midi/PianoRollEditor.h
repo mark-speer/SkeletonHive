@@ -1,6 +1,8 @@
 #pragma once
 
 #include "UI/Arrangement/EditViewState.h"
+#include "UI/Midi/MidiLaneEditor.h"
+#include "UI/Midi/MidiLaneViewport.h"
 
 namespace skeletonhive
 {
@@ -40,7 +42,7 @@ public:
     void nudgeSelectedNotes (double beatDelta, int pitchDelta);
 
 private:
-    enum class DragMode { none, marquee, move, resizeStart, resizeEnd, velocity, scrollKeyboard };
+    enum class DragMode { none, marquee, move, resizeStart, resizeEnd, scrollKeyboard };
 
     struct NoteOrigin
     {
@@ -112,8 +114,8 @@ private:
     void paintGrid (juce::Graphics& g) const;
     void paintGhostNotes (juce::Graphics& g) const;
     void paintNotes (juce::Graphics& g) const;
-    void paintVelocityLane (juce::Graphics& g) const;
     bool isPitchInScale (int pitch) const;
+    void repaintLaneEditor();
     /** Nearest pitch that's in the current scale (returns pitch unchanged if no scale is selected). */
     int nearestInScalePitch (int pitch) const;
 
@@ -139,8 +141,9 @@ private:
     juce::Array<juce::ValueTree> selection;
     juce::Array<juce::ValueTree> preMarqueeSelection;
     juce::Array<NoteOrigin> dragOrigins;
-    juce::Array<juce::ValueTree> velocityTargets;
     juce::Array<PendingLiveNote> pendingLiveNotes;
+    std::unique_ptr<MidiLaneEditor> laneEditor;
+    MidiLaneViewport laneViewport;
     juce::SharedResourcePointer<te::MidiInputDevice::MidiKeyChangeDispatcher> midiKeyDispatcher;
 
     DragMode dragMode = DragMode::none;
@@ -149,7 +152,6 @@ private:
     double dragAnchorBeat = 0.0;
     int dragAnchorPitch = 60;
     int lastAuditionedPitch = -1;
-    bool velocityPaintMode = false;
     bool keyboardPendingClick = false;
     int keyboardPendingPitch = 60;
     double dragStartScrollRowOffset = 0.0;
@@ -179,7 +181,7 @@ private:
     static constexpr int highestNote = 96;   // C7
     static constexpr int keyboardWidth = 52;
     static constexpr int toolbarHeight = 30;
-    static constexpr int velocityLaneHeight = 72;
+    static constexpr int velocityLaneHeight = 94;
     static constexpr int scrollBarHeight = 14;
     static constexpr int resizeHandlePx = 5;
     static constexpr int defaultVelocity = 96;

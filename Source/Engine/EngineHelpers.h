@@ -6,6 +6,7 @@ namespace skeletonhive
 {
 
 class ExtendedUIBehaviour;
+class EditViewState;
 
 struct EngineHelpers
 {
@@ -96,6 +97,8 @@ struct EngineHelpers
     static juce::Colour colourForGroupId (const juce::String& groupId);
     static juce::Colour getClipGroupColour (const te::Clip& clip);
     static void setClipGroupColour (te::Clip& clip, juce::Colour colour);
+    /** TE clip colour when set, otherwise the supplied default chrome colour. */
+    static juce::Colour getClipFillColour (const te::Clip& clip, juce::Colour defaultColour);
 
     /** Finds the audio track hosting an AuxReturnPlugin for the given bus,
         creating a new return track (with the return plugin at chain start) if needed. */
@@ -204,6 +207,46 @@ struct EngineHelpers
 
     static void prepareEngineForShutdown (te::Engine& engine, te::Edit* edit);
     static void releaseAudioDevices (te::Engine& engine);
+
+    // Take / comp helpers (TE WaveCompManager / MidiCompManager)
+    static bool hasMultipleTakes (const te::Clip& clip);
+    static int getTakeCount (const te::Clip& clip, bool includeComps = true);
+    static juce::String getTakeName (const te::Clip& clip, int index);
+    static juce::StringArray getTakeDescriptions (const te::Clip& clip);
+    static void setActiveTake (te::Clip& clip, int takeIndex);
+    static bool isCurrentTakeComp (const te::Clip& clip);
+    static void ensureCompTake (te::Clip& clip);
+    static void flattenCompToMain (te::Clip& clip, bool deleteSourceFiles);
+    static juce::File getTakeSourceFile (te::Clip& clip, int takeIndex);
+    static te::CompManager* getCompManager (te::Clip& clip);
+
+    static bool isTakeLanesExpanded (EditViewState& editViewState, const te::Clip& clip);
+    static void setTakeLanesExpanded (EditViewState& editViewState, te::Clip* clip);
+    static void toggleTakeLanesExpanded (EditViewState& editViewState, te::Clip& clip);
+    static int getTakeLaneExtraHeight (EditViewState& editViewState, const te::Track& track);
+
+    static bool isCreateTakesOnLoopEnabled (te::Edit& edit);
+    static void setCreateTakesOnLoopEnabled (te::Edit& edit, bool enabled);
+
+    /** Union selection with all inner/outer clip-group peers. */
+    static juce::Array<te::Clip*> expandWithGroupedPeers (const juce::Array<te::Clip*>& clips);
+
+    static te::WaveAudioClip* insertWaveClipFromFile (te::ClipTrack& track, const juce::File& file,
+                                                      te::TimePosition start, const juce::String& name);
+
+    /** Bounce selected clips in place — one WAV clip per affected track.
+        Returns newly created clips; sets errorMessage on failure. */
+    static juce::Array<te::Clip*> consolidateClips (te::Edit& edit, te::SelectionManager& selection,
+                                                    juce::String* errorMessage = nullptr);
+
+    /** Render the track device chain to a timeline audio clip and remove user plugins. */
+    static te::WaveAudioClip* flattenTrackToAudioClip (te::AudioTrack& track, te::TimeRange range,
+                                                       bool deleteCoveredMidiClips = true,
+                                                       juce::String* errorMessage = nullptr);
+
+    /** Selected clips on track, else transport loop, else full edit length. */
+    static te::TimeRange resolveProductionRange (te::Edit& edit, te::ClipTrack& track,
+                                                 te::SelectionManager& selection);
 };
 
 } // namespace skeletonhive

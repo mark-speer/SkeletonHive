@@ -145,7 +145,7 @@ void ClipComponent::updateCursorForMode (DragMode mode)
 void ClipComponent::paint (juce::Graphics& g)
 {
     const auto detail = getDetailLevel();
-    g.setColour (juce::Colours::darkgrey);
+    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colours::darkgrey));
     g.fillRoundedRectangle (getLocalBounds().toFloat(), detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f);
 
     if (detail != TimelineClipDetailLevel::Summary)
@@ -307,7 +307,17 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
-        showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, clip->getTrack(), false, nullptr, clip.get());
+        showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, clip->getTrack(), false, nullptr, clip.get(),
+                                 onShowClipProperties, onTakeLanesChanged,
+                                 [this]
+                                 {
+                                     if (onTakeLanesChanged)
+                                         onTakeLanesChanged();
+                                     if (onSelectionChanged)
+                                         onSelectionChanged();
+                                 });
+        if (onSelectionChanged)
+            onSelectionChanged();
         return;
     }
 
@@ -319,6 +329,9 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     }
 
     editViewState.selectionManager.selectOnly (clip.get());
+
+    if (onSelectionChanged)
+        onSelectionChanged();
 
     dragMode = dragModeForEvent (e);
     if (dragMode == DragMode::none)
@@ -606,7 +619,7 @@ void AudioClipComponent::paint (juce::Graphics& g)
     auto bounds = getLocalBounds();
     const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
 
-    g.setColour (juce::Colour (0xff2d6a4f));
+    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colour (0xff2d6a4f)));
     g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
 
     if (shouldShowWaveforms (detail, editViewState.drawWaveforms.get()) && isVisible())
@@ -740,7 +753,7 @@ void MidiClipComponent::paint (juce::Graphics& g)
     auto bounds = getLocalBounds();
     const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
 
-    g.setColour (juce::Colour (0xff4361ee));
+    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colour (0xff4361ee)));
     g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
 
     if (isVisible())

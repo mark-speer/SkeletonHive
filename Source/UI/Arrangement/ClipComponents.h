@@ -22,6 +22,9 @@ public:
 
     te::Clip& getClip() { return *clip; }
     std::function<void (te::Clip&)> onDoubleClick;
+    std::function<void()> onSelectionChanged;
+    std::function<void()> onShowClipProperties;
+    std::function<void()> onTakeLanesChanged;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragMove;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragEnd;
 

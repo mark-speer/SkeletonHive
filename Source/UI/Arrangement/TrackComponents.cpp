@@ -13,6 +13,8 @@ namespace skeletonhive
 
 namespace
 {
+constexpr int minClipLaneHeight = 24;
+
 enum class TimelineMenuResult
 {
     cut = 1,
@@ -31,12 +33,22 @@ enum class TimelineMenuResult
     moveTrackUp = 200,
     moveTrackDown,
     moveTrackOutOfFolder,
-    freezeTrack = 300
+    freezeTrack = 300,
+    flattenTrack,
+    clipProperties = 400,
+    showTakeLanes = 500,
+    hideTakeLanes,
+    newComp,
+    flattenComp,
+    unpackTakes,
+    consolidate
 };
 
 void setFadeCurveOnAudioClips (EditViewState& editViewState, bool fadeIn, te::AudioFadeCurve::Type type)
 {
-    for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
+    const auto clips = EngineHelpers::expandWithGroupedPeers (editViewState.selectionManager.getItemsOfType<te::Clip>());
+
+    for (auto* clip : clips)
     {
         if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip))
         {
@@ -74,7 +86,10 @@ void showTimelineContextMenu (juce::Component& target,
                               te::Track* track,
                               bool offerCreateMidiClip,
                               std::function<void()> onCreateMidiClip,
-                              te::Clip* contextClip)
+                              te::Clip* contextClip,
+                              std::function<void()> onShowClipProperties,
+                              std::function<void()> onTakeLanesChanged,
+                              std::function<void()> onClipsChanged)
 {
     juce::PopupMenu menu;
     const bool hasSelection = editViewState.selectionManager.getNumObjectsSelected() > 0;
@@ -84,7 +99,30 @@ void showTimelineContextMenu (juce::Component& target,
     menu.addItem ((int) TimelineMenuResult::copy, "Copy", hasSelection);
     menu.addItem ((int) TimelineMenuResult::paste, "Paste", canPaste);
 
-    bool hasAudioClip = contextClip != nullptr && dynamic_cast<te::AudioClipBase*> (contextClip) != nullptr;
+    bool canConsolidate = hasSelection;
+    if (canConsolidate)
+    {
+        for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
+        {
+            if (EngineHelpers::hasMultipleTakes (*clip))
+            {
+                canConsolidate = false;
+                break;
+            }
+        }
+    }
+
+    menu.addItem ((int) TimelineMenuResult::consolidate, "Consolidate", canConsolidate);
+
+    te::Clip* takeClip = contextClip;
+    if (takeClip == nullptr)
+    {
+        const auto selected = editViewState.selectionManager.getItemsOfType<te::Clip>();
+        if (selected.size() == 1)
+            takeClip = selected.getFirst();
+    }
+
+    bool hasAudioClip = takeClip != nullptr && dynamic_cast<te::AudioClipBase*> (takeClip) != nullptr;
     if (! hasAudioClip)
     {
         for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
@@ -97,11 +135,26 @@ void showTimelineContextMenu (juce::Component& target,
         }
     }
 
+    const bool hasTakeClip = takeClip != nullptr
+                          && (dynamic_cast<te::WaveAudioClip*> (takeClip) != nullptr
+                              || dynamic_cast<te::MidiClip*> (takeClip) != nullptr);
+
+    if (hasTakeClip && EngineHelpers::hasMultipleTakes (*takeClip))
+    {
+        menu.addSeparator();
+        const bool expanded = EngineHelpers::isTakeLanesExpanded (editViewState, *takeClip);
+        menu.addItem ((int) TimelineMenuResult::showTakeLanes, expanded ? "Hide Take Lanes" : "Show Take Lanes");
+        menu.addItem ((int) TimelineMenuResult::newComp, "New Comp");
+        menu.addItem ((int) TimelineMenuResult::flattenComp, "Flatten Comp to Main Clip...");
+        menu.addItem ((int) TimelineMenuResult::unpackTakes, "Unpack Takes to New Clips");
+    }
+
     if (hasAudioClip)
     {
         menu.addSeparator();
         addFadeCurveSubmenu (menu, "Fade In Curve", (int) TimelineMenuResult::fadeInLinear);
         addFadeCurveSubmenu (menu, "Fade Out Curve", (int) TimelineMenuResult::fadeOutLinear);
+        menu.addItem ((int) TimelineMenuResult::clipProperties, "Clip Properties...");
     }
 
     if (offerCreateMidiClip)
@@ -126,7 +179,10 @@ void showTimelineContextMenu (juce::Component& target,
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (&target)
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
-                        [&editViewState, track, onCreateMidiClip = std::move (onCreateMidiClip)] (int result)
+                        [&editViewState, track, takeClip, onCreateMidiClip = std::move (onCreateMidiClip),
+                         onShowClipProperties = std::move (onShowClipProperties),
+                         onTakeLanesChanged = std::move (onTakeLanesChanged),
+                         onClipsChanged = std::move (onClipsChanged)] (int result)
     {
         const int r = result;
         if (r >= (int) TimelineMenuResult::fadeInLinear && r <= (int) TimelineMenuResult::fadeInSCurve)
@@ -154,6 +210,18 @@ void showTimelineContextMenu (juce::Component& target,
             case TimelineMenuResult::paste:
                 editViewState.selectionManager.pasteSelected();
                 break;
+            case TimelineMenuResult::consolidate:
+            {
+                juce::String error;
+                const auto created = EngineHelpers::consolidateClips (editViewState.edit,
+                                                                      editViewState.selectionManager,
+                                                                      &error);
+                if (created.isEmpty() && error.isNotEmpty())
+                    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Consolidate", error);
+                else if (! created.isEmpty() && onClipsChanged)
+                    onClipsChanged();
+                break;
+            }
             case TimelineMenuResult::createMidiClip:
                 if (onCreateMidiClip)
                     onCreateMidiClip();
@@ -172,6 +240,50 @@ void showTimelineContextMenu (juce::Component& target,
             case TimelineMenuResult::moveTrackOutOfFolder:
                 if (track != nullptr)
                     EngineHelpers::moveTrackOutOfFolder (*track);
+                break;
+            case TimelineMenuResult::clipProperties:
+                if (onShowClipProperties)
+                    onShowClipProperties();
+                break;
+            case TimelineMenuResult::showTakeLanes:
+                if (takeClip != nullptr)
+                {
+                    EngineHelpers::toggleTakeLanesExpanded (editViewState, *takeClip);
+                    if (onTakeLanesChanged)
+                        onTakeLanesChanged();
+                }
+                break;
+            case TimelineMenuResult::newComp:
+                if (takeClip != nullptr)
+                {
+                    EngineHelpers::ensureCompTake (*takeClip);
+                    if (onTakeLanesChanged)
+                        onTakeLanesChanged();
+                }
+                break;
+            case TimelineMenuResult::flattenComp:
+                if (takeClip != nullptr)
+                {
+                    juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon,
+                                                        "Flatten Comp",
+                                                        "This permanently replaces all takes with the current comp.\n"
+                                                        "This cannot be undone.",
+                                                        "Flatten", "Cancel", nullptr,
+                                                        juce::ModalCallbackFunction::create ([takeClip] (int button)
+                    {
+                        if (button == 1 && takeClip != nullptr)
+                            EngineHelpers::flattenCompToMain (*takeClip, false);
+                    }));
+                }
+                break;
+            case TimelineMenuResult::unpackTakes:
+                if (takeClip != nullptr)
+                {
+                    if (auto* wave = dynamic_cast<te::WaveAudioClip*> (takeClip))
+                        wave->unpackTakes (false);
+                    else if (auto* midi = dynamic_cast<te::MidiClip*> (takeClip))
+                        midi->unpackTakes (false);
+                }
                 break;
             default:
                 break;
@@ -430,6 +542,7 @@ void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPositio
         menu.addSeparator();
         menu.addItem ((int) TimelineMenuResult::freezeTrack,
                       audioTrack->isFrozen (te::Track::individualFreeze) ? "Unfreeze Track" : "Freeze Track");
+        menu.addItem ((int) TimelineMenuResult::flattenTrack, "Flatten to Audio Clip...");
     }
 
     menu.showMenuAsync (juce::PopupMenu::Options()
@@ -455,6 +568,58 @@ void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPositio
                     audioTrack->setFrozen (! audioTrack->isFrozen (te::Track::individualFreeze),
                                            te::Track::individualFreeze);
                     repaint();
+                }
+                break;
+            case TimelineMenuResult::flattenTrack:
+                if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+                {
+                    if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get()))
+                    {
+                        const auto range = EngineHelpers::resolveProductionRange (editViewState.edit,
+                                                                                  *clipTrack,
+                                                                                  editViewState.selectionManager);
+                        if (range.getLength() <= 0s)
+                        {
+                            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                                    "Flatten Track",
+                                                                    "Select clips on this track, set a loop range, "
+                                                                    "or extend the project before flattening.");
+                            break;
+                        }
+
+                        auto runFlatten = [safeTrack = te::Track::Ptr (track), range]()
+                        {
+                            if (auto* at = dynamic_cast<te::AudioTrack*> (safeTrack.get()))
+                            {
+                                juce::String error;
+                                if (EngineHelpers::flattenTrackToAudioClip (*at, range, true, &error) == nullptr
+                                    && error.isNotEmpty())
+                                {
+                                    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                                            "Flatten Track", error);
+                                }
+                            }
+                        };
+
+                        if (editViewState.selectionManager.getItemsOfType<te::Clip>().isEmpty()
+                            && editViewState.edit.getTransport().getLoopRange().getLength() <= 0s)
+                        {
+                            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon,
+                                                                "Flatten Track",
+                                                                "No clips are selected and the loop range is empty.\n"
+                                                                "Flatten the entire project length on this track?",
+                                                                "Flatten", "Cancel", nullptr,
+                                                                juce::ModalCallbackFunction::create ([runFlatten] (int button)
+                            {
+                                if (button == 1)
+                                    runFlatten();
+                            }));
+                        }
+                        else
+                        {
+                            runFlatten();
+                        }
+                    }
                 }
                 break;
             default:
@@ -1367,7 +1532,14 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
     showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, track.get(),
                              canDragCreateClips() && rangeSelectionActive,
                              [this] { createMidiClipFromRangeSelection(); },
-                             nullptr);
+                             nullptr, nullptr, onTakeLanesChanged,
+                             [this]
+                             {
+                                 if (onTakeLanesChanged)
+                                     onTakeLanesChanged();
+                                 if (onClipSelectionChanged)
+                                     onClipSelectionChanged();
+                             });
 }
 
 void TrackLaneComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -1389,6 +1561,69 @@ void TrackLaneComponent::handleAsyncUpdate()
         buildClips();
     if (compareAndReset (updatePositions))
         updateClipBounds();
+}
+
+int TrackLaneComponent::getClipAreaHeight() const
+{
+    const int extra = EngineHelpers::getTakeLaneExtraHeight (editViewState, *track);
+    return juce::jmax (minClipLaneHeight, getHeight() - extra);
+}
+
+void TrackLaneComponent::updateTakeLaneStack()
+{
+    const auto expandedId = editViewState.expandedTakeClipId.get();
+    te::Clip* expandedClip = nullptr;
+
+    if (expandedId != 0)
+    {
+        if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get()))
+        {
+            for (auto* c : clipTrack->getClips())
+            {
+                if ((juce::int64) c->itemID.getRawID() == expandedId && EngineHelpers::hasMultipleTakes (*c))
+                {
+                    expandedClip = c;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (expandedClip == nullptr)
+    {
+        if (takeLaneStack != nullptr)
+        {
+            takeLaneStack->releaseResources();
+            removeChildComponent (takeLaneStack.get());
+            takeLaneStack.reset();
+        }
+        return;
+    }
+
+    if (takeLaneStack == nullptr || takeLaneStack->getClip() != expandedClip)
+    {
+        if (takeLaneStack != nullptr)
+            takeLaneStack->releaseResources();
+
+        takeLaneStack = std::make_unique<TakeLaneStack> (editViewState, *expandedClip);
+        takeLaneStack->onLayoutChanged = [this]
+        {
+            updateClipBounds();
+            if (onTakeLanesChanged)
+                onTakeLanesChanged();
+        };
+        addAndMakeVisible (*takeLaneStack);
+    }
+
+    const int clipAreaHeight = getClipAreaHeight();
+    const auto pos = expandedClip->getPosition();
+    const int x = editViewState.timeToX (pos.getStart());
+    const int w = juce::jmax (4, editViewState.timeToX (pos.getEnd()) - x);
+    const int stackH = EngineHelpers::getTakeLaneExtraHeight (editViewState, *track);
+
+    takeLaneStack->setBounds (x, clipAreaHeight, w, stackH);
+    takeLaneStack->refreshLayout();
+    takeLaneStack->toFront (false);
 }
 
 void TrackLaneComponent::buildClips()
@@ -1414,6 +1649,17 @@ void TrackLaneComponent::buildClips()
                 if (onClipDoubleClick)
                     onClipDoubleClick (clipRef);
             };
+            cc->onSelectionChanged = [this]
+            {
+                if (onClipSelectionChanged)
+                    onClipSelectionChanged();
+            };
+            cc->onShowClipProperties = [this]
+            {
+                if (onShowClipProperties)
+                    onShowClipProperties();
+            };
+            cc->onTakeLanesChanged = onTakeLanesChanged;
             cc->onCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& ev)
             {
                 if (onClipCrossTrackDragMove)
@@ -1439,7 +1685,9 @@ void TrackLaneComponent::refreshLayout()
 
 void TrackLaneComponent::updateClipBounds()
 {
-    const int height = getHeight();
+    updateTakeLaneStack();
+
+    const int clipAreaHeight = getClipAreaHeight();
 
     if (isLaneLevelRendering())
     {
@@ -1482,7 +1730,10 @@ void TrackLaneComponent::updateClipBounds()
         }
 
         if (visible)
-            cc->setBounds (x, 2, clipWidth, height - 4);
+        {
+            cc->setBounds (x, 2, clipWidth, clipAreaHeight - 4);
+            cc->repaint();
+        }
     }
 }
 

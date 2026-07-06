@@ -2,8 +2,8 @@
 
 This document captures the findings of the full-codebase architecture review
 (July 2026), the decisions made during the Phase 1 modernization pass, the
-Tracktion Engine (TE) alignment guidelines the code now follows, and the
-backlog for Phases 2 and 3.
+Tracktion Engine (TE) alignment guidelines the code now follows, the
+implemented Phases 1–5, and the planned backlog for Phases 6–8.
 
 The benchmark for interaction design is **Ableton Live**: fast editing
 workflows, minimal clicks, immediate drag feedback, predictable snapping, and
@@ -498,3 +498,256 @@ is built; horizontal scroll for long chains.
   (`build/_deps/tracktion_engine-src/modules/tracktion_engine/…`).
 - New persistent view state goes in `EditViewState` (per-Edit `ValueTree`
   child `EDITVIEWSTATE`), not in component members.
+
+---
+
+## 12. Phase 6 — Editing Depth (implemented)
+
+**Theme:** Close the deferred Tier 3 editing backlog from the Phase 4 plan. Make
+audio and MIDI clips as editable in-place as Ableton Live's Detail View and
+Take Lanes — without leaving the arrangement view.
+
+Phases 1–5 delivered arrangement editing, routing, the production loop, and
+control/UX. Phase 6 closes the remaining **studio-workflow** gaps vs. Live 12:
+MIDI CC/modulation lanes, audio takes/comping, clip-level audio properties, and
+in-place consolidate/bounce utilities.
+
+### Tier 1 — MIDI editor lanes (implemented)
+
+Extend the existing velocity-lane pattern in `PianoRollEditor`:
+
+- **CC lanes** — one lane per controller number (1/7/11/64…); pencil + drag
+  editing via `te::MidiList` with the Edit `UndoManager`.
+- **Pitch-bend lane** — 14-bit curve or segmented editing.
+- **Lane selector** — tab strip or combo (Velocity | CC | Pitch Bend |
+  Aftertouch).
+- **Stretch goal (Live 12):** per-note MPE expression (pitch bend / pressure
+  per note) when TE exposes it on `MidiNote`.
+
+**Files:** `Source/UI/Midi/MidiLaneEditor.*`,
+`Source/UI/Midi/MidiControllerLaneComponent.*`, `Source/UI/Midi/MidiLaneViewport.h`.
+
+### Tier 2 — Audio clip properties (implemented)
+
+Clip-level control without opening an external editor:
+
+- **Gain, transpose, reverse** — `ClipInspectorPanel` above the plugin tray,
+  bound to TE `AudioClipBase` properties with undo.
+- **Speed / time-stretch** — speed ratio (25–400%) and time-stretch mode combo
+  (`setSpeedRatio`, `setTimeStretchMode`). Warp markers / `WarpTimeManager` UI
+  deferred — TE warp depth needs a separate spike.
+- **Clip colour / name / loop** — TE `Clip::setName` / `setColour`; loop toggle
+  + loop-length beats via `setLoopRangeBeats` / `disableLooping`.
+
+**Files:** `Source/UI/Arrangement/ClipInspectorPanel.*`.
+
+### Tier 3 — Takes and comping (implemented)
+
+- **Loop recording → take lanes** stacked under the parent clip via `TakeLaneStack` / `TakeLaneComponent`.
+- **Comp lane** — swipe/select active regions across takes; promote comp to
+  main clip via `WaveCompManager` / `MidiCompManager` APIs.
+- TE take/comp model used directly (`addTake`, `changeSectionIndexAtTime`, `flattenTake`).
+
+**Files:** `Source/UI/Arrangement/TakeLaneComponent.*`, take/comp helpers in `EngineHelpers`.
+
+### Tier 4 — In-place production utilities (implemented)
+
+- **Consolidate** — bounce selected clips in place via `ExportManager::renderScopeToFile`
+  + `EngineHelpers::consolidateClips` (context menu + Ctrl/Cmd+J); one WAV clip
+  per affected track replaces sources.
+- **Flatten** — `EngineHelpers::flattenTrackToAudioClip` renders the device chain
+  to a timeline clip and removes user plugins (track header **Flatten to Audio Clip…**).
+- **Linked track editing** — `EngineHelpers::expandWithGroupedPeers` propagates
+  clip-inspector and fade-curve edits to grouped clips across tracks.
+
+**Files:** `Source/Engine/ExportManager.*`, consolidate/flatten helpers in
+`EngineHelpers`, context menus in `TrackComponents.cpp`.
+
+### Success criteria
+
+A user can loop-record vocals, comp a take, edit mod-wheel automation in the
+piano roll, transpose a sample clip, and consolidate a stem — all without
+leaving the arrangement view.
+
+### Dependencies and risks
+
+- **Warp/stretch depth** depends on TE `WaveAudioClip` API surface — spike
+  before Tier 2 implementation.
+- **Comping** may require additive persistence if TE lacks first-class take
+  lanes; follow clip-group conventions (§2.10).
+- **Multi-out per-bus taps** (§7) may block drum-kit comp workflows until TE
+  graph support improves — track alongside Tier 3.
+
+---
+
+## 13. Phase 7 — Browser and Content Workflow (planned)
+
+**Theme:** Live's left-hand Browser is how users *find* sound. SkeletonHive
+currently has `PluginBrowser` only; this phase adds a unified discovery
+surface for samples, clips, presets, and plugins.
+
+Depends on Phase 6 Tier 2 (clip inspector) for a coherent detail-panel stack,
+but Tier 1 sample browsing can start in parallel once drag-to-timeline clip
+creation is stable.
+
+```
+BrowserPanel
+ ├─ Places      (project folder, user library, favorites)
+ ├─ Samples     (WAV/AIFF/FLAC scan + preview)
+ ├─ Clips       (saved clip presets / project excerpts)
+ ├─ Plugins     (existing PluginBrowser, embedded tab)
+ └─ PreviewPlayer (shared te::SmartThumbnail / transport preview)
+```
+
+### Tier 1 — Sample browser
+
+- Scan configurable library paths (persist in `AppSettings`).
+- **Hover preview** with auto-stop; **drag to timeline** creates
+  `WaveAudioClip` at drop beat.
+- **Drag to empty MIDI track** → auto-insert sampler instrument when present,
+  else prompt.
+- Search, sort (name / date / BPM / key when metadata exists), favorites and
+  recent (extend the `PluginStateManager` pattern → `ContentLibraryManager`).
+
+**New files:** `Source/UI/Browser/*`, `Source/Engine/ContentLibraryManager.*`,
+`Source/Engine/PreviewPlayer.*`.
+
+### Tier 2 — Hot-swap and preset workflow
+
+- **Hot-swap plugin** — tray slot context menu → Replace…; attempt parameter
+  mapping via TE preset/state transfer.
+- **Preset browser** per device (extend `PluginPresetManager` with categories,
+  A/B compare).
+- **Default device chains** — "New MIDI track gets EQ + Compressor" templates
+  in Preferences.
+
+### Tier 3 — Project content
+
+- **Clip library** — drag arrangement clips to browser to save; drag back to
+  instantiate.
+- **Export selection to library** — one-click from clip context menu.
+- **Collect All and Save** — copy external audio into project folder on save
+  (TE `EditFileOperations` helpers).
+
+### Tier 4 — Arrangement ergonomics (Live 12 polish)
+
+- **Detail panel stack** — bottom area toggles between Plugin Tray, Clip
+  Inspector, and Browser without layout thrash.
+- **Roaming focus** — selected track drives tray, inspector, and automation
+  panel (unify existing partial behaviour).
+- **Global groove pool** — project-wide groove templates (currently local to
+  `PianoRollEditor` humanize) applied to clip selection.
+
+### Success criteria
+
+Import a folder of samples, audition by hovering, drag a kick onto bar 1,
+hot-swap the compressor on the bass track, and save a reusable clip preset.
+
+### Dependencies and risks
+
+- **Rack serial reorder wiring** (§7) affects hot-swap/replace UX on rack
+  chains — resolve or document workaround before Tier 2.
+- Preview playback must stay off the audio thread; reuse `WaveformCache` /
+  `SmartThumbnail` patterns from §4.
+
+---
+
+## 14. Phase 8 — Session View and Performance Mode (planned)
+
+**Theme:** Arrangement View is the studio; Session View is Live's performance
+half. This is the largest new subsystem — clip launching, scenes, and
+Session ↔ Arrangement capture.
+
+```
+SessionViewComponent
+ ├─ SessionGrid (tracks × scenes matrix)
+ ├─ ClipSlotComponent (empty / loaded / playing / recording states)
+ ├─ SceneLaunchColumn
+ └─ SessionTransportBridge (quantized launch, follow actions)
+
+SessionArrangementBridge
+ └─ Record Session → Arrangement, Capture & Insert, Duplicate loop to arrangement
+```
+
+### Tier 1 — Session grid MVP
+
+- **Toggle Arrangement ↔ Session** (Tab key, Live-style).
+- Each track gets **N clip slots** (default 8, expandable); each slot holds a
+  reference to a `te::Clip` or a session-only clip committed to the Edit on
+  demand.
+- **Launch / stop** per slot; **scene launch** (column) with stop-others vs.
+  additive-launch preference.
+- **Quantization** — none / 1 bar / 1/2 / 1/4 / 1/8 (reuse `TimelineGrid`
+  snap intervals).
+
+**Model:** use TE launch clips if the engine supports them; otherwise session
+slots as `ValueTree` children under `EDITVIEWSTATE` pointing at clip IDs —
+additive-property pattern from §2.10.
+
+**New files:** `Source/UI/Session/*`, `Source/Engine/SessionManager.*`,
+`Source/Engine/SessionArrangementBridge.*`.
+
+### Tier 2 — Session ↔ Arrangement bridge
+
+- **Record to Arrangement** — launched clips write material into arrangement
+  lanes while playing.
+- **Capture & Insert** — grab currently playing session material into a new
+  arrangement clip at the playhead.
+- **Duplicate loop to arrangement** — one-click commit of a session loop.
+
+### Tier 3 — Performance features
+
+- **Follow actions** — per slot: None | Play Next | Play Previous | Play Random
+  | Stop.
+- **Legato launch** — continue playback position when re-triggering.
+- **Macro performance panel** — rack macros + mapped parameters in a grid
+  (extends `RackMacroPanel`).
+- **MIDI mapping to clip slots** — extend `MidiLearnController` for note/CC →
+  slot launch.
+
+### Tier 4 — Scale and Live 12 alignment
+
+- **Key/scale clip constraint** — clip-level scale lock for launched MIDI
+  clips.
+- **Probability and iteration** — per-note probability in session clips.
+- **200+ track telemetry** — finish optional Phase 2 benchmark (§5); session
+  grid must pool slot components like lane virtualization (§4).
+
+### Success criteria
+
+Build a beat in Session View, launch scenes live with quantization, record the
+performance into the arrangement, and have the result look hand-arranged.
+
+### Dependencies and risks
+
+- Start Tier 1 after Phase 6 comping (optional but makes record → comp →
+  arrange coherent).
+- Phase 7 browser integration enables dragging samples directly into session
+  slots.
+- Session launch timing must use TE transport APIs only — no custom audio-thread
+  scheduling (§4, §2.7).
+
+### Explicitly deferred (Phase 9+)
+
+- Built-in instruments (Simpler/Sampler/Operator equivalents).
+- Push/APC hardware profiles.
+- Collaboration / cloud / Ableton Link.
+- Full light-theme polish across every panel (Phase 5 foundation exists).
+
+---
+
+## 15. Phase roadmap summary
+
+| Phase | Status | Focus | Live 12 analogy |
+|-------|--------|-------|-----------------|
+| 1 | Implemented | Foundation, arrangement, piano roll, routing | Core edit workflows |
+| 2 | Implemented | Workflow polish, performance infra | Groups, ripple, racks |
+| 3 | Implemented | LOD, multi-out, sidechain, plugin hardening | Device chain depth |
+| 4 | Implemented | Export, record, automation, markers, freeze | Production loop |
+| 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
+| 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
+| 7 | Planned | Unified browser, hot-swap, clip library | Browser, Hot-Swap |
+| 8 | Planned | Session grid, scenes, follow actions | Session View |
+
+**Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
+Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).

@@ -5,7 +5,7 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 ## Features
 
 - Multi-track arrangement timeline (audio + MIDI)
-- MIDI sequencing with piano roll editor
+- MIDI sequencing with piano roll editor (velocity, CC, pitch bend, aftertouch lanes)
 - Audio and MIDI recording with punch/loop modes, metronome and count-in
 - Audio export/bounce to WAV or FLAC
 - VST3 plugin hosting (AU on macOS)
@@ -15,7 +15,15 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Track freeze
 - Customizable keyboard shortcuts and preferences (theme, autosave, audio)
 - MIDI controller learn for mixer fader/pan parameters
-- Project save/load (`.tracktionedit` format) with autosave and crash recovery
+- Audio clip inspector (gain, transpose, reverse, speed, loop) in the arrangement view
+- Take lanes and comping for audio/MIDI clips (loop-record takes, comp editing, flatten)
+- In-place consolidate (Ctrl/Cmd+J) and flatten-to-audio for device chains
+- Linked clip-group editing (inspector + fade curves propagate to grouped peers)
+
+## Roadmap
+
+Phases 1–6 are implemented. Planned next steps (unified browser, Session View)
+are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§13–§15).
 
 ## Requirements
 

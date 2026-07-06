@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ClipComponents.h"
+#include "TakeLaneComponent.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/PluginDragManager.h"
 #include <functional>
@@ -18,7 +19,10 @@ void showTimelineContextMenu (juce::Component& target,
                               te::Track* track,
                               bool offerCreateMidiClip,
                               std::function<void()> onCreateMidiClip,
-                              te::Clip* contextClip = nullptr);
+                              te::Clip* contextClip = nullptr,
+                              std::function<void()> onShowClipProperties = nullptr,
+                              std::function<void()> onTakeLanesChanged = nullptr,
+                              std::function<void()> onClipsChanged = nullptr);
 
 class FlaggedAsyncUpdater : public juce::AsyncUpdater
 {
@@ -198,8 +202,11 @@ public:
     te::Track& getTrack() { return *track; }
 
     std::function<void (te::Clip&)> onClipDoubleClick;
+    std::function<void()> onClipSelectionChanged;
+    std::function<void()> onShowClipProperties;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragMove;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragEnd;
+    std::function<void()> onTakeLanesChanged;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (te::Track&)> onAddPlugin;
 
@@ -216,6 +223,8 @@ private:
 
     void buildClips();
     void updateClipBounds();
+    void updateTakeLaneStack();
+    int getClipAreaHeight() const;
     bool canDragCreateClips() const;
     te::TimeRange getRangeSelection() const;
     void createMidiClipFromRangeSelection();
@@ -238,6 +247,8 @@ private:
     te::TimePosition dragCreateCurrent;
     te::TimePosition rangeSelectionStart;
     te::TimePosition rangeSelectionEnd;
+
+    std::unique_ptr<TakeLaneStack> takeLaneStack;
 
     static constexpr int timelineClickDragThresholdPx = 4;
 };

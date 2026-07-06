@@ -195,4 +195,27 @@ juce::File ExportManager::renderToFile (te::Edit& edit, const juce::File& destFi
     return te::Renderer::renderToFile ("Exporting " + destFile.getFileName(), params);
 }
 
+juce::File ExportManager::renderScopeToFile (te::Edit& edit, const juce::File& destFile, const RenderScope& scope)
+{
+    if (scope.tracks.isEmpty() || scope.time.getLength() <= 0s)
+        return {};
+
+    auto& formatManager = edit.engine.getAudioFileFormatManager();
+
+    te::Renderer::Parameters params (edit);
+    params.destFile = destFile;
+    params.audioFormat = formatManager.getWavFormat();
+    params.bitDepth = scope.bitDepth;
+    params.sampleRateForAudio = scope.sampleRate > 0.0 ? scope.sampleRate
+                                                       : edit.engine.getDeviceManager().getSampleRate();
+    params.blockSizeForAudio = edit.engine.getDeviceManager().getBlockSize();
+    params.time = scope.time;
+    params.tracksToDo = te::toBitSet (scope.tracks);
+    params.usePlugins = scope.usePlugins;
+    params.useMasterPlugins = scope.useMasterPlugins;
+    params.ditheringEnabled = scope.bitDepth < 32;
+
+    return te::Renderer::renderToFile ("Rendering " + destFile.getFileName(), params);
+}
+
 } // namespace skeletonhive

@@ -23,12 +23,12 @@ enum class BarBucketKind
 juce::Colour fillColourForClip (const te::Clip& clip)
 {
     if (dynamic_cast<const te::WaveAudioClip*> (&clip) != nullptr)
-        return juce::Colour (0xff2d6a4f);
+        return EngineHelpers::getClipFillColour (clip, juce::Colour (0xff2d6a4f));
 
     if (dynamic_cast<const te::MidiClip*> (&clip) != nullptr)
-        return juce::Colour (0xff4361ee);
+        return EngineHelpers::getClipFillColour (clip, juce::Colour (0xff4361ee));
 
-    return juce::Colours::darkgrey;
+    return EngineHelpers::getClipFillColour (clip, juce::Colours::darkgrey);
 }
 
 bool isAudioClip (const te::Clip& clip)

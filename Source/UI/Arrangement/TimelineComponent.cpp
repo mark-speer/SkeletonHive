@@ -557,6 +557,18 @@ bool TimelineComponent::performCommand (int commandID)
         case nextMarker:
             jumpToMarker (true);
             return true;
+        case toggleTakeLanes:
+        {
+            const auto clips = editViewState.selectionManager.getItemsOfType<te::Clip>();
+            if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
+            {
+                EngineHelpers::toggleTakeLanesExpanded (editViewState, *clips.getFirst());
+                layoutTracks();
+            }
+            return true;
+        }
+        case consolidateClips:
+            return consolidateSelectedClips();
         default:
             break;
     }
@@ -585,6 +597,27 @@ void TimelineComponent::toggleRippleMode()
 {
     editViewState.rippleMode = ! editViewState.rippleMode.get();
     rippleButton.setToggleState (editViewState.rippleMode.get(), juce::dontSendNotification);
+}
+
+bool TimelineComponent::consolidateSelectedClips()
+{
+    juce::String error;
+    const auto created = EngineHelpers::consolidateClips (edit, editViewState.selectionManager, &error);
+
+    if (created.isEmpty() && error.isNotEmpty())
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Consolidate", error);
+        return false;
+    }
+
+    if (! created.isEmpty())
+    {
+        layoutTracks();
+        if (onClipSelectionChanged)
+            onClipSelectionChanged();
+    }
+
+    return ! created.isEmpty();
 }
 
 void TimelineComponent::duplicateSelectedClips()
@@ -1058,6 +1091,16 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
         if (onClipDoubleClick)
             onClipDoubleClick (c);
     };
+    lane->onClipSelectionChanged = [this]
+    {
+        if (onClipSelectionChanged)
+            onClipSelectionChanged();
+    };
+    lane->onShowClipProperties = [this]
+    {
+        if (onShowClipProperties)
+            onShowClipProperties();
+    };
     lane->createPlugin = createPlugin;
     lane->onAddPlugin = onAddPlugin;
     lane->onClipCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& e)
@@ -1067,6 +1110,10 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
     lane->onClipCrossTrackDragEnd = [this] (te::Clip& c, const juce::MouseEvent& e)
     {
         handleClipCrossTrackDragEnd (c, e);
+    };
+    lane->onTakeLanesChanged = [this]
+    {
+        layoutTracks();
     };
     trackLanes.add (lane.release());
 
@@ -1105,8 +1152,9 @@ void TimelineComponent::rebuildTrackRowList()
             || track->isMasterTrack() || track->isArrangerTrack())
             continue;
 
-        trackRows.add ({ track, y, trackH });
-        y += trackH;
+        const int takeExtra = EngineHelpers::getTakeLaneExtraHeight (editViewState, *track);
+        trackRows.add ({ track, y, trackH + takeExtra, takeExtra });
+        y += trackH + takeExtra;
     }
 
     timelineContent.setSize (width, y);

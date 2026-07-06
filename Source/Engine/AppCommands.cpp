@@ -32,6 +32,8 @@ void AppCommands::registerAllCommands (juce::ApplicationCommandManager& manager)
     reg (AppCommandIDs::addMarker, "Add Marker", "Add an arrangement marker at the playhead");
     reg (AppCommandIDs::prevMarker, "Previous Marker", "Jump to the previous marker");
     reg (AppCommandIDs::nextMarker, "Next Marker", "Jump to the next marker");
+    reg (AppCommandIDs::toggleTakeLanes, "Toggle Take Lanes", "Show or hide take lanes for the selected clip");
+    reg (AppCommandIDs::consolidateClips, "Consolidate", "Bounce selected clips in place");
 
     reg (AppCommandIDs::pluginCopy, "Copy Plugin", "Copy the selected plugin");
     reg (AppCommandIDs::pluginPaste, "Paste Plugin", "Paste a copied plugin");
@@ -96,6 +98,9 @@ void AppCommands::registerDefaultKeyMappings (juce::KeyPressMappingSet& mappings
     mappings.addKeyPress (AppCommandIDs::addMarker, juce::KeyPress ('m'));
     mappings.addKeyPress (AppCommandIDs::prevMarker, juce::KeyPress (juce::KeyPress::leftKey, alt, 0));
     mappings.addKeyPress (AppCommandIDs::nextMarker, juce::KeyPress (juce::KeyPress::rightKey, alt, 0));
+    mappings.addKeyPress (AppCommandIDs::toggleTakeLanes, juce::KeyPress ('t'));
+    mappings.addKeyPress (AppCommandIDs::consolidateClips, juce::KeyPress ('j', ctrl, 0));
+    mappings.addKeyPress (AppCommandIDs::consolidateClips, juce::KeyPress ('j', cmd, 0));
 
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', ctrl, 0));
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', cmd, 0));
@@ -149,6 +154,8 @@ juce::String AppCommands::getCommandName (int commandID)
         case AppCommandIDs::addMarker: return "Add Marker";
         case AppCommandIDs::prevMarker: return "Previous Marker";
         case AppCommandIDs::nextMarker: return "Next Marker";
+        case AppCommandIDs::toggleTakeLanes: return "Toggle Take Lanes";
+        case AppCommandIDs::consolidateClips: return "Consolidate";
         case AppCommandIDs::pluginCopy: return "Copy Plugin";
         case AppCommandIDs::pluginPaste: return "Paste Plugin";
         case AppCommandIDs::pluginDuplicate: return "Duplicate Plugin";
