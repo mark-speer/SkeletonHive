@@ -53,8 +53,13 @@ public:
 
     LoadResult createNewProject (const juce::File& editFile, juce::Component* parentForDialogs = nullptr);
     LoadResult loadProject (const juce::File& editFile, juce::Component* parentForDialogs = nullptr);
-    SaveResult saveProject (bool forceSaveEvenIfNotModified = false, juce::Component* parentForDialogs = nullptr);
-    bool saveProjectAs (const juce::File& editFile, juce::Component* parentForDialogs = nullptr);
+    SaveResult saveProject (bool forceSaveEvenIfNotModified = false,
+                            bool collectExternalFiles = false,
+                            juce::Component* parentForDialogs = nullptr);
+    SaveResult collectAllAndSave (juce::Component* parentForDialogs = nullptr);
+    bool saveProjectAs (const juce::File& editFile,
+                        bool collectExternalFiles = false,
+                        juce::Component* parentForDialogs = nullptr);
 
     juce::File getCurrentProjectFile() const { return currentProjectFile; }
 

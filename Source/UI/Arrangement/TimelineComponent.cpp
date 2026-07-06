@@ -1103,6 +1103,19 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
     };
     lane->createPlugin = createPlugin;
     lane->onAddPlugin = onAddPlugin;
+    lane->onSampleInserted = onSampleInserted;
+    lane->onExportClipToLibrary = onExportClipToLibrary;
+    lane->groovePool = groovePool;
+    lane->onClipPresetDropped = [this, lanePtr = lane.get()] (const juce::File& presetFile, int localX)
+    {
+        auto* clipTrack = dynamic_cast<te::ClipTrack*> (&lanePtr->getTrack());
+
+        if (clipTrack == nullptr || instantiateClipPreset == nullptr)
+            return (te::Clip*) nullptr;
+
+        const auto time = TimelineGrid::snapTime (edit, editViewState, editViewState.xToTime (localX));
+        return instantiateClipPreset (*clipTrack, time, presetFile);
+    };
     lane->onClipCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& e)
     {
         handleClipCrossTrackDragMove (c, e);

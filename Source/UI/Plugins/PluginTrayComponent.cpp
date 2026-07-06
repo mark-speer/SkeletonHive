@@ -5,12 +5,14 @@
 #include "Engine/PluginDragManager.h"
 #include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/TrackComponents.h"
+#include "UI/Plugins/PluginPickerDialog.h"
+#include "UI/Plugins/PresetBrowserPanel.h"
 
 namespace skeletonhive
 {
 
-PluginTrayComponent::PluginTrayComponent (EditViewState& evs, PluginStateManager& sm)
-    : editViewState (evs), pluginStateManager (sm)
+PluginTrayComponent::PluginTrayComponent (EditViewState& evs, PluginStateManager& sm, PluginScanner& scanner)
+    : editViewState (evs), pluginStateManager (sm), pluginScanner (scanner)
 {
     trackTitle.setJustificationType (juce::Justification::centredLeft);
     trackTitle.setFont (juce::FontOptions (13.0f).withStyle ("Bold"));
@@ -225,6 +227,9 @@ void PluginTrayComponent::rebuildSlots()
             syncSelectionHighlight();
             layoutSlots();
         };
+
+        slot->onReplace = [this, entry] (te::Plugin& p) { showReplacePicker (p, entry.rackContext); };
+        slot->onBrowsePresets = [this, slot] (te::Plugin& p) { showPresetBrowser (p, slot); };
 
         slots.add (slot);
         chainContent.addAndMakeVisible (slot);
@@ -513,6 +518,91 @@ void PluginTrayComponent::showRackMacros (te::RackInstance& rack)
     juce::CallOutBox::launchAsynchronously (std::move (panel),
                                             localAreaToGlobal (getScreenBounds()),
                                             nullptr);
+}
+
+void PluginTrayComponent::showReplacePicker (te::Plugin& plugin, te::RackInstance* rackContext)
+{
+    const auto filter = EngineHelpers::isInstrumentPlugin (plugin)
+                            ? PluginPickerFilter::instrumentsOnly
+                            : PluginPickerFilter::effectsOnly;
+
+    const auto safeThis = juce::Component::SafePointer<PluginTrayComponent> (this);
+    const auto pluginId = plugin.itemID;
+    const auto rackId = rackContext != nullptr ? rackContext->itemID : te::EditItemID {};
+
+    PluginPickerDialog::show (this,
+                              pluginScanner,
+                              editViewState.edit.engine,
+                              pluginStateManager,
+                              filter,
+                              "Replace Device",
+                              [safeThis, pluginId, rackId] (const juce::PluginDescription& desc)
+    {
+        if (safeThis == nullptr)
+            return;
+
+        auto* audioTrack = dynamic_cast<te::AudioTrack*> (safeThis->currentTrack.get());
+        if (audioTrack == nullptr)
+            return;
+
+        te::Plugin* targetPlugin = nullptr;
+
+        if (rackId.isValid())
+        {
+            if (auto* rack = EngineHelpers::findRackOnTrack (*audioTrack, rackId))
+            {
+                for (auto* inner : EngineHelpers::getRackInternalPlugins (*rack))
+                {
+                    if (inner->itemID == pluginId)
+                    {
+                        targetPlugin = inner;
+                        break;
+                    }
+                }
+
+                if (targetPlugin != nullptr)
+                {
+                    if (EngineHelpers::replacePluginInRack (*rack, *targetPlugin, desc) == nullptr)
+                        EngineHelpers::showPluginInsertFailureAlert (safeThis.getComponent(), desc);
+                    else
+                        safeThis->pluginStateManager.recordRecentUse (desc.createIdentifierString());
+                }
+            }
+        }
+        else
+        {
+            for (auto* chainPlugin : safeThis->chainModel->getUserChainPlugins())
+            {
+                if (chainPlugin->itemID == pluginId)
+                {
+                    targetPlugin = chainPlugin;
+                    break;
+                }
+            }
+
+            if (targetPlugin != nullptr)
+            {
+                if (EngineHelpers::replacePluginOnTrack (*audioTrack, *targetPlugin, desc) == nullptr)
+                    EngineHelpers::showPluginInsertFailureAlert (safeThis.getComponent(), desc);
+                else
+                    safeThis->pluginStateManager.recordRecentUse (desc.createIdentifierString());
+            }
+        }
+
+        safeThis->markDirty();
+    });
+}
+
+void PluginTrayComponent::showPresetBrowser (te::Plugin& plugin, PluginSlotComponent* slot)
+{
+    const auto safeThis = juce::Component::SafePointer<PluginTrayComponent> (this);
+    juce::Component* target = slot != nullptr ? static_cast<juce::Component*> (slot) : this;
+
+    PresetBrowserPanel::showForPlugin (plugin, target, [safeThis]
+    {
+        if (safeThis != nullptr)
+            safeThis->markDirty();
+    });
 }
 
 void PluginTrayComponent::syncSelectionHighlight()

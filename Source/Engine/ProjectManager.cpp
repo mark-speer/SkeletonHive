@@ -159,7 +159,9 @@ bool ProjectManager::loadEditFromPath (const juce::File& editFile)
     return edit != nullptr;
 }
 
-ProjectManager::SaveResult ProjectManager::saveProject (bool forceSaveEvenIfNotModified, juce::Component* parentForDialogs)
+ProjectManager::SaveResult ProjectManager::saveProject (bool forceSaveEvenIfNotModified,
+                                                        bool collectExternalFiles,
+                                                        juce::Component* parentForDialogs)
 {
     if (edit == nullptr || currentProjectFile == juce::File())
         return SaveResult::failed;
@@ -195,7 +197,7 @@ ProjectManager::SaveResult ProjectManager::saveProject (bool forceSaveEvenIfNotM
 
     createRotatingSnapshot();
 
-    const bool saved = te::EditFileOperations (*edit).save (true, forceSaveEvenIfNotModified, false);
+    const bool saved = te::EditFileOperations (*edit).save (true, forceSaveEvenIfNotModified, collectExternalFiles);
 
     if (saved)
     {
@@ -207,14 +209,21 @@ ProjectManager::SaveResult ProjectManager::saveProject (bool forceSaveEvenIfNotM
     return SaveResult::failed;
 }
 
-bool ProjectManager::saveProjectAs (const juce::File& editFile, juce::Component* parentForDialogs)
+ProjectManager::SaveResult ProjectManager::collectAllAndSave (juce::Component* parentForDialogs)
+{
+    return saveProject (true, true, parentForDialogs);
+}
+
+bool ProjectManager::saveProjectAs (const juce::File& editFile,
+                                    bool collectExternalFiles,
+                                    juce::Component* parentForDialogs)
 {
     if (edit == nullptr || editFile == juce::File())
         return false;
 
     releaseProjectLock();
 
-    if (! te::EditFileOperations (*edit).saveAs (editFile, true))
+    if (! te::EditFileOperations (*edit).saveAs (editFile, collectExternalFiles))
         return false;
 
     currentProjectFile = editFile;
@@ -249,7 +258,7 @@ bool ProjectManager::confirmDiscardOrSave (juce::Component* parent)
     switch (promptUnsavedChanges (parent))
     {
         case UnsavedChoice::save:
-            return saveProject (true, parent) == SaveResult::success;
+            return saveProject (true, false, parent) == SaveResult::success;
         case UnsavedChoice::discard:
             return true;
         case UnsavedChoice::cancel:
@@ -267,7 +276,7 @@ void ProjectManager::enableAutosave (int intervalSeconds)
 void ProjectManager::prepareForShutdown()
 {
     autosaveTimer = nullptr;
-    saveProject (false, nullptr);
+    saveProject (false, false, nullptr);
     releaseProjectLock();
 }
 

@@ -34,6 +34,10 @@ void AppCommands::registerAllCommands (juce::ApplicationCommandManager& manager)
     reg (AppCommandIDs::nextMarker, "Next Marker", "Jump to the next marker");
     reg (AppCommandIDs::toggleTakeLanes, "Toggle Take Lanes", "Show or hide take lanes for the selected clip");
     reg (AppCommandIDs::consolidateClips, "Consolidate", "Bounce selected clips in place");
+    reg (AppCommandIDs::applyGrooveToClips, "Apply Groove", "Apply the selected groove to MIDI clips");
+    reg (AppCommandIDs::toggleDetailDevices, "Show Devices", "Show device chain in detail panel");
+    reg (AppCommandIDs::toggleDetailClip, "Show Clip", "Show clip inspector in detail panel");
+    reg (AppCommandIDs::toggleMainView, "Toggle Session View", "Switch between Arrangement and Session view");
 
     reg (AppCommandIDs::pluginCopy, "Copy Plugin", "Copy the selected plugin");
     reg (AppCommandIDs::pluginPaste, "Paste Plugin", "Paste a copied plugin");
@@ -101,6 +105,10 @@ void AppCommands::registerDefaultKeyMappings (juce::KeyPressMappingSet& mappings
     mappings.addKeyPress (AppCommandIDs::toggleTakeLanes, juce::KeyPress ('t'));
     mappings.addKeyPress (AppCommandIDs::consolidateClips, juce::KeyPress ('j', ctrl, 0));
     mappings.addKeyPress (AppCommandIDs::consolidateClips, juce::KeyPress ('j', cmd, 0));
+    mappings.addKeyPress (AppCommandIDs::applyGrooveToClips, juce::KeyPress ('h', shift, 0));
+    mappings.addKeyPress (AppCommandIDs::toggleDetailDevices, juce::KeyPress ('d', alt, 0));
+    mappings.addKeyPress (AppCommandIDs::toggleDetailClip, juce::KeyPress ('c', alt, 0));
+    mappings.addKeyPress (AppCommandIDs::toggleMainView, juce::KeyPress (juce::KeyPress::tabKey));
 
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', ctrl, 0));
     mappings.addKeyPress (AppCommandIDs::pluginCopy, juce::KeyPress ('c', cmd, 0));
@@ -156,6 +164,10 @@ juce::String AppCommands::getCommandName (int commandID)
         case AppCommandIDs::nextMarker: return "Next Marker";
         case AppCommandIDs::toggleTakeLanes: return "Toggle Take Lanes";
         case AppCommandIDs::consolidateClips: return "Consolidate";
+        case AppCommandIDs::applyGrooveToClips: return "Apply Groove";
+        case AppCommandIDs::toggleDetailDevices: return "Show Devices";
+        case AppCommandIDs::toggleDetailClip: return "Show Clip";
+        case AppCommandIDs::toggleMainView: return "Toggle Session View";
         case AppCommandIDs::pluginCopy: return "Copy Plugin";
         case AppCommandIDs::pluginPaste: return "Paste Plugin";
         case AppCommandIDs::pluginDuplicate: return "Duplicate Plugin";

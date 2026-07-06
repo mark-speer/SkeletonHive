@@ -3,6 +3,7 @@
 #include "Engine/MultiOutputRouting.h"
 #include "Engine/PluginDragManager.h"
 #include "Engine/PluginPresetManager.h"
+#include "UI/Plugins/PresetBrowserPanel.h"
 #include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/TrackComponents.h"
 #include "UI/Routing/SidechainMenu.h"
@@ -288,6 +289,18 @@ void PluginSlotComponent::showContextMenu()
         updateEnabledLook();
         if (onChanged)
             onChanged (*plugin);
+    },
+    [this] (te::Plugin& p)
+    {
+        if (onReplace)
+            onReplace (p);
+    },
+    [this] (te::Plugin& p)
+    {
+        if (onBrowsePresets)
+            onBrowsePresets (p);
+        else
+            PresetBrowserPanel::showForPlugin (p, this, [this] { if (onChanged) onChanged (*plugin); });
     });
 }
 
@@ -350,18 +363,23 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                            EditViewState& editViewState,
                            te::Plugin& plugin,
                            PluginStateManager* stateManager,
-                           std::function<void()> onChanged)
+                           std::function<void()> onChanged,
+                           std::function<void (te::Plugin&)> onReplace,
+                           std::function<void (te::Plugin&)> onBrowsePresets)
 {
     enum MenuIds
     {
-        bypass = 1, rename, duplicate, copy, paste, moveLeft, moveRight, remove,
+        bypass = 1, rename, duplicate, replace, copy, paste, moveLeft, moveRight, remove,
         wetDry = 100, soloDevice = 110, collapse = 115,
         expandRack = 116, showRackMacros = 117, configureOutputs = 118,
         moveToRackBase = 300,
         favorite = 400,
         savePreset = 500,
-        loadPreset = 501
+        loadPreset = 501,
+        browsePresets = 502
     };
+
+    const bool isRackInstance = dynamic_cast<te::RackInstance*> (&plugin) != nullptr;
 
     juce::PopupMenu menu;
     auto* trackPtr = te::getTrackContainingPlugin (plugin.edit, &plugin);
@@ -371,6 +389,8 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
     menu.addItem (soloDevice, soloed ? "Unsolo Device" : "Solo Device", true, soloed);
     menu.addItem (rename, "Rename...");
     menu.addItem (duplicate, "Duplicate");
+    if (! isRackInstance)
+        menu.addItem (replace, "Replace...");
     menu.addItem (copy, "Copy");
     menu.addItem (paste, "Paste", stateManager != nullptr && stateManager->hasClipboard());
     menu.addItem (collapse, slot.isCollapsed() ? "Expand" : "Collapse");
@@ -397,6 +417,7 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
 
     menu.addItem (savePreset, "Save Preset...");
     menu.addItem (loadPreset, "Load Preset...");
+    menu.addItem (browsePresets, "Browse Presets...");
 
     SidechainMenu::addSidechainMenuItems (menu, plugin);
 
@@ -409,7 +430,7 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
     const auto safeSlot = juce::Component::SafePointer<PluginSlotComponent> (&slot);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&slot),
-                        [safeSlot, &editViewState, &plugin, stateManager, onChanged] (int result)
+                        [safeSlot, &editViewState, &plugin, stateManager, onChanged, onReplace, onBrowsePresets] (int result)
     {
         if (safeSlot == nullptr)
             return;
@@ -453,6 +474,10 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
             case duplicate:
                 if (auto* at = dynamic_cast<te::AudioTrack*> (&track))
                     EngineHelpers::duplicatePluginOnTrack (plugin, *at);
+                break;
+            case replace:
+                if (onReplace)
+                    onReplace (plugin);
                 break;
             case copy:
                 if (stateManager != nullptr)
@@ -537,6 +562,10 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                                  });
                 break;
             }
+            case browsePresets:
+                if (onBrowsePresets)
+                    onBrowsePresets (plugin);
+                break;
             case moveLeft:
                 if (safeSlot->onMove) safeSlot->onMove (plugin, -1);
                 break;

@@ -580,48 +580,60 @@ leaving the arrangement view.
 
 ---
 
-## 13. Phase 7 — Browser and Content Workflow (planned)
+## 13. Phase 7 — Browser and Content Workflow (Tier 1–4 implemented)
 
 **Theme:** Live's left-hand Browser is how users *find* sound. SkeletonHive
-currently has `PluginBrowser` only; this phase adds a unified discovery
-surface for samples, clips, presets, and plugins.
+has a left-hand **BrowserPanel** (Places, Samples, Clips, Grooves, Plugins)
+and a Live-style bottom **DetailPanelStack** (Devices | Clip).
 
-Depends on Phase 6 Tier 2 (clip inspector) for a coherent detail-panel stack,
-but Tier 1 sample browsing can start in parallel once drag-to-timeline clip
-creation is stable.
+Depends on Phase 6 Tier 2 (clip inspector) for a coherent detail-panel stack —
+satisfied.
 
 ```
 BrowserPanel
  ├─ Places      (project folder, user library, favorites)
  ├─ Samples     (WAV/AIFF/FLAC scan + preview)
  ├─ Clips       (saved clip presets / project excerpts)
- ├─ Plugins     (existing PluginBrowser, embedded tab)
+ ├─ Grooves     (project groove pool + apply to selection)
+ ├─ Plugins     (PluginBrowser embedded tab)
  └─ PreviewPlayer (shared te::SmartThumbnail / transport preview)
 ```
 
-### Tier 1 — Sample browser
+### Tier 1 — Sample browser (implemented)
 
 - Scan configurable library paths (persist in `AppSettings`).
 - **Hover preview** with auto-stop; **drag to timeline** creates
   `WaveAudioClip` at drop beat.
-- **Drag to empty MIDI track** → auto-insert sampler instrument when present,
-  else prompt.
-- Search, sort (name / date / BPM / key when metadata exists), favorites and
-  recent (extend the `PluginStateManager` pattern → `ContentLibraryManager`).
+- **OS file drag** onto track lanes creates clips at snapped beat.
+- Search, sort (name / date / duration), favorites and recent via
+  `ContentLibraryManager`.
+- **Library** preferences page for folder management.
 
-**New files:** `Source/UI/Browser/*`, `Source/Engine/ContentLibraryManager.*`,
-`Source/Engine/PreviewPlayer.*`.
+**Files:** `Source/UI/Browser/*`, `Source/Engine/ContentLibraryManager.*`,
+`Source/Engine/PreviewPlayer.*`, `Source/Engine/ContentDragManager.*`.
 
-### Tier 2 — Hot-swap and preset workflow
+**Deferred from Tier 1 spec:** drag to empty MIDI track → auto-insert sampler
+(plugin-specific; wave clip drop works on any `ClipTrack`).
 
-- **Hot-swap plugin** — tray slot context menu → Replace…; attempt parameter
-  mapping via TE preset/state transfer.
-- **Preset browser** per device (extend `PluginPresetManager` with categories,
-  A/B compare).
-- **Default device chains** — "New MIDI track gets EQ + Compressor" templates
-  in Preferences.
+### Tier 2 — Hot-swap and preset workflow (implemented)
 
-### Tier 3 — Project content
+- **Hot-swap plugin** — tray slot context menu → Replace…; parameter mapping via
+  TE preset/state transfer (`EngineHelpers::replacePluginOnTrack` /
+  `replacePluginInRack`).
+- **Preset browser** per device — named presets in user library folders with
+  categories; session A/B compare in `PresetBrowserPanel`.
+- **Default device chains** — Preferences → Devices; applied when user adds
+  audio/MIDI tracks (`AppSettings` + `applyDefaultDeviceChain`).
+
+**Files:** `Source/UI/Plugins/PluginPickerDialog.*`,
+`Source/UI/Plugins/PresetBrowserPanel.*`, extended `PluginPresetManager.*`,
+`PreferencesDialog` Devices page, `EngineHelpers` replace/chain helpers.
+
+**Rack limitation:** TE rack serial connections are not auto-rewired on replace
+(same as §7 reorder note); hot-swap preserves slot index but cross-type swaps
+inside serial racks may need manual rewiring.
+
+### Tier 3 — Project content (implemented)
 
 - **Clip library** — drag arrangement clips to browser to save; drag back to
   instantiate.
@@ -629,14 +641,24 @@ BrowserPanel
 - **Collect All and Save** — copy external audio into project folder on save
   (TE `EditFileOperations` helpers).
 
-### Tier 4 — Arrangement ergonomics (Live 12 polish)
+**Files:** `Source/Engine/ClipLibraryManager.*`, `Source/UI/Browser/ClipsBrowserTab.*`.
 
-- **Detail panel stack** — bottom area toggles between Plugin Tray, Clip
-  Inspector, and Browser without layout thrash.
-- **Roaming focus** — selected track drives tray, inspector, and automation
-  panel (unify existing partial behaviour).
-- **Global groove pool** — project-wide groove templates (currently local to
-  `PianoRollEditor` humanize) applied to clip selection.
+### Tier 4 — Arrangement ergonomics (implemented)
+
+- **Detail panel stack** — fixed-height bottom area with **Devices | Clip**
+  tabs (`DetailPanelStack`); no add/remove layout thrash.
+- **Roaming focus** — `syncRoamingFocus()` resolves track from selection/clip
+  and drives plugin tray, clip inspector, automation panel, and plugin browser.
+- **Global groove pool** — `GroovePoolManager` with built-in + user templates
+  persisted per project (`.skeletonhive/*.grooves.xml`); apply from Grooves tab,
+  clip context menu, or Shift+H; piano roll humanize shares the pool.
+- **Plugins browser tab** — `PluginBrowser` embedded in left `BrowserPanel`;
+  Transport **Plugins** button opens browser to Plugins tab.
+
+**Files:** `Source/UI/Detail/DetailPanelStack.*`,
+`Source/Engine/GrooveTemplate.h`, `Source/Engine/GrooveEngine.*`,
+`Source/Engine/GroovePoolManager.*`, `Source/UI/Browser/GroovesBrowserTab.*`,
+`MainWindow` roaming-focus wiring.
 
 ### Success criteria
 
@@ -645,14 +667,15 @@ hot-swap the compressor on the bass track, and save a reusable clip preset.
 
 ### Dependencies and risks
 
-- **Rack serial reorder wiring** (§7) affects hot-swap/replace UX on rack
-  chains — resolve or document workaround before Tier 2.
+- **Rack serial reorder wiring** (§7) — documented limitation for rack-internal
+  hot-swap (Tier 2 implemented with slot-preserving replace; serial graph not
+  auto-rewired).
 - Preview playback must stay off the audio thread; reuse `WaveformCache` /
   `SmartThumbnail` patterns from §4.
 
 ---
 
-## 14. Phase 8 — Session View and Performance Mode (planned)
+## 14. Phase 8 — Session View and Performance Mode (Tier 1 implemented)
 
 **Theme:** Arrangement View is the studio; Session View is Live's performance
 half. This is the largest new subsystem — clip launching, scenes, and
@@ -669,7 +692,7 @@ SessionArrangementBridge
  └─ Record Session → Arrangement, Capture & Insert, Duplicate loop to arrangement
 ```
 
-### Tier 1 — Session grid MVP
+### Tier 1 — Session grid MVP (implemented)
 
 - **Toggle Arrangement ↔ Session** (Tab key, Live-style).
 - Each track gets **N clip slots** (default 8, expandable); each slot holds a
@@ -679,13 +702,17 @@ SessionArrangementBridge
   additive-launch preference.
 - **Quantization** — none / 1 bar / 1/2 / 1/4 / 1/8 (reuse `TimelineGrid`
   snap intervals).
+- **Browser drops** — samples and clip presets can be dropped into session slots.
+- **Transport + looped clips playback** — TE has no native clip-launcher API;
+  session clips are tagged in clip state, parked off-timeline when inactive,
+  activated at beat 0 with looping when launched.
 
-**Model:** use TE launch clips if the engine supports them; otherwise session
-slots as `ValueTree` children under `EDITVIEWSTATE` pointing at clip IDs —
-additive-property pattern from §2.10.
+**Model:** session slots as `SESSIONSTATE` / `SLOT` ValueTree children under
+`EDITVIEWSTATE` pointing at clip IDs (additive-property pattern from §2.10).
 
-**New files:** `Source/UI/Session/*`, `Source/Engine/SessionManager.*`,
-`Source/Engine/SessionArrangementBridge.*`.
+**Files:** `Source/UI/Session/*`, `Source/Engine/SessionManager.*`,
+`Source/Engine/SessionArrangementBridge.*` (stub for Tier 2),
+`MainWindow` view toggle, `TransportBar` launch-quantize controls.
 
 ### Tier 2 — Session ↔ Arrangement bridge
 
@@ -746,8 +773,8 @@ performance into the arrangement, and have the result look hand-arranged.
 | 4 | Implemented | Export, record, automation, markers, freeze | Production loop |
 | 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
-| 7 | Planned | Unified browser, hot-swap, clip library | Browser, Hot-Swap |
-| 8 | Planned | Session grid, scenes, follow actions | Session View |
+| 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
+| 8 | Tier 1 done | Session grid, scenes, launch quantize (Tier 2+ bridge planned) | Session View |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
 Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).

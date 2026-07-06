@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TracktionCommon.h"
+#include "GrooveTemplate.h"
 
 namespace skeletonhive
 {
@@ -13,6 +14,7 @@ struct EngineHelpers
     static const juce::Identifier clipGroupProperty;
     static const juce::Identifier clipGroupOuterProperty;
     static const juce::Identifier clipGroupColourProperty;
+    static const juce::Identifier sessionSlotIdProperty;
 
     static te::Project::Ptr createTempProject (te::Engine& engine);
 
@@ -132,6 +134,12 @@ struct EngineHelpers
     static bool movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot);
     static bool movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destTrack, int userSlot);
     static te::Plugin* duplicatePluginOnTrack (te::Plugin& source, te::AudioTrack& track, int userSlot = -1);
+    static te::Plugin* replacePluginOnTrack (te::AudioTrack& track, te::Plugin& oldPlugin,
+                                             const juce::PluginDescription& newDesc);
+    static te::Plugin* replacePluginInRack (te::RackInstance& rack, te::Plugin& oldPlugin,
+                                            const juce::PluginDescription& newDesc);
+    static void applyDefaultDeviceChain (te::AudioTrack& track, const juce::StringArray& pluginIdentifiers,
+                                         te::Engine& engine, bool expectsInstrumentFirst);
     static void renamePlugin (te::Plugin& plugin, const juce::String& newName);
 
     static juce::PluginDescription lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString);
@@ -247,6 +255,21 @@ struct EngineHelpers
     /** Selected clips on track, else transport loop, else full edit length. */
     static te::TimeRange resolveProductionRange (te::Edit& edit, te::ClipTrack& track,
                                                  te::SelectionManager& selection);
+
+    /** Apply a groove template to all notes in selected MIDI clips. Returns note count changed. */
+    static int applyGrooveToSelection (te::Edit& edit, te::SelectionManager& selection,
+                                       const GrooveTemplate& groove, juce::String* errorMessage = nullptr);
+
+    static juce::String makeSessionSlotId (te::EditItemID trackId, int sceneIndex);
+    static bool isSessionClip (const te::Clip& clip);
+    static juce::String getSessionSlotId (const te::Clip& clip);
+    static void setSessionSlotId (te::Clip& clip, const juce::String& slotId);
+    static void clearSessionClipTag (te::Clip& clip);
+    static te::TimePosition sessionClipParkingPosition (const te::Edit& edit);
+    static void parkSessionClip (te::Clip& clip);
+    static void activateSessionClipAtStart (te::Clip& clip);
+    static void enableSessionClipLoop (te::Clip& clip);
+    static te::Clip* findClipById (te::Edit& edit, te::EditItemID clipId);
 };
 
 } // namespace skeletonhive

@@ -27,6 +27,7 @@ public:
     std::function<void()> onTakeLanesChanged;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragMove;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragEnd;
+    std::function<void (te::Clip&)> onExportToLibrary;
 
 protected:
     enum class DragMode { none, move, resizeStart, resizeEnd, fadeIn, fadeOut };
@@ -70,6 +71,9 @@ protected:
     juce::Array<GroupDragItem> groupDragItems;
     juce::Array<GroupResizeItem> groupResizeItems;
     juce::Array<RippleDragItem> rippleDragItems;
+
+    bool exportDragMode = false;
+    bool exportDragStarted = false;
 
     static constexpr int resizeHandleWidth = 6;
     static constexpr int fadeHandlePx = 10;

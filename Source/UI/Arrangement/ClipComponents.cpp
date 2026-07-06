@@ -2,6 +2,7 @@
 #include "TimelineGrid.h"
 #include "TrackComponents.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/ContentDragManager.h"
 
 namespace skeletonhive
 {
@@ -315,7 +316,11 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
                                          onTakeLanesChanged();
                                      if (onSelectionChanged)
                                          onSelectionChanged();
-                                 });
+                                 },
+                                 onExportToLibrary,
+                                 findParentComponentOfClass<TrackLaneComponent>() != nullptr
+                                     ? findParentComponentOfClass<TrackLaneComponent>()->groovePool
+                                     : nullptr);
         if (onSelectionChanged)
             onSelectionChanged();
         return;
@@ -334,6 +339,15 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         onSelectionChanged();
 
     dragMode = dragModeForEvent (e);
+
+    if (e.mods.isAltDown() && dragMode == DragMode::move)
+    {
+        exportDragMode = true;
+        exportDragStarted = false;
+        dragMode = DragMode::none;
+        return;
+    }
+
     if (dragMode == DragMode::none)
         return;
 
@@ -433,6 +447,23 @@ void ClipComponent::captureRippleDragItems (te::TimePosition anchor)
 
 void ClipComponent::mouseDrag (const juce::MouseEvent& e)
 {
+    if (exportDragMode)
+    {
+        if (! exportDragStarted && e.getDistanceFromDragStart() >= 6)
+        {
+            exportDragStarted = true;
+
+            if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+            {
+                ClipExportDragPayload payload;
+                payload.clipItemId = (juce::int64) clip->itemID.getRawID();
+                container->startDragging (payload.encode(), this, juce::ScaledImage(), true, nullptr, &e.source);
+            }
+        }
+
+        return;
+    }
+
     if (dragMode == DragMode::none)
         return;
 
@@ -519,6 +550,13 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
 
 void ClipComponent::mouseUp (const juce::MouseEvent& e)
 {
+    if (exportDragMode)
+    {
+        exportDragMode = false;
+        exportDragStarted = false;
+        return;
+    }
+
     if (dragMode == DragMode::move || dragMode == DragMode::resizeStart || dragMode == DragMode::resizeEnd)
     {
         applyAutoCrossfadeForClip (*clip);

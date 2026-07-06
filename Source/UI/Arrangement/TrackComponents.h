@@ -3,7 +3,9 @@
 #include "ClipComponents.h"
 #include "TakeLaneComponent.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/GroovePoolManager.h"
 #include "Engine/PluginDragManager.h"
+#include "Engine/ContentDragManager.h"
 #include <functional>
 
 namespace skeletonhive
@@ -22,7 +24,9 @@ void showTimelineContextMenu (juce::Component& target,
                               te::Clip* contextClip = nullptr,
                               std::function<void()> onShowClipProperties = nullptr,
                               std::function<void()> onTakeLanesChanged = nullptr,
-                              std::function<void()> onClipsChanged = nullptr);
+                              std::function<void()> onClipsChanged = nullptr,
+                              std::function<void (te::Clip&)> onExportToLibrary = nullptr,
+                              GroovePoolManager* groovePool = nullptr);
 
 class FlaggedAsyncUpdater : public juce::AsyncUpdater
 {
@@ -179,7 +183,8 @@ private:
 class TrackLaneComponent : public juce::Component,
                            private te::ValueTreeAllEventListener,
                            private FlaggedAsyncUpdater,
-                           public juce::DragAndDropTarget
+                           public juce::DragAndDropTarget,
+                           public juce::FileDragAndDropTarget
 {
 public:
     TrackLaneComponent (EditViewState& evs, te::Track::Ptr t);
@@ -209,10 +214,19 @@ public:
     std::function<void()> onTakeLanesChanged;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (te::Track&)> onAddPlugin;
+    std::function<void (const juce::File&, te::Clip*)> onSampleInserted;
+    std::function<void (te::Clip&)> onExportClipToLibrary;
+    std::function<te::Clip* (const juce::File& presetFile, int localX)> onClipPresetDropped;
 
-    // juce::DragAndDropTarget — browser drop onto lane appends to chain
+    GroovePoolManager* groovePool = nullptr;
+
+    // juce::DragAndDropTarget — browser drop onto lane appends to chain or inserts sample
     bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
     void itemDropped (const SourceDetails& dragSourceDetails) override;
+
+    // juce::FileDragAndDropTarget — OS file drops onto lane
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
     void valueTreeChanged() override {}
@@ -228,6 +242,9 @@ private:
     bool canDragCreateClips() const;
     te::TimeRange getRangeSelection() const;
     void createMidiClipFromRangeSelection();
+    te::Clip* insertSampleAtX (const juce::File& file, int localX);
+    te::Clip* insertClipPresetAtX (const juce::File& presetFile, int localX);
+    bool isSupportedAudioFile (const juce::File& file) const;
     void showLaneContextMenu (const juce::MouseEvent& e);
     void paintRangeSelection (juce::Graphics& g, te::TimePosition start, te::TimePosition end) const;
     te::Clip* findClipAtX (int x) const;

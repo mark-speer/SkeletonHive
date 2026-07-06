@@ -19,11 +19,19 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Take lanes and comping for audio/MIDI clips (loop-record takes, comp editing, flatten)
 - In-place consolidate (Ctrl/Cmd+J) and flatten-to-audio for device chains
 - Linked clip-group editing (inspector + fade curves propagate to grouped peers)
+- Plugin hot-swap (Replace…) with state transfer; per-device preset browser with A/B compare
+- Default device chains for new audio/MIDI tracks (Preferences → Devices)
+- Sample browser with library scan, hover preview, and drag-to-timeline import
+- Clip library with drag-to-save presets, export-to-library, and Collect All and Save
+- Live-style detail panel (Devices | Clip tabs) with roaming track focus across tray, inspector, and automation
+- Global groove pool with project persistence; apply to MIDI clip selection (Shift+H) or from Grooves browser tab
+- Plugin browser embedded in left browser panel (Plugins tab)
+- Session View grid (Tab toggle) with clip slots, scene launch, launch quantization, and browser drag-to-slot import
 
 ## Roadmap
 
-Phases 1–6 are implemented. Planned next steps (unified browser, Session View)
-are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§13–§15).
+Phases 1–7 and Phase 8 Tier 1 (Session View MVP) are implemented. Planned next steps (Session ↔ Arrangement bridge, follow actions)
+are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§15).
 
 ## Requirements
 

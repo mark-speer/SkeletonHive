@@ -1,0 +1,61 @@
+#pragma once
+
+#include "Engine/SessionManager.h"
+#include "Engine/ClipLibraryManager.h"
+#include "UI/Arrangement/EditViewState.h"
+
+namespace skeletonhive
+{
+
+enum class ClipSlotState
+{
+    empty,
+    loaded,
+    playing,
+    recording
+};
+
+class ClipSlotComponent : public juce::Component,
+                          public juce::DragAndDropTarget,
+                          private juce::ChangeListener
+{
+public:
+    ClipSlotComponent (SessionManager& session, EditViewState& viewState,
+                       ClipLibraryManager* clipLibrary, te::EditItemID trackId, int sceneIndex);
+
+    void refresh();
+    void setSelected (bool shouldBeSelected);
+    bool isSelected() const { return selected; }
+
+    std::function<void (te::EditItemID trackId)> onTrackFocus;
+
+    bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
+    void itemDropped (const SourceDetails& dragSourceDetails) override;
+
+private:
+    ClipSlotState getState() const;
+    te::Clip* getClip() const;
+
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
+    void itemDragEnter (const SourceDetails&) override {}
+    void itemDragMove (const SourceDetails&) override {}
+    void itemDragExit (const SourceDetails&) override {}
+
+    void showContextMenu (juce::Point<int> screenPos);
+    void promptDuplicateToScene();
+
+    te::ClipTrack* getTrack() const;
+
+    SessionManager& sessionManager;
+    EditViewState& editViewState;
+    ClipLibraryManager* clipLibraryManager = nullptr;
+    te::EditItemID trackId;
+    int sceneIndex = 0;
+    bool selected = false;
+};
+
+} // namespace skeletonhive

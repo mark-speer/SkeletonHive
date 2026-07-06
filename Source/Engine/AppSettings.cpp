@@ -74,6 +74,84 @@ void AppSettings::setDefaultProjectFolder (const juce::File& folder)
     }
 }
 
+juce::Array<juce::File> AppSettings::getSampleLibraryPaths() const
+{
+    juce::Array<juce::File> paths;
+    const auto tokens = juce::StringArray::fromTokens (properties.getValue ("sampleLibraryPaths"), "|", "");
+
+    for (const auto& token : tokens)
+    {
+        const juce::File f (token.trim());
+        if (f.isDirectory())
+            paths.add (f);
+    }
+
+    return paths;
+}
+
+void AppSettings::setSampleLibraryPaths (const juce::Array<juce::File>& paths)
+{
+    juce::StringArray stored;
+
+    for (const auto& path : paths)
+    {
+        if (path.isDirectory())
+            stored.add (path.getFullPathName());
+    }
+
+    properties.setValue ("sampleLibraryPaths", stored.joinIntoString ("|"));
+    saveIfNeeded();
+    sendChangeMessage();
+}
+
+void AppSettings::ensureDefaultSampleLibraryPaths()
+{
+    if (! getSampleLibraryPaths().isEmpty())
+        return;
+
+    juce::Array<juce::File> defaults;
+    const auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+
+    if (music.isDirectory())
+        defaults.add (music);
+
+    const auto docs = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+
+    if (docs.isDirectory())
+        defaults.add (docs);
+
+    if (! defaults.isEmpty())
+        setSampleLibraryPaths (defaults);
+}
+
+namespace
+{
+juce::String defaultChainProperty (DefaultChainKind kind)
+{
+    return kind == DefaultChainKind::audioTrack ? "defaultAudioChain" : "defaultMidiChain";
+}
+} // namespace
+
+juce::StringArray AppSettings::getDefaultDeviceChain (DefaultChainKind kind) const
+{
+    return juce::StringArray::fromTokens (properties.getValue (defaultChainProperty (kind)), "|", "");
+}
+
+void AppSettings::setDefaultDeviceChain (DefaultChainKind kind, const juce::StringArray& pluginIdentifiers)
+{
+    juce::StringArray stored;
+
+    for (const auto& id : pluginIdentifiers)
+    {
+        if (id.trim().isNotEmpty())
+            stored.add (id.trim());
+    }
+
+    properties.setValue (defaultChainProperty (kind), stored.joinIntoString ("|"));
+    saveIfNeeded();
+    sendChangeMessage();
+}
+
 void AppSettings::saveKeyMappings (const juce::ApplicationCommandManager& commandManager)
 {
     if (auto* mappings = commandManager.getKeyMappings())

@@ -7,6 +7,28 @@
 namespace skeletonhive
 {
 
+enum class MainView
+{
+    arrangement = 0,
+    session
+};
+
+enum class SceneLaunchMode
+{
+    stopOthers = 0,
+    additive
+};
+
+enum class LaunchQuantization
+{
+    none = 0,
+    bar,
+    halfBar,
+    beat,
+    halfBeat,
+    eighthBeat
+};
+
 enum class GridDivision
 {
     Auto = 0,
@@ -36,6 +58,16 @@ namespace IDs
     DECLARE_ID (rippleMode)
     DECLARE_ID (expandedTakeClipId)
     DECLARE_ID (createTakesOnLoop)
+    DECLARE_ID (SESSIONSTATE)
+    DECLARE_ID (activeMainView)
+    DECLARE_ID (sceneCount)
+    DECLARE_ID (slotsPerTrack)
+    DECLARE_ID (launchQuantization)
+    DECLARE_ID (sceneLaunchMode)
+    DECLARE_ID (SLOT)
+    DECLARE_ID (trackId)
+    DECLARE_ID (sceneIndex)
+    DECLARE_ID (clipId)
     #undef DECLARE_ID
 }
 
@@ -61,6 +93,34 @@ public:
         trackHeight.referTo (state, IDs::trackHeight, um, 80);
         expandedTakeClipId.referTo (state, IDs::expandedTakeClipId, um, (juce::int64) 0);
         createTakesOnLoop.referTo (state, IDs::createTakesOnLoop, um, true);
+
+        sessionState = state.getOrCreateChildWithName (IDs::SESSIONSTATE, um);
+        activeMainView.referTo (sessionState, IDs::activeMainView, um, (int) MainView::arrangement);
+        sceneCount.referTo (sessionState, IDs::sceneCount, um, 8);
+        slotsPerTrack.referTo (sessionState, IDs::slotsPerTrack, um, 8);
+        launchQuantization.referTo (sessionState, IDs::launchQuantization, um, (int) LaunchQuantization::bar);
+        sceneLaunchMode.referTo (sessionState, IDs::sceneLaunchMode, um, (int) SceneLaunchMode::stopOthers);
+    }
+
+    MainView getMainView() const
+    {
+        return static_cast<MainView> (juce::jlimit (0, 1, activeMainView.get()));
+    }
+
+    void setMainView (MainView view)
+    {
+        activeMainView = (int) view;
+    }
+
+    LaunchQuantization getLaunchQuantization() const
+    {
+        return static_cast<LaunchQuantization> (juce::jlimit (0, (int) LaunchQuantization::eighthBeat,
+                                                              launchQuantization.get()));
+    }
+
+    SceneLaunchMode getSceneLaunchMode() const
+    {
+        return static_cast<SceneLaunchMode> (juce::jlimit (0, 1, sceneLaunchMode.get()));
     }
 
     GridDivision getGridDivision() const
@@ -158,6 +218,12 @@ public:
     juce::CachedValue<juce::int64> expandedTakeClipId;
     juce::CachedValue<bool> createTakesOnLoop;
     juce::ValueTree state;
+    juce::ValueTree sessionState;
+    juce::CachedValue<int> activeMainView;
+    juce::CachedValue<int> sceneCount;
+    juce::CachedValue<int> slotsPerTrack;
+    juce::CachedValue<int> launchQuantization;
+    juce::CachedValue<int> sceneLaunchMode;
 
     WaveformCache waveformCache;
     LaneBackgroundCache laneBackgroundCache;

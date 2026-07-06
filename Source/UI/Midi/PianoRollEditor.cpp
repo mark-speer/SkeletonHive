@@ -1,9 +1,9 @@
 #include "PianoRollEditor.h"
 #include "Engine/AppCommands.h"
+#include "Engine/GrooveEngine.h"
 #include "UI/Arrangement/TimelineGrid.h"
 #include "TracktionCommon.h"
 
-#include <array>
 #include <cmath>
 #include <limits>
 
@@ -46,63 +46,13 @@ juce::String quantiseTypeNameForInterval (double intervalBeats)
 
     return best->name;
 }
-
-//==============================================================================
-// Groove templates: per-16th-note-step timing/velocity offsets applied by Humanize.
-// "Random" is kept as a special case reproducing the original uniform-jitter behaviour.
-
-struct GrooveTemplate
-{
-    juce::String name;
-    // Offsets indexed by position-within-bar in 16th notes (16 steps = one 4/4 bar).
-    // Timing is a fraction of a 16th-note grid interval; velocity is an absolute delta.
-    std::array<double, 16> timing {};
-    std::array<int, 16> velocity {};
-};
-
-constexpr int randomGrooveIndex = 3;
-
-const std::array<GrooveTemplate, 4>& grooveTemplates()
-{
-    static const std::array<GrooveTemplate, 4> templates { {
-        { "Straight", {}, {} },
-        { "MPC Swing",
-          { 0,0.12,0,0.12, 0,0.12,0,0.12, 0,0.12,0,0.12, 0,0.12,0,0.12 },
-          {} },
-        { "Laid Back",
-          { 0,0.06,0.03,0.06, 0,0.06,0.03,0.06, 0,0.06,0.03,0.06, 0,0.06,0.03,0.06 },
-          { 0,-8,-4,-8, 0,-8,-4,-8, 0,-8,-4,-8, 0,-8,-4,-8 } },
-        { "Random", {}, {} }
-    } };
-    return templates;
-}
-
-/** Shifts each note's timing/velocity by its groove template's offset for the
-    16th-note step it falls on (looping every bar). */
-void applyGroove (const juce::Array<te::MidiNote*>& notes, const GrooveTemplate& groove,
-                  double offsetBeats, juce::UndoManager* um)
-{
-    constexpr double sixteenthBeats = 0.25;
-
-    for (auto* n : notes)
-    {
-        const double startBeat = n->getStartBeat().inBeats() - offsetBeats;
-        const int rawStep = (int) std::floor (startBeat / sixteenthBeats);
-        const size_t step = (size_t) (((rawStep % 16) + 16) % 16);
-
-        const double newStart = juce::jmax (0.0, startBeat + groove.timing[step] * sixteenthBeats);
-        n->setStartAndLength (te::BeatPosition::fromBeats (newStart + offsetBeats), n->getLengthBeats(), um);
-
-        if (groove.velocity[step] != 0)
-            n->setVelocity (juce::jlimit (1, 127, n->getVelocity() + groove.velocity[step]), um);
-    }
-}
 } // namespace
 
-PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& evs)
+PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& evs, GroovePoolManager& gp)
     : clip (&c),
       edit (e),
       editViewState (evs),
+      groovePool (gp),
       laneViewport {
           [this] (double beat) { return (float) ((beat - scrollBeat) * pixelsPerBeat); },
           [this] (int x)
@@ -166,10 +116,8 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
     scaleBox.setSelectedId (1, juce::dontSendNotification);
     scaleBox.onChange = [this] { repaint (gridBounds); repaint (keyboardBounds); };
 
-    int grooveId = 1;
-    for (const auto& groove : grooveTemplates())
-        grooveBox.addItem (groove.name, grooveId++);
-    grooveBox.setSelectedId (randomGrooveIndex + 1, juce::dontSendNotification);   // matches legacy default
+    groovePool.addChangeListener (this);
+    refreshGrooveBox();
     grooveBox.setTooltip ("Groove template applied by Humanize");
 
     addAndMakeVisible (quantiseButton);
@@ -200,6 +148,7 @@ PianoRollEditor::PianoRollEditor (te::MidiClip& c, te::Edit& e, EditViewState& e
 
 PianoRollEditor::~PianoRollEditor()
 {
+    groovePool.removeChangeListener (this);
     hScrollBar.removeListener (this);
     midiKeyDispatcher->listeners.remove (this);
     stopAudition();
@@ -1248,31 +1197,39 @@ void PianoRollEditor::quantiseNotes()
     repaintLaneEditor();
 }
 
+void PianoRollEditor::refreshGrooveBox()
+{
+    const int previousId = grooveBox.getSelectedId();
+    grooveBox.clear (juce::dontSendNotification);
+
+    int grooveId = 1;
+    for (const auto& groove : groovePool.getAllTemplates())
+        grooveBox.addItem (groove.name, grooveId++);
+
+    const int defaultId = groovePool.getRandomTemplateIndex() + 1;
+    grooveBox.setSelectedId (previousId > 0 && previousId <= grooveBox.getNumItems() ? previousId : defaultId,
+                             juce::dontSendNotification);
+}
+
+void PianoRollEditor::changeListenerCallback (juce::ChangeBroadcaster* source)
+{
+    if (source == &groovePool)
+        refreshGrooveBox();
+}
+
 void PianoRollEditor::humaniseNotes()
 {
-    const int grooveIdx = juce::jlimit (0, (int) grooveTemplates().size() - 1, grooveBox.getSelectedId() - 1);
+    const int grooveIdx = juce::jlimit (0, groovePool.getAllTemplates().size() - 1, grooveBox.getSelectedId() - 1);
+    const auto& templates = groovePool.getAllTemplates();
+    const auto& groove = templates.getReference (grooveIdx);
 
-    if (grooveIdx == randomGrooveIndex)
+    if (groove.isRandom)
     {
-        // Legacy behaviour: uniform random jitter, kept as the "Random" template
-        // since it can't be expressed as a fixed per-step offset table.
-        auto& rng = juce::Random::getSystemRandom();
-        const double maxTimeJitter = gridIntervalBeats() * 0.1;
-
-        for (auto* n : getTargetNotes())
-        {
-            const double jitter = (rng.nextDouble() * 2.0 - 1.0) * maxTimeJitter;
-            const double newStart = juce::jmax (0.0, n->getStartBeat().inBeats() + jitter);
-            n->setStartAndLength (te::BeatPosition::fromBeats (newStart), n->getLengthBeats(), getUndoManager());
-
-            const int newVelocity = juce::jlimit (1, 127, n->getVelocity() + rng.nextInt ({ -10, 11 }));
-            n->setVelocity (newVelocity, getUndoManager());
-        }
+        GrooveEngine::applyRandomHumanize (getTargetNotes(), gridIntervalBeats(), getUndoManager());
     }
     else
     {
-        applyGroove (getTargetNotes(), grooveTemplates()[(size_t) grooveIdx],
-                    clip->getOffsetInBeats().inBeats(), getUndoManager());
+        GrooveEngine::applyGroove (getTargetNotes(), groove, clip->getOffsetInBeats().inBeats(), getUndoManager());
     }
 
     repaint (gridBounds);

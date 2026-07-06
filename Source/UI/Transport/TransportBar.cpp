@@ -1,5 +1,6 @@
 #include "TransportBar.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/SessionManager.h"
 
 namespace skeletonhive
 {
@@ -59,10 +60,35 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
         transportController.setCountInMode (static_cast<te::Edit::CountIn> (countInBox.getSelectedId() - 1));
     };
 
+    viewLabel.setJustificationType (juce::Justification::centred);
+    viewLabel.setFont (juce::FontOptions (11.0f).withStyle ("Bold"));
+
+    launchQuantizeBox.addItem ("Quantize: None", (int) LaunchQuantization::none + 1);
+    launchQuantizeBox.addItem ("Quantize: 1 Bar", (int) LaunchQuantization::bar + 1);
+    launchQuantizeBox.addItem ("Quantize: 1/2", (int) LaunchQuantization::halfBar + 1);
+    launchQuantizeBox.addItem ("Quantize: 1/4", (int) LaunchQuantization::beat + 1);
+    launchQuantizeBox.addItem ("Quantize: 1/8", (int) LaunchQuantization::halfBeat + 1);
+    launchQuantizeBox.addItem ("Quantize: 1/16", (int) LaunchQuantization::eighthBeat + 1);
+    launchQuantizeBox.onChange = [this]
+    {
+        if (sessionManager != nullptr)
+            sessionManager->setLaunchQuantization (static_cast<LaunchQuantization> (launchQuantizeBox.getSelectedId() - 1));
+    };
+
+    sceneLaunchModeBox.addItem ("Scene: Stop Others", (int) SceneLaunchMode::stopOthers + 1);
+    sceneLaunchModeBox.addItem ("Scene: Additive", (int) SceneLaunchMode::additive + 1);
+    sceneLaunchModeBox.onChange = [this]
+    {
+        if (sessionManager != nullptr)
+            sessionManager->setSceneLaunchMode (static_cast<SceneLaunchMode> (sceneLaunchModeBox.getSelectedId() - 1));
+    };
+
     newButton.onClick = [this] { if (onNewProject) onNewProject(); };
     openButton.onClick = [this] { if (onOpenProject) onOpenProject(); };
     saveButton.onClick = [this] { if (onSaveProject) onSaveProject(); };
     saveAsButton.onClick = [this] { if (onSaveProjectAs) onSaveProjectAs(); };
+    collectButton.setTooltip ("Collect All and Save — copy external audio into the project folder");
+    collectButton.onClick = [this] { if (onCollectAllAndSave) onCollectAllAndSave(); };
     exportButton.onClick = [this] { if (onExport) onExport(); };
     importButton.onClick = [this] { if (onImportAudio) onImportAudio(); };
     addAudioButton.onClick = [this] { if (onAddAudioTrack) onAddAudioTrack(); };
@@ -70,6 +96,9 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addClipButton.onClick = [this] { if (onAddMidiClip) onAddMidiClip(); };
     settingsButton.onClick = [this] { if (onShowPreferences) onShowPreferences(); else if (onAudioSettings) onAudioSettings(); };
     pluginsButton.onClick = [this] { if (onScanPlugins) onScanPlugins(); };
+    browserButton.setClickingTogglesState (true);
+    browserButton.setToggleState (true, juce::dontSendNotification);
+    browserButton.onClick = [this] { if (onToggleBrowser) onToggleBrowser(); };
     mixerButton.onClick = [this] { if (onToggleMixer) onToggleMixer(); };
     sidechainButton.onClick = [this] { if (onToggleSidechain) onToggleSidechain(); };
     automationButton.setTooltip ("Show/hide the automation panel for the selected track");
@@ -114,6 +143,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (openButton);
     addAndMakeVisible (saveButton);
     addAndMakeVisible (saveAsButton);
+    addAndMakeVisible (collectButton);
     addAndMakeVisible (exportButton);
     addAndMakeVisible (importButton);
     addAndMakeVisible (addAudioButton);
@@ -121,6 +151,7 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (addClipButton);
     addAndMakeVisible (settingsButton);
     addAndMakeVisible (pluginsButton);
+    addAndMakeVisible (browserButton);
     addAndMakeVisible (mixerButton);
     addAndMakeVisible (sidechainButton);
     addAndMakeVisible (automationButton);
@@ -132,6 +163,11 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (tempoSlider);
     addAndMakeVisible (tempoLabel);
     addAndMakeVisible (timeSigBox);
+    addAndMakeVisible (viewLabel);
+    addAndMakeVisible (launchQuantizeBox);
+    addAndMakeVisible (sceneLaunchModeBox);
+
+    updateSessionControlsVisibility();
 
     edit.getTransport().addChangeListener (this);
     EngineHelpers::setCreateTakesOnLoopEnabled (edit, takesButton.getToggleState());
@@ -151,7 +187,7 @@ void TransportBar::resized()
     const int btnW = 52;
 
     auto row1 = r.removeFromTop (h);
-    for (auto* btn : { &newButton, &openButton, &saveButton, &saveAsButton, &exportButton, &importButton })
+    for (auto* btn : { &newButton, &openButton, &saveButton, &saveAsButton, &collectButton, &exportButton, &importButton })
     {
         btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
     }
@@ -167,7 +203,7 @@ void TransportBar::resized()
 
     auto row2 = r.removeFromTop (h);
     for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton, &settingsButton, &pluginsButton,
-                       &mixerButton, &sidechainButton, &automationButton, &learnButton })
+                       &browserButton, &mixerButton, &sidechainButton, &automationButton, &learnButton })
     {
         btn->setBounds (row2.removeFromLeft (btnW + 10).reduced (1));
     }
@@ -175,6 +211,43 @@ void TransportBar::resized()
     clickButton.setBounds (row2.removeFromLeft (btnW).reduced (1));
     clickVolumeSlider.setBounds (row2.removeFromLeft (70).reduced (1));
     countInBox.setBounds (row2.removeFromLeft (110).reduced (1));
+
+    if (sessionViewActive)
+    {
+        viewLabel.setBounds (row2.removeFromLeft (90).reduced (1));
+        launchQuantizeBox.setBounds (row2.removeFromLeft (130).reduced (1));
+        sceneLaunchModeBox.setBounds (row2.removeFromLeft (130).reduced (1));
+    }
+}
+
+void TransportBar::setSessionManager (SessionManager* manager)
+{
+    sessionManager = manager;
+    syncSessionControls();
+}
+
+void TransportBar::setSessionViewActive (bool active)
+{
+    sessionViewActive = active;
+    viewLabel.setText (active ? "Session" : "Arrangement", juce::dontSendNotification);
+    updateSessionControlsVisibility();
+    resized();
+}
+
+void TransportBar::syncSessionControls()
+{
+    if (sessionManager == nullptr)
+        return;
+
+    launchQuantizeBox.setSelectedId ((int) sessionManager->getLaunchQuantization() + 1, juce::dontSendNotification);
+    sceneLaunchModeBox.setSelectedId ((int) sessionManager->getSceneLaunchMode() + 1, juce::dontSendNotification);
+}
+
+void TransportBar::updateSessionControlsVisibility()
+{
+    launchQuantizeBox.setVisible (sessionViewActive);
+    sceneLaunchModeBox.setVisible (sessionViewActive);
+    viewLabel.setVisible (true);
 }
 
 void TransportBar::timerCallback()
@@ -215,6 +288,11 @@ void TransportBar::setLearnModeActive (bool active)
     learnButton.setToggleState (active, juce::dontSendNotification);
     learnButton.setColour (juce::TextButton::buttonColourId,
                            active ? juce::Colour (0xffca6702) : findColour (juce::TextButton::buttonColourId));
+}
+
+void TransportBar::setBrowserToggleState (bool visible)
+{
+    browserButton.setToggleState (visible, juce::dontSendNotification);
 }
 
 } // namespace skeletonhive

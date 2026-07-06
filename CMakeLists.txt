@@ -83,8 +83,25 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/PluginStateManager.cpp
     Source/Engine/PluginPresetManager.h
     Source/Engine/PluginPresetManager.cpp
+    Source/Engine/ContentLibraryManager.h
+    Source/Engine/ContentLibraryManager.cpp
+    Source/Engine/ClipLibraryManager.h
+    Source/Engine/ClipLibraryManager.cpp
+    Source/Engine/GrooveTemplate.h
+    Source/Engine/GrooveEngine.h
+    Source/Engine/GrooveEngine.cpp
+    Source/Engine/GroovePoolManager.h
+    Source/Engine/GroovePoolManager.cpp
+    Source/Engine/ContentDragManager.h
+    Source/Engine/ContentDragManager.cpp
+    Source/Engine/PreviewPlayer.h
+    Source/Engine/PreviewPlayer.cpp
     Source/Engine/UiTelemetryHub.h
     Source/Engine/UiTelemetryHub.cpp
+    Source/Engine/SessionManager.h
+    Source/Engine/SessionManager.cpp
+    Source/Engine/SessionArrangementBridge.h
+    Source/Engine/SessionArrangementBridge.cpp
     Source/UI/Arrangement/EditViewState.h
     Source/UI/Arrangement/ClipComponents.h
     Source/UI/Arrangement/ClipComponents.cpp
@@ -100,6 +117,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Arrangement/LaneClipSummaryPaint.cpp
     Source/UI/Arrangement/ClipInspectorPanel.h
     Source/UI/Arrangement/ClipInspectorPanel.cpp
+    Source/UI/Detail/DetailPanelStack.h
+    Source/UI/Detail/DetailPanelStack.cpp
     Source/UI/Arrangement/TakeLaneComponent.h
     Source/UI/Arrangement/TakeLaneComponent.cpp
     Source/UI/Arrangement/TimelineTypes.h
@@ -117,6 +136,10 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Mixer/ChannelStrip.cpp
     Source/UI/Plugins/PluginBrowser.h
     Source/UI/Plugins/PluginBrowser.cpp
+    Source/UI/Plugins/PluginPickerDialog.h
+    Source/UI/Plugins/PluginPickerDialog.cpp
+    Source/UI/Plugins/PresetBrowserPanel.h
+    Source/UI/Plugins/PresetBrowserPanel.cpp
     Source/UI/Plugins/PluginSlotComponent.h
     Source/UI/Plugins/PluginSlotComponent.cpp
     Source/UI/Plugins/PluginTrayComponent.h
@@ -140,6 +163,24 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Automation/AutomationLaneComponent.cpp
     Source/UI/Automation/AutomationPanel.h
     Source/UI/Automation/AutomationPanel.cpp
+    Source/UI/Browser/BrowserPanel.h
+    Source/UI/Browser/BrowserPanel.cpp
+    Source/UI/Browser/SampleBrowserTab.h
+    Source/UI/Browser/SampleBrowserTab.cpp
+    Source/UI/Browser/PlacesBrowserTab.h
+    Source/UI/Browser/PlacesBrowserTab.cpp
+    Source/UI/Browser/ClipsBrowserTab.h
+    Source/UI/Browser/ClipsBrowserTab.cpp
+    Source/UI/Browser/GroovesBrowserTab.h
+    Source/UI/Browser/GroovesBrowserTab.cpp
+    Source/UI/Session/ClipSlotComponent.h
+    Source/UI/Session/ClipSlotComponent.cpp
+    Source/UI/Session/SceneLaunchColumn.h
+    Source/UI/Session/SceneLaunchColumn.cpp
+    Source/UI/Session/SessionGridComponent.h
+    Source/UI/Session/SessionGridComponent.cpp
+    Source/UI/Session/SessionViewComponent.h
+    Source/UI/Session/SessionViewComponent.cpp
 )
 
 target_compile_definitions(SkeletonHive PRIVATE

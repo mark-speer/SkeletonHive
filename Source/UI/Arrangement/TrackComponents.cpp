@@ -41,7 +41,9 @@ enum class TimelineMenuResult
     newComp,
     flattenComp,
     unpackTakes,
-    consolidate
+    consolidate,
+    exportToLibrary = 410,
+    applyGrooveBase = 600
 };
 
 void setFadeCurveOnAudioClips (EditViewState& editViewState, bool fadeIn, te::AudioFadeCurve::Type type)
@@ -89,7 +91,9 @@ void showTimelineContextMenu (juce::Component& target,
                               te::Clip* contextClip,
                               std::function<void()> onShowClipProperties,
                               std::function<void()> onTakeLanesChanged,
-                              std::function<void()> onClipsChanged)
+                              std::function<void()> onClipsChanged,
+                              std::function<void (te::Clip&)> onExportToLibrary,
+                              GroovePoolManager* groovePool)
 {
     juce::PopupMenu menu;
     const bool hasSelection = editViewState.selectionManager.getNumObjectsSelected() > 0;
@@ -113,6 +117,27 @@ void showTimelineContextMenu (juce::Component& target,
     }
 
     menu.addItem ((int) TimelineMenuResult::consolidate, "Consolidate", canConsolidate);
+
+    bool hasMidiClip = false;
+    for (auto* clip : editViewState.selectionManager.getItemsOfType<te::Clip>())
+    {
+        if (dynamic_cast<te::MidiClip*> (clip) != nullptr)
+        {
+            hasMidiClip = true;
+            break;
+        }
+    }
+
+    if (groovePool != nullptr && hasMidiClip)
+    {
+        juce::PopupMenu grooveMenu;
+        const auto templates = groovePool->getAllTemplates();
+
+        for (int i = 0; i < templates.size(); ++i)
+            grooveMenu.addItem ((int) TimelineMenuResult::applyGrooveBase + i, templates.getReference (i).name);
+
+        menu.addSubMenu ("Apply Groove", grooveMenu, true);
+    }
 
     te::Clip* takeClip = contextClip;
     if (takeClip == nullptr)
@@ -138,6 +163,12 @@ void showTimelineContextMenu (juce::Component& target,
     const bool hasTakeClip = takeClip != nullptr
                           && (dynamic_cast<te::WaveAudioClip*> (takeClip) != nullptr
                               || dynamic_cast<te::MidiClip*> (takeClip) != nullptr);
+
+    if (hasTakeClip)
+    {
+        menu.addSeparator();
+        menu.addItem ((int) TimelineMenuResult::exportToLibrary, "Export to Library...");
+    }
 
     if (hasTakeClip && EngineHelpers::hasMultipleTakes (*takeClip))
     {
@@ -179,12 +210,35 @@ void showTimelineContextMenu (juce::Component& target,
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (&target)
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
-                        [&editViewState, track, takeClip, onCreateMidiClip = std::move (onCreateMidiClip),
+                        [&editViewState, track, takeClip, groovePool,
+                         onCreateMidiClip = std::move (onCreateMidiClip),
                          onShowClipProperties = std::move (onShowClipProperties),
                          onTakeLanesChanged = std::move (onTakeLanesChanged),
-                         onClipsChanged = std::move (onClipsChanged)] (int result)
+                         onClipsChanged = std::move (onClipsChanged),
+                         onExportToLibrary = std::move (onExportToLibrary)] (int result)
     {
         const int r = result;
+
+        if (groovePool != nullptr && r >= (int) TimelineMenuResult::applyGrooveBase)
+        {
+            const int grooveIdx = r - (int) TimelineMenuResult::applyGrooveBase;
+            const auto templates = groovePool->getAllTemplates();
+
+            if (juce::isPositiveAndBelow (grooveIdx, templates.size()))
+            {
+                const auto& groove = templates.getReference (grooveIdx);
+                groovePool->setSelectedGrooveId (groove.id);
+
+                juce::String error;
+                EngineHelpers::applyGrooveToSelection (editViewState.edit, editViewState.selectionManager, groove, &error);
+
+                if (error.isNotEmpty())
+                    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Apply Groove", error);
+            }
+
+            return;
+        }
+
         if (r >= (int) TimelineMenuResult::fadeInLinear && r <= (int) TimelineMenuResult::fadeInSCurve)
         {
             setFadeCurveOnAudioClips (editViewState, true,
@@ -244,6 +298,10 @@ void showTimelineContextMenu (juce::Component& target,
             case TimelineMenuResult::clipProperties:
                 if (onShowClipProperties)
                     onShowClipProperties();
+                break;
+            case TimelineMenuResult::exportToLibrary:
+                if (takeClip != nullptr && onExportToLibrary)
+                    onExportToLibrary (*takeClip);
                 break;
             case TimelineMenuResult::showTakeLanes:
                 if (takeClip != nullptr)
@@ -1539,7 +1597,9 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
                                      onTakeLanesChanged();
                                  if (onClipSelectionChanged)
                                      onClipSelectionChanged();
-                             });
+                             },
+                             onExportClipToLibrary,
+                             groovePool);
 }
 
 void TrackLaneComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -1634,6 +1694,9 @@ void TrackLaneComponent::buildClips()
     {
         for (auto* c : clipTrack->getClips())
         {
+            if (EngineHelpers::isSessionClip (*c))
+                continue;
+
             te::Clip::Ptr clip (c);
             ClipComponent* cc = nullptr;
 
@@ -1669,6 +1732,11 @@ void TrackLaneComponent::buildClips()
             {
                 if (onClipCrossTrackDragEnd)
                     onClipCrossTrackDragEnd (c, ev);
+            };
+            cc->onExportToLibrary = [this] (te::Clip& c)
+            {
+                if (onExportClipToLibrary)
+                    onExportClipToLibrary (c);
             };
 
             clips.add (cc);
@@ -1739,12 +1807,36 @@ void TrackLaneComponent::updateClipBounds()
 
 bool TrackLaneComponent::isInterestedInDragSource (const SourceDetails& details)
 {
-    return details.description.toString().startsWith (PluginDragTypes::browserInsert);
+    const auto text = details.description.toString();
+    return text.startsWith (PluginDragTypes::browserInsert)
+        || text.startsWith (ContentDragTypes::sampleInsert)
+        || text.startsWith (ContentDragTypes::clipPreset);
 }
 
 void TrackLaneComponent::itemDropped (const SourceDetails& details)
 {
     const auto descStr = details.description.toString();
+
+    if (descStr.startsWith (ContentDragTypes::sampleInsert))
+    {
+        const auto payload = ContentDragPayload::parse (details.description);
+
+        if (payload.isValid())
+            insertSampleAtX (payload.file, details.localPosition.x);
+
+        return;
+    }
+
+    if (descStr.startsWith (ContentDragTypes::clipPreset))
+    {
+        const auto payload = ClipPresetDragPayload::parse (details.description);
+
+        if (payload.isValid())
+            insertClipPresetAtX (payload.presetFile, details.localPosition.x);
+
+        return;
+    }
+
     if (! descStr.startsWith (PluginDragTypes::browserInsert) || createPlugin == nullptr)
         return;
 
@@ -1761,6 +1853,74 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
         else
             EngineHelpers::showPluginInsertFailureAlert (this, pd);
     }
+}
+
+bool TrackLaneComponent::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& path : files)
+    {
+        if (isSupportedAudioFile (juce::File (path)))
+            return true;
+    }
+
+    return false;
+}
+
+void TrackLaneComponent::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    juce::ignoreUnused (y);
+
+    for (const auto& path : files)
+    {
+        const juce::File file (path);
+
+        if (isSupportedAudioFile (file))
+        {
+            insertSampleAtX (file, x);
+            break;
+        }
+    }
+}
+
+bool TrackLaneComponent::isSupportedAudioFile (const juce::File& file) const
+{
+    return editViewState.edit.engine.getAudioFileFormatManager().readFormatManager
+               .findFormatForFileExtension (file.getFileExtension()) != nullptr;
+}
+
+te::Clip* TrackLaneComponent::insertSampleAtX (const juce::File& file, int localX)
+{
+    auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get());
+
+    if (clipTrack == nullptr || ! file.existsAsFile())
+        return nullptr;
+
+    const auto time = TimelineGrid::snapTime (editViewState.edit, editViewState,
+                                              editViewState.xToTime (localX));
+
+    if (auto* clip = EngineHelpers::insertWaveClipFromFile (*clipTrack, file, time, {}))
+    {
+        editViewState.selectionManager.selectOnly (clip);
+        markAndUpdate (updateClips);
+
+        if (onSampleInserted)
+            onSampleInserted (file, clip);
+
+        if (onClipSelectionChanged)
+            onClipSelectionChanged();
+
+        return clip;
+    }
+
+    return nullptr;
+}
+
+te::Clip* TrackLaneComponent::insertClipPresetAtX (const juce::File& presetFile, int localX)
+{
+    if (onClipPresetDropped != nullptr)
+        return onClipPresetDropped (presetFile, localX);
+
+    return nullptr;
 }
 
 PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHub* hub)

@@ -54,6 +54,11 @@ enum
     pianoNudgeUp,
     pianoNudgeDown,
     pianoStepRest,
+
+    applyGrooveToClips,
+    toggleDetailDevices,
+    toggleDetailClip,
+    toggleMainView,
 };
 } // namespace AppCommandIDs
 

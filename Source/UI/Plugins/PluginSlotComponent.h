@@ -45,6 +45,8 @@ public:
     std::function<void (te::Plugin&)> onRemove;
     std::function<void (te::Plugin&, int direction)> onMove;
     std::function<void (te::Plugin&)> onChanged;
+    std::function<void (te::Plugin&)> onReplace;
+    std::function<void (te::Plugin&)> onBrowsePresets;
     std::function<void (te::RackInstance&, bool expanded)> onRackExpandChanged;
     std::function<void (te::RackInstance&)> onShowRackMacros;
 
@@ -77,6 +79,8 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                            EditViewState& editViewState,
                            te::Plugin& plugin,
                            PluginStateManager* stateManager,
-                           std::function<void()> onChanged);
+                           std::function<void()> onChanged,
+                           std::function<void (te::Plugin&)> onReplace = {},
+                           std::function<void (te::Plugin&)> onBrowsePresets = {});
 
 } // namespace skeletonhive

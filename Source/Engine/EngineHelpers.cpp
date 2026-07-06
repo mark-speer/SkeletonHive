@@ -1,4 +1,5 @@
 #include "EngineHelpers.h"
+#include "GrooveEngine.h"
 #include "ExportManager.h"
 #include "TrackPluginChainModel.h"
 #include "UI/AppLookAndFeel.h"
@@ -15,6 +16,7 @@ namespace skeletonhive
 const juce::Identifier EngineHelpers::clipGroupProperty ("skeletonHiveClipGroup");
 const juce::Identifier EngineHelpers::clipGroupOuterProperty ("skeletonHiveClipGroupOuter");
 const juce::Identifier EngineHelpers::clipGroupColourProperty ("skeletonHiveClipGroupColour");
+const juce::Identifier EngineHelpers::sessionSlotIdProperty ("skeletonHiveSessionSlotId");
 const juce::Identifier EngineHelpers::soloedPluginIdProperty ("skeletonHiveSoloedPluginId");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
@@ -600,6 +602,109 @@ te::Plugin* EngineHelpers::duplicatePluginOnTrack (te::Plugin& source, te::Audio
     }
 
     return nullptr;
+}
+
+te::Plugin* EngineHelpers::replacePluginOnTrack (te::AudioTrack& track, te::Plugin& oldPlugin,
+                                                 const juce::PluginDescription& newDesc)
+{
+    if (newDesc.name.isEmpty())
+        return nullptr;
+
+    if (dynamic_cast<te::RackInstance*> (&oldPlugin) != nullptr)
+        return nullptr;
+
+    const auto state = PluginPresetManager::capturePluginState (oldPlugin);
+    TrackPluginChainModel model (track);
+    const int userSlot = model.userSlotForPlugin (oldPlugin);
+
+    if (userSlot < 0)
+        return nullptr;
+
+    const int insertIndex = model.resolveInsertIndex (userSlot,
+                                                      isInstrumentDescription (newDesc),
+                                                      &oldPlugin);
+
+    if (insertIndex < 0)
+        return nullptr;
+
+    if (auto* trackPtr = te::getTrackContainingPlugin (oldPlugin.edit, &oldPlugin))
+        if (isPluginSoloed (*trackPtr, oldPlugin))
+            clearSoloedPlugin (*trackPtr);
+
+    oldPlugin.deleteFromParent();
+
+    if (auto newPlugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, newDesc))
+    {
+        auto* inserted = insertPluginOnTrack (track, newPlugin, insertIndex);
+
+        if (inserted != nullptr)
+            PluginPresetManager::applyPluginState (*inserted, state);
+
+        return inserted;
+    }
+
+    return nullptr;
+}
+
+te::Plugin* EngineHelpers::replacePluginInRack (te::RackInstance& rack, te::Plugin& oldPlugin,
+                                                const juce::PluginDescription& newDesc)
+{
+    if (newDesc.name.isEmpty())
+        return nullptr;
+
+    const auto state = PluginPresetManager::capturePluginState (oldPlugin);
+    const int targetSlot = rackSlotForPlugin (rack, oldPlugin);
+
+    if (targetSlot < 0)
+        return nullptr;
+
+    if (auto* trackPtr = te::getTrackContainingPlugin (oldPlugin.edit, &rack))
+        if (isPluginSoloed (*trackPtr, oldPlugin))
+            clearSoloedPlugin (*trackPtr);
+
+    oldPlugin.deleteFromParent();
+
+    if (auto newPlugin = rack.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, newDesc))
+    {
+        if (rack.type == nullptr || ! rack.type->addPlugin (*newPlugin, {}, true))
+            return nullptr;
+
+        auto* inserted = newPlugin.get();
+        const int newSlot = rackSlotForPlugin (rack, *inserted);
+
+        if (newSlot >= 0 && newSlot != targetSlot)
+            movePluginInRack (rack, *inserted, targetSlot);
+
+        PluginPresetManager::applyPluginState (*inserted, state);
+        return inserted;
+    }
+
+    return nullptr;
+}
+
+void EngineHelpers::applyDefaultDeviceChain (te::AudioTrack& track, const juce::StringArray& pluginIdentifiers,
+                                             te::Engine& engine, bool expectsInstrumentFirst)
+{
+    for (const auto& id : pluginIdentifiers)
+    {
+        const auto desc = lookupKnownPlugin (engine, id);
+
+        if (desc.name.isEmpty())
+            continue;
+
+        if (auto plugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+        {
+            TrackPluginChainModel model (track);
+            const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
+                                                              isInstrumentDescription (desc),
+                                                              nullptr);
+
+            if (insertIndex >= 0)
+                insertPluginOnTrack (track, plugin, insertIndex);
+        }
+    }
+
+    juce::ignoreUnused (expectsInstrumentFirst);
 }
 
 void EngineHelpers::renamePlugin (te::Plugin& plugin, const juce::String& newName)
@@ -1719,6 +1824,128 @@ te::TimeRange EngineHelpers::resolveProductionRange (te::Edit& edit, te::ClipTra
         return te::TimeRange (0s, edit.getLength());
 
     return {};
+}
+
+int EngineHelpers::applyGrooveToSelection (te::Edit& edit, te::SelectionManager& selection,
+                                           const GrooveTemplate& groove, juce::String* errorMessage)
+{
+    auto fail = [errorMessage] (const juce::String& message)
+    {
+        if (errorMessage != nullptr)
+            *errorMessage = message;
+        return 0;
+    };
+
+    const auto selected = selection.getItemsOfType<te::Clip>();
+    juce::Array<te::MidiClip*> midiClips;
+
+    for (auto* clip : selected)
+        if (auto* midiClip = dynamic_cast<te::MidiClip*> (clip))
+            midiClips.addIfNotAlreadyThere (midiClip);
+
+    if (midiClips.isEmpty())
+        return fail ("Select one or more MIDI clips to apply a groove.");
+
+    edit.getUndoManager().beginNewTransaction ("Apply Groove");
+
+    int noteCount = 0;
+
+    for (auto* midiClip : midiClips)
+    {
+        auto notes = midiClip->getSequence().getNotes();
+
+        if (notes.isEmpty())
+            continue;
+
+        if (groove.isRandom)
+            GrooveEngine::applyRandomHumanize (notes, 0.25, &edit.getUndoManager());
+        else
+            GrooveEngine::applyGroove (notes, groove, midiClip->getOffsetInBeats().inBeats(), &edit.getUndoManager());
+
+        noteCount += notes.size();
+    }
+
+    if (noteCount == 0)
+        return fail ("Selected MIDI clips contain no notes.");
+
+    return noteCount;
+}
+
+juce::String EngineHelpers::makeSessionSlotId (te::EditItemID trackId, int sceneIndex)
+{
+    return juce::String ((juce::int64) trackId.getRawID()) + "_" + juce::String (sceneIndex);
+}
+
+bool EngineHelpers::isSessionClip (const te::Clip& clip)
+{
+    return clip.state.getProperty (sessionSlotIdProperty).toString().isNotEmpty();
+}
+
+juce::String EngineHelpers::getSessionSlotId (const te::Clip& clip)
+{
+    return clip.state.getProperty (sessionSlotIdProperty).toString();
+}
+
+void EngineHelpers::setSessionSlotId (te::Clip& clip, const juce::String& slotId)
+{
+    if (slotId.isEmpty())
+        clip.state.removeProperty (sessionSlotIdProperty, &clip.edit.getUndoManager());
+    else
+        clip.state.setProperty (sessionSlotIdProperty, slotId, &clip.edit.getUndoManager());
+}
+
+void EngineHelpers::clearSessionClipTag (te::Clip& clip)
+{
+    setSessionSlotId (clip, {});
+}
+
+te::TimePosition EngineHelpers::sessionClipParkingPosition (const te::Edit& edit)
+{
+    return edit.tempoSequence.toTime (te::BeatPosition::fromBeats (1000000.0));
+}
+
+void EngineHelpers::parkSessionClip (te::Clip& clip)
+{
+    clip.setStart (sessionClipParkingPosition (clip.edit), false, true);
+}
+
+void EngineHelpers::activateSessionClipAtStart (te::Clip& clip)
+{
+    clip.setStart (0s, false, true);
+}
+
+void EngineHelpers::enableSessionClipLoop (te::Clip& clip)
+{
+    if (auto* audio = dynamic_cast<te::AudioClipBase*> (&clip))
+    {
+        if (auto* wave = dynamic_cast<te::WaveAudioClip*> (audio))
+            wave->setLoopDefaults();
+
+        const auto beatRange = clip.edit.tempoSequence.toBeats (clip.getPosition().time);
+        const auto lengthBeats = beatRange.getLength().inBeats();
+        const auto loopLength = te::BeatDuration::fromBeats (juce::jmax (0.25, lengthBeats));
+        audio->setLoopRangeBeats ({ te::BeatPosition(), loopLength });
+    }
+}
+
+te::Clip* EngineHelpers::findClipById (te::Edit& edit, te::EditItemID clipId)
+{
+    if (clipId == te::EditItemID())
+        return nullptr;
+
+    for (auto track : te::getAllTracks (edit))
+    {
+        if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track))
+        {
+            for (auto* clip : clipTrack->getClips())
+            {
+                if (clip->itemID == clipId)
+                    return clip;
+            }
+        }
+    }
+
+    return nullptr;
 }
 
 } // namespace skeletonhive

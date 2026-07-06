@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "TracktionCommon.h"
+#include "Engine/AppSettings.h"
 #include "Engine/ExportManager.h"
 #include "UI/Settings/PreferencesDialog.h"
 #include "UI/AppLookAndFeel.h"
@@ -48,6 +49,11 @@ MainContentComponent::MainContentComponent (SkeletonHiveApplication& app)
 
     pluginScanner = std::make_unique<PluginScanner> (engine);
     pluginStateManager = std::make_unique<PluginStateManager>();
+    appSettings.ensureDefaultSampleLibraryPaths();
+    contentLibraryManager = std::make_unique<ContentLibraryManager> (engine, appSettings);
+    clipLibraryManager = std::make_unique<ClipLibraryManager> (engine);
+    groovePoolManager = std::make_unique<GroovePoolManager>();
+    previewPlayer = std::make_unique<PreviewPlayer> (engine);
     telemetryHub = std::make_unique<UiTelemetryHub>();
 
     learnStatusLabel.setJustificationType (juce::Justification::centredLeft);
@@ -102,14 +108,16 @@ void MainContentComponent::releaseEditUI()
     pianoRollWindow = nullptr;
     pianoRollEditor = nullptr;
     automationPanel = nullptr;
-    clipInspector = nullptr;
+    detailPanelStack = nullptr;
+    browserPanel = nullptr;
 
-    pluginBrowser = nullptr;
-    pluginTray = nullptr;
     sidechainPanel = nullptr;
     SidechainRouting::openMatrixForPlugin = nullptr;
     mixerPanel = nullptr;
     timeline = nullptr;
+    sessionView = nullptr;
+    sessionManager = nullptr;
+    sessionArrangementBridge = nullptr;
     transportBar = nullptr;
     transportController = nullptr;
 }
@@ -126,13 +134,27 @@ void MainContentComponent::rebuildEditUI()
     timeline = std::make_unique<TimelineComponent> (*edit, projectManager.getSelectionManager(),
                                                     projectManager.getInsertPoint(),
                                                     telemetryHub.get());
+    sessionManager = std::make_unique<SessionManager> (*edit, timeline->getEditViewState(), *transportController);
+    sessionArrangementBridge = std::make_unique<SessionArrangementBridge> (*edit);
+    sessionView = std::make_unique<SessionViewComponent> (*sessionManager, timeline->getEditViewState(),
+                                                          clipLibraryManager.get());
     mixerPanel = std::make_unique<MixerPanel> (*edit, telemetryHub.get());
-    pluginBrowser = std::make_unique<PluginBrowser> (*pluginScanner, *edit, *pluginStateManager);
-    pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager);
     sidechainPanel = std::make_unique<SidechainMatrixPanel> (*edit);
     automationPanel = std::make_unique<AutomationPanel> (*edit, timeline->getEditViewState());
-    clipInspector = std::make_unique<ClipInspectorPanel> (*edit, projectManager.getSelectionManager());
-    clipInspector->setVisible (false);
+
+    auto pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager, *pluginScanner);
+    auto clipInspectorPanel = std::make_unique<ClipInspectorPanel> (*edit, projectManager.getSelectionManager());
+    detailPanelStack = std::make_unique<DetailPanelStack> (std::move (pluginTray), std::move (clipInspectorPanel));
+
+    groovePoolManager->loadForProject (projectManager.getCurrentProjectFile());
+    timeline->setGroovePool (groovePoolManager.get());
+
+    browserPanel = std::make_unique<BrowserPanel> (*contentLibraryManager, *clipLibraryManager, *groovePoolManager,
+                                                   *previewPlayer, timeline->getEditViewState().waveformCache,
+                                                   *pluginScanner, *pluginStateManager, engine, *edit,
+                                                   projectManager.getSelectionManager());
+    contentLibraryManager->setProjectFolder (projectManager.getCurrentProjectFile());
+    contentLibraryManager->rescanAll();
 
     SidechainRouting::openMatrixForPlugin = [this] (te::Plugin* plugin)
     {
@@ -143,6 +165,7 @@ void MainContentComponent::rebuildEditUI()
     transportBar->onOpenProject = [this] { handleOpenProject(); };
     transportBar->onSaveProject = [this] { handleSaveProject(); };
     transportBar->onSaveProjectAs = [this] { handleSaveProjectAs(); };
+    transportBar->onCollectAllAndSave = [this] { handleCollectAllAndSave(); };
     transportBar->onExport = [this] { handleExport(); };
     transportBar->onImportAudio = [this] { handleImportAudio(); };
     transportBar->onAddAudioTrack = [this] { handleAddAudioTrack(); };
@@ -151,32 +174,37 @@ void MainContentComponent::rebuildEditUI()
     transportBar->onAudioSettings = [this] { showPreferences(); };
     transportBar->onShowPreferences = [this] { showPreferences(); };
     transportBar->onToggleMidiLearn = [this] { toggleMidiLearn(); };
-    transportBar->onScanPlugins = [this]
-    {
-        if (! pluginBrowser->isVisible())
-            addAndMakeVisible (*pluginBrowser);
-        resized();
-    };
+    transportBar->onScanPlugins = [this] { showPluginsBrowser(); };
     transportBar->onToggleMixer = [this] { toggleMixer(); };
     transportBar->onToggleSidechain = [this] { toggleSidechainPanel(); };
     transportBar->onToggleAutomation = [this] { toggleAutomationPanel(); };
+    transportBar->onToggleBrowser = [this] { toggleBrowserPanel(); };
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
-    timeline->onClipSelectionChanged = [this] { syncClipInspector(); };
-    timeline->onShowClipProperties = [this] { syncClipInspector(); };
-    timeline->onTrackSelected = [this] (te::Track& t)
+    timeline->onClipSelectionChanged = [this] { syncRoamingFocus(); };
+    timeline->onShowClipProperties = [this] { syncRoamingFocus(); };
+    timeline->onSampleInserted = [this] (const juce::File& file, te::Clip* clip)
     {
-        if (pluginTray != nullptr)
-            pluginTray->setTrack (&t);
-
-        if (automationPanel != nullptr)
-        {
-            automationPanel->setTrack (&t);
-            if (automationVisible)
-                resized();
-        }
+        juce::ignoreUnused (clip);
+        contentLibraryManager->recordRecentUse (file);
     };
+    timeline->onExportClipToLibrary = [this] (te::Clip& clip) { handleExportClipToLibrary (clip); };
+    timeline->instantiateClipPreset = [this] (te::ClipTrack& track, te::TimePosition start, const juce::File& presetFile)
+    {
+        if (auto* clip = clipLibraryManager->instantiateClip (track, start, presetFile))
+        {
+            timeline->rebuildTracks();
+            projectManager.getSelectionManager().selectOnly (clip);
+            return clip;
+        }
+
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                "Clip Preset",
+                                                "Could not instantiate the clip preset.");
+        return (te::Clip*) nullptr;
+    };
+    timeline->onTrackSelected = [this] (te::Track&) { syncRoamingFocus(); };
     timeline->createPlugin = [this] (const juce::PluginDescription& desc)
     {
         if (auto* edit = projectManager.getEdit())
@@ -184,18 +212,35 @@ void MainContentComponent::rebuildEditUI()
         return te::Plugin::Ptr {};
     };
 
-    pluginTray->setCreatePlugin ([this] (const juce::PluginDescription& desc)
+    sessionView->onTrackSelected = [this] (te::EditItemID trackId)
     {
-        if (auto* edit = projectManager.getEdit())
-            return pluginScanner->createPlugin (desc, *edit);
-        return te::Plugin::Ptr {};
-    });
-    pluginTray->setOnAddPlugin ([this] (te::Track& t) { handleAddPlugin (t); });
+        sessionFocusedTrackId = trackId;
+        syncRoamingFocus();
+    };
+
+    transportBar->setSessionManager (sessionManager.get());
+    transportBar->setSessionViewActive (timeline->getEditViewState().getMainView() == MainView::session);
+
+    if (auto* tray = getPluginTray())
+    {
+        tray->setCreatePlugin ([this] (const juce::PluginDescription& desc)
+        {
+            if (auto* edit = projectManager.getEdit())
+                return pluginScanner->createPlugin (desc, *edit);
+            return te::Plugin::Ptr {};
+        });
+        tray->setOnAddPlugin ([this] (te::Track& t) { handleAddPlugin (t); });
+    }
 
     addAndMakeVisible (*transportBar);
     addAndMakeVisible (*timeline);
-    addAndMakeVisible (*pluginTray);
-    pluginBrowser->setVisible (false);
+    addAndMakeVisible (*sessionView);
+    addAndMakeVisible (*detailPanelStack);
+
+    if (browserVisible)
+        addAndMakeVisible (*browserPanel);
+
+    transportBar->setBrowserToggleState (browserVisible);
 
     if (mixerVisible)
         addAndMakeVisible (*mixerPanel);
@@ -207,7 +252,8 @@ void MainContentComponent::rebuildEditUI()
         addAndMakeVisible (*automationPanel);
 
     updateLearnStatus();
-    syncClipInspector();
+    syncRoamingFocus();
+    updateMainViewVisibility();
     resized();
     updateWindowTitle();
 }
@@ -270,7 +316,7 @@ void MainContentComponent::handleOpenProject()
 
 void MainContentComponent::handleSaveProject()
 {
-    switch (projectManager.saveProject (false, this))
+    switch (projectManager.saveProject (false, false, this))
     {
         case ProjectManager::SaveResult::promptSaveAs:
             handleSaveProjectAs();
@@ -280,6 +326,7 @@ void MainContentComponent::handleSaveProject()
             rebuildEditUI();
             break;
         default:
+            saveGroovePool();
             updateWindowTitle();
             break;
     }
@@ -298,8 +345,65 @@ void MainContentComponent::handleSaveProjectAs()
                              return;
 
                          if (projectManager.saveProjectAs (f, this))
+                         {
+                             groovePoolManager->loadForProject (projectManager.getCurrentProjectFile());
+                             saveGroovePool();
                              updateWindowTitle();
+                         }
                      });
+}
+
+void MainContentComponent::handleCollectAllAndSave()
+{
+    switch (projectManager.collectAllAndSave (this))
+    {
+        case ProjectManager::SaveResult::promptSaveAs:
+            handleSaveProjectAs();
+            break;
+        case ProjectManager::SaveResult::reloaded:
+            releaseEditUI();
+            rebuildEditUI();
+            break;
+        default:
+            saveGroovePool();
+            updateWindowTitle();
+            break;
+    }
+}
+
+void MainContentComponent::handleExportClipToLibrary (te::Clip& clip)
+{
+    auto w = std::make_shared<juce::AlertWindow> ("Save Clip Preset",
+                                                  "Enter a name for this clip preset:",
+                                                  juce::AlertWindow::QuestionIcon);
+    w->addTextEditor ("name", clip.getName());
+    w->addTextEditor ("category", "User");
+    w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([w, this, clipPtr = te::Clip::Ptr (&clip)] (int result) mutable
+    {
+        if (result != 1 || clipPtr == nullptr)
+            return;
+
+        const auto name = w->getTextEditorContents ("name").trim();
+        const auto category = w->getTextEditorContents ("category").trim();
+
+        if (name.isEmpty())
+            return;
+
+        if (clipLibraryManager->saveClip (*clipPtr, name, category).existsAsFile())
+        {
+            if (browserPanel != nullptr)
+                browserPanel->refresh();
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                    "Save Clip Preset",
+                                                    "Could not save the clip preset.");
+        }
+    }));
 }
 
 void MainContentComponent::handleExport()
@@ -319,7 +423,13 @@ void MainContentComponent::handleImportAudio()
 
 void MainContentComponent::handleAddAudioTrack()
 {
-    EngineHelpers::getOrInsertAudioTrack (*projectManager.getEdit());
+    if (auto* track = EngineHelpers::getOrInsertAudioTrack (*projectManager.getEdit()))
+    {
+        EngineHelpers::applyDefaultDeviceChain (*track,
+                                                appSettings.getDefaultDeviceChain (DefaultChainKind::audioTrack),
+                                                engine,
+                                                false);
+    }
     timeline->rebuildTracks();
 }
 
@@ -327,7 +437,13 @@ void MainContentComponent::handleAddMidiTrack()
 {
     const int idx = (int) te::getAudioTracks (*projectManager.getEdit()).size();
     if (auto* track = EngineHelpers::getOrInsertTrackForMidi (*projectManager.getEdit(), idx))
+    {
         EngineHelpers::assignDefaultInputToTrack (*track, true);
+        EngineHelpers::applyDefaultDeviceChain (*track,
+                                                appSettings.getDefaultDeviceChain (DefaultChainKind::midiTrack),
+                                                engine,
+                                                true);
+    }
     timeline->rebuildTracks();
 }
 
@@ -347,13 +463,11 @@ void MainContentComponent::handleClipDoubleClick (te::Clip& clip)
 
 void MainContentComponent::handleAddPlugin (te::Track& track)
 {
-    pluginBrowser->selectedTrack = &track;
-    if (pluginTray != nullptr)
-        pluginTray->setTrack (&track);
-    if (! pluginBrowser->isVisible())
-        addAndMakeVisible (*pluginBrowser);
-    pluginBrowser->toFront (true);
-    resized();
+    if (auto* tray = getPluginTray())
+        tray->setTrack (&track);
+
+    syncRoamingFocus();
+    showPluginsBrowser();
 }
 
 void MainContentComponent::showPianoRoll (te::MidiClip& clip)
@@ -361,7 +475,7 @@ void MainContentComponent::showPianoRoll (te::MidiClip& clip)
     pianoRollWindow = nullptr;
     pianoRollEditor = nullptr;
 
-    auto* editor = new PianoRollEditor (clip, *projectManager.getEdit(), timeline->getEditViewState());
+    auto* editor = new PianoRollEditor (clip, *projectManager.getEdit(), timeline->getEditViewState(), *groovePoolManager);
     pianoRollEditor = editor;
 
     auto window = std::make_unique<PianoRollWindow> ("Piano Roll - " + clip.getName(),
@@ -436,24 +550,92 @@ void MainContentComponent::toggleAutomationPanel()
     resized();
 }
 
-void MainContentComponent::syncClipInspector()
+void MainContentComponent::syncRoamingFocus()
 {
-    if (clipInspector == nullptr)
-        return;
-
-    clipInspector->setClips (projectManager.getSelectionManager().getItemsOfType<te::Clip>());
-
-    if (clipInspector->hasAudioSelection())
+    if (auto* tray = getPluginTray())
     {
-        if (clipInspector->getParentComponent() == nullptr)
-            addAndMakeVisible (*clipInspector);
+        if (auto* focused = resolveFocusedTrack())
+            tray->setTrack (focused);
     }
-    else if (clipInspector->getParentComponent() != nullptr)
+
+    if (detailPanelStack != nullptr)
     {
-        removeChildComponent (clipInspector.get());
+        detailPanelStack->updateClipSelection (
+            projectManager.getSelectionManager().getItemsOfType<te::Clip>());
+    }
+
+    if (automationPanel != nullptr)
+    {
+        if (auto* focused = resolveFocusedTrack())
+            automationPanel->setTrack (focused);
+    }
+
+    if (browserPanel != nullptr)
+    {
+        if (auto* pluginBrowser = browserPanel->getPluginBrowser())
+            pluginBrowser->selectedTrack = resolveFocusedTrack();
     }
 
     resized();
+}
+
+void MainContentComponent::saveGroovePool()
+{
+    if (groovePoolManager != nullptr)
+        groovePoolManager->saveForProject();
+}
+
+te::Track* MainContentComponent::resolveFocusedTrack() const
+{
+    if (timeline != nullptr && timeline->getEditViewState().getMainView() == MainView::session
+        && sessionFocusedTrackId != te::EditItemID())
+    {
+        if (auto* edit = projectManager.getEdit())
+        {
+            for (auto track : te::getAllTracks (*edit))
+            {
+                if (track->itemID == sessionFocusedTrackId)
+                    return track;
+            }
+        }
+    }
+
+    auto& selection = projectManager.getSelectionManager();
+
+    if (auto* selected = selection.getFirstItemOfType<te::Track>())
+        return selected;
+
+    if (auto* clip = selection.getFirstItemOfType<te::Clip>())
+        return clip->getTrack();
+
+    if (auto* tray = getPluginTray())
+        if (auto* t = tray->getTrack())
+            return t;
+
+    if (auto* edit = projectManager.getEdit())
+    {
+        for (auto track : te::getAllTracks (*edit))
+        {
+            if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track))
+                return clipTrack;
+        }
+    }
+
+    return nullptr;
+}
+
+PluginTrayComponent* MainContentComponent::getPluginTray() const
+{
+    return detailPanelStack != nullptr ? detailPanelStack->getPluginTray() : nullptr;
+}
+
+void MainContentComponent::showPluginsBrowser()
+{
+    if (! browserVisible)
+        toggleBrowserPanel();
+
+    if (browserPanel != nullptr)
+        browserPanel->showPluginsTab();
 }
 
 void MainContentComponent::resized()
@@ -473,19 +655,70 @@ void MainContentComponent::resized()
     if (automationVisible && automationPanel != nullptr)
         automationPanel->setBounds (r.removeFromBottom (automationPanel->getPreferredHeight()));
 
-    if (clipInspector != nullptr && clipInspector->hasAudioSelection())
-        clipInspector->setBounds (r.removeFromBottom (clipInspector->getPreferredHeight()));
+    if (detailPanelStack != nullptr)
+        detailPanelStack->setBounds (r.removeFromBottom (detailPanelStack->getPreferredHeight()));
 
-    if (pluginTray != nullptr)
-        pluginTray->setBounds (r.removeFromBottom (148));
-
-    if (pluginBrowser != nullptr && pluginBrowser->isVisible())
+    if (browserPanel != nullptr && browserVisible)
     {
-        auto pluginArea = r.removeFromRight (250);
-        pluginBrowser->setBounds (pluginArea);
+        auto browserArea = r.removeFromLeft (BrowserPanel::preferredWidth);
+        browserPanel->setBounds (browserArea);
     }
 
-    timeline->setBounds (r);
+    auto* edit = projectManager.getEdit();
+    const bool sessionMode = edit != nullptr
+        && timeline != nullptr
+        && timeline->getEditViewState().getMainView() == MainView::session;
+
+    if (sessionMode)
+    {
+        timeline->setVisible (false);
+        if (sessionView != nullptr)
+        {
+            sessionView->setVisible (true);
+            sessionView->setBounds (r);
+        }
+    }
+    else
+    {
+        if (sessionView != nullptr)
+            sessionView->setVisible (false);
+
+        timeline->setVisible (true);
+        timeline->setBounds (r);
+    }
+}
+
+void MainContentComponent::toggleMainView()
+{
+    if (timeline == nullptr)
+        return;
+
+    auto& viewState = timeline->getEditViewState();
+    const auto next = viewState.getMainView() == MainView::session ? MainView::arrangement : MainView::session;
+    viewState.setMainView (next);
+
+    if (transportBar != nullptr)
+        transportBar->setSessionViewActive (next == MainView::session);
+
+    updateMainViewVisibility();
+    resized();
+}
+
+void MainContentComponent::updateMainViewVisibility()
+{
+    if (timeline == nullptr)
+        return;
+
+    const bool sessionMode = timeline->getEditViewState().getMainView() == MainView::session;
+
+    if (transportBar != nullptr)
+        transportBar->setSessionViewActive (sessionMode);
+
+    if (sessionView != nullptr)
+        sessionView->setVisible (sessionMode);
+
+    if (timeline != nullptr)
+        timeline->setVisible (! sessionMode);
 }
 
 bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
@@ -499,7 +732,12 @@ bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Componen
 void MainContentComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
     if (source == &appSettings)
+    {
         application.getAppLookAndFeel().setTheme (appSettings.getTheme());
+
+        if (contentLibraryManager != nullptr)
+            contentLibraryManager->rescanAll();
+    }
 }
 
 ApplicationCommandTarget* MainContentComponent::getNextCommandTarget()
@@ -530,6 +768,11 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
         AppCommandIDs::prevMarker,
         AppCommandIDs::nextMarker,
         AppCommandIDs::toggleTakeLanes,
+        AppCommandIDs::consolidateClips,
+        AppCommandIDs::applyGrooveToClips,
+        AppCommandIDs::toggleDetailDevices,
+        AppCommandIDs::toggleDetailClip,
+        AppCommandIDs::toggleMainView,
         AppCommandIDs::pluginCopy,
         AppCommandIDs::pluginPaste,
         AppCommandIDs::pluginDuplicate,
@@ -561,10 +804,10 @@ void MainContentComponent::getCommandInfo (juce::CommandID commandID, juce::Appl
 
 bool MainContentComponent::isPluginTrayContext() const
 {
-    if (pluginTray == nullptr || getActivePianoRollEditor() != nullptr)
+    if (getPluginTray() == nullptr || getActivePianoRollEditor() != nullptr)
         return false;
 
-    if (pluginTray->hasKeyboardFocus (true))
+    if (getPluginTray()->hasKeyboardFocus (true))
         return true;
 
     return ! projectManager.getSelectionManager().getItemsOfType<te::Plugin>().isEmpty();
@@ -607,8 +850,9 @@ bool MainContentComponent::perform (const InvocationInfo& info)
             case AppCommandIDs::pluginPaste:
             case AppCommandIDs::pluginDuplicate:
             case AppCommandIDs::pluginDelete:
-                if (pluginTray != nullptr && pluginTray->performCommand (info.commandID))
-                    return true;
+                if (auto* tray = getPluginTray())
+                    if (tray->performCommand (info.commandID))
+                        return true;
                 break;
             default:
                 break;
@@ -665,6 +909,47 @@ bool MainContentComponent::perform (const InvocationInfo& info)
             if (timeline != nullptr)
                 return timeline->performCommand (info.commandID);
             break;
+        case AppCommandIDs::applyGrooveToClips:
+        {
+            if (groovePoolManager == nullptr)
+                break;
+
+            if (const auto* groove = groovePoolManager->getSelectedGroove())
+            {
+                juce::String error;
+                if (auto* currentEdit = projectManager.getEdit())
+                {
+                    EngineHelpers::applyGrooveToSelection (*currentEdit, projectManager.getSelectionManager(),
+                                                           *groove, &error);
+
+                    if (error.isNotEmpty())
+                        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Apply Groove", error);
+                }
+
+                return true;
+            }
+
+            break;
+        }
+        case AppCommandIDs::toggleDetailDevices:
+            if (detailPanelStack != nullptr)
+            {
+                detailPanelStack->setActiveView (DetailView::devices);
+                resized();
+                return true;
+            }
+            break;
+        case AppCommandIDs::toggleDetailClip:
+            if (detailPanelStack != nullptr)
+            {
+                detailPanelStack->setActiveView (DetailView::clip);
+                resized();
+                return true;
+            }
+            break;
+        case AppCommandIDs::toggleMainView:
+            toggleMainView();
+            return true;
         default:
             break;
     }
@@ -689,11 +974,41 @@ void MainContentComponent::showPreferences()
                              appSettings,
                              application.getAppLookAndFeel(),
                              engine,
+                             *pluginScanner,
+                             *pluginStateManager,
                              commandManager,
                              [this] (int seconds)
                              {
                                  projectManager.enableAutosave (seconds);
+                             },
+                             [this]
+                             {
+                                 if (contentLibraryManager != nullptr)
+                                     contentLibraryManager->rescanAll();
                              });
+}
+
+void MainContentComponent::toggleBrowserPanel()
+{
+    browserVisible = ! browserVisible;
+
+    if (browserPanel != nullptr)
+    {
+        if (browserVisible)
+        {
+            addAndMakeVisible (*browserPanel);
+        }
+        else
+        {
+            browserPanel->stopPreview();
+            removeChildComponent (browserPanel.get());
+        }
+    }
+
+    if (transportBar != nullptr)
+        transportBar->setBrowserToggleState (browserVisible);
+
+    resized();
 }
 
 void MainContentComponent::toggleMidiLearn()

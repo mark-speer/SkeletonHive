@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/GroovePoolManager.h"
 #include "UI/Arrangement/EditViewState.h"
 #include "UI/Midi/MidiLaneEditor.h"
 #include "UI/Midi/MidiLaneViewport.h"
@@ -16,10 +17,12 @@ namespace skeletonhive
 class PianoRollEditor : public juce::Component,
                         private te::ValueTreeAllEventListener,
                         private te::MidiInputDevice::MidiKeyChangeDispatcher::Listener,
-                        private juce::ScrollBar::Listener
+                        private juce::ScrollBar::Listener,
+                        private juce::ChangeListener
 {
 public:
-    PianoRollEditor (te::MidiClip& clip, te::Edit& edit, EditViewState& viewState);
+    PianoRollEditor (te::MidiClip& clip, te::Edit& edit, EditViewState& viewState,
+                     GroovePoolManager& groovePool);
     ~PianoRollEditor() override;
 
     void paint (juce::Graphics& g) override;
@@ -41,7 +44,10 @@ public:
     void duplicateSelectedNotes();
     void nudgeSelectedNotes (double beatDelta, int pitchDelta);
 
+    void refreshGrooveBox();
+
 private:
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
     enum class DragMode { none, marquee, move, resizeStart, resizeEnd, scrollKeyboard };
 
     struct NoteOrigin
@@ -129,6 +135,7 @@ private:
     te::MidiClip::Ptr clip;
     te::Edit& edit;
     EditViewState& editViewState;
+    GroovePoolManager& groovePool;
 
     // Toolbar
     juce::TextButton quantiseButton { "Quantize" }, humaniseButton { "Humanize" };

@@ -3,6 +3,7 @@
 #include "TrackComponents.h"
 #include "TimelineGrid.h"
 #include "TimelineTypes.h"
+#include "Engine/GroovePoolManager.h"
 
 namespace skeletonhive
 {
@@ -76,6 +77,11 @@ public:
     std::function<void()> onClipSelectionChanged;
     std::function<void()> onShowClipProperties;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (const juce::File&, te::Clip*)> onSampleInserted;
+    std::function<void (te::Clip&)> onExportClipToLibrary;
+    std::function<te::Clip* (te::ClipTrack&, te::TimePosition, const juce::File&)> instantiateClipPreset;
+
+    void setGroovePool (GroovePoolManager* pool) { groovePool = pool; }
 
     void rebuildTracks();
     void clearRangeSelectionsExcept (TrackLaneComponent* except);
@@ -169,6 +175,8 @@ private:
     bool updateTracks = false;
     bool relayoutTracks = false;
     bool laneLevelRenderingActive = false;
+
+    GroovePoolManager* groovePool = nullptr;
 };
 
 } // namespace skeletonhive

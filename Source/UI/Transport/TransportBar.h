@@ -5,6 +5,8 @@
 namespace skeletonhive
 {
 
+class SessionManager;
+
 class TransportBar : public juce::Component,
                      private juce::ChangeListener,
                      private juce::Timer
@@ -17,6 +19,7 @@ public:
     std::function<void()> onOpenProject;
     std::function<void()> onSaveProject;
     std::function<void()> onSaveProjectAs;
+    std::function<void()> onCollectAllAndSave;
     std::function<void()> onExport;
     std::function<void()> onImportAudio;
     std::function<void()> onAddAudioTrack;
@@ -29,10 +32,18 @@ public:
     std::function<void()> onToggleAutomation;
     std::function<void()> onShowPreferences;
     std::function<void()> onToggleMidiLearn;
+    std::function<void()> onToggleBrowser;
+
+    void setBrowserToggleState (bool visible);
 
     void setLearnModeActive (bool active);
 
+    void setSessionManager (SessionManager* manager);
+    void setSessionViewActive (bool active);
+
 private:
+    void syncSessionControls();
+    void updateSessionControlsVisibility();
     void resized() override;
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -41,14 +52,21 @@ private:
 
     te::Edit& edit;
     TransportController& transportController;
+    SessionManager* sessionManager = nullptr;
+    bool sessionViewActive = false;
+
+    juce::Label viewLabel { {}, "Arrangement" };
+    juce::ComboBox launchQuantizeBox;
+    juce::ComboBox sceneLaunchModeBox;
 
     juce::TextButton returnButton { "<<" }, playButton { "Play" }, stopButton { "Stop" },
         recordButton { "Rec" }, loopButton { "Loop" }, punchButton { "Punch" },
         clickButton { "Click" }, takesButton { "Takes" };
     juce::TextButton newButton { "New" }, openButton { "Open" }, saveButton { "Save" },
-        saveAsButton { "Save As" }, exportButton { "Export" },
+        saveAsButton { "Save As" }, collectButton { "Collect" }, exportButton { "Export" },
         importButton { "Import" }, addAudioButton { "+ Audio" }, addMidiButton { "+ MIDI" },
         addClipButton { "+ Clip" },         settingsButton { "Prefs" }, pluginsButton { "Plugins" },
+        browserButton { "Browser" },
         mixerButton { "Mixer" }, sidechainButton { "Sidechain" }, automationButton { "Auto" },
         learnButton { "Learn" };
     juce::Label positionLabel { {}, "00:00:00.000" };

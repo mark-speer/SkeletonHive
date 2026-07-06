@@ -3,6 +3,7 @@
 #include "UI/Arrangement/EditViewState.h"
 #include "Engine/PluginStateManager.h"
 #include "Engine/PluginDragManager.h"
+#include "Engine/PluginScanner.h"
 #include "Engine/TrackPluginChainModel.h"
 #include "PluginSlotComponent.h"
 
@@ -16,7 +17,7 @@ class PluginTrayComponent : public juce::Component,
                             public juce::DragAndDropTarget
 {
 public:
-    PluginTrayComponent (EditViewState& evs, PluginStateManager& stateManager);
+    PluginTrayComponent (EditViewState& evs, PluginStateManager& stateManager, PluginScanner& scanner);
     ~PluginTrayComponent() override;
 
     void setTrack (te::Track* track);
@@ -76,9 +77,12 @@ private:
     void handleSlotDrop (const PluginDragPayload& payload, int flatSlotIndex);
     void syncSelectionHighlight();
     void showRackMacros (te::RackInstance& rack);
+    void showReplacePicker (te::Plugin& plugin, te::RackInstance* rackContext);
+    void showPresetBrowser (te::Plugin& plugin, PluginSlotComponent* slot);
 
     EditViewState& editViewState;
     PluginStateManager& pluginStateManager;
+    PluginScanner& pluginScanner;
     te::Track::Ptr currentTrack;
     std::unique_ptr<TrackPluginChainModel> chainModel;
 
