@@ -259,6 +259,7 @@ private:
     bool browserVisible = true;
 
     te::EditItemID sessionFocusedTrackId;
+    int sessionFocusedSceneIndex = 0;
 
 };
 

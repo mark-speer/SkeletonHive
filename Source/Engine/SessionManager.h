@@ -8,6 +8,7 @@ namespace skeletonhive
 {
 
 class ClipLibraryManager;
+class SessionArrangementBridge;
 
 struct SessionSlotKey
 {
@@ -63,6 +64,8 @@ public:
     void launchScene (int sceneIndex);
     void stopAll();
 
+    void setArrangementBridge (SessionArrangementBridge* bridge) { arrangementBridge = bridge; }
+
     juce::Array<SessionSlotKey> getPlayingSlots() const { return playingSlots; }
 
 private:
@@ -100,6 +103,7 @@ private:
 
     juce::Array<SessionSlotKey> playingSlots;
     juce::Array<PendingLaunch> pendingLaunches;
+    SessionArrangementBridge* arrangementBridge = nullptr;
 };
 
 } // namespace skeletonhive

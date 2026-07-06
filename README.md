@@ -27,10 +27,11 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Global groove pool with project persistence; apply to MIDI clip selection (Shift+H) or from Grooves browser tab
 - Plugin browser embedded in left browser panel (Plugins tab)
 - Session View grid (Tab toggle) with clip slots, scene launch, launch quantization, and browser drag-to-slot import
+- Session ↔ Arrangement bridge: Record to Arrangement (Rec>), Capture & Insert (Shift+C), and Commit Loop to Arrangement
 
 ## Roadmap
 
-Phases 1–7 and Phase 8 Tier 1 (Session View MVP) are implemented. Planned next steps (Session ↔ Arrangement bridge, follow actions)
+Phases 1–7 and Phase 8 Tiers 1–2 (Session View + Arrangement bridge) are implemented. Planned next steps (follow actions, performance features)
 are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§15).
 
 ## Requirements

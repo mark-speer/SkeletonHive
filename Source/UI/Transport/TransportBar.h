@@ -6,6 +6,7 @@ namespace skeletonhive
 {
 
 class SessionManager;
+class SessionArrangementBridge;
 
 class TransportBar : public juce::Component,
                      private juce::ChangeListener,
@@ -39,10 +40,15 @@ public:
     void setLearnModeActive (bool active);
 
     void setSessionManager (SessionManager* manager);
+    void setSessionArrangementBridge (SessionArrangementBridge* bridge);
     void setSessionViewActive (bool active);
+
+    std::function<void()> onToggleRecordToArrangement;
+    std::function<void()> onCaptureSession;
 
 private:
     void syncSessionControls();
+    void syncSessionCaptureControls();
     void updateSessionControlsVisibility();
     void resized() override;
     void timerCallback() override;
@@ -53,11 +59,15 @@ private:
     te::Edit& edit;
     TransportController& transportController;
     SessionManager* sessionManager = nullptr;
+    SessionArrangementBridge* sessionArrangementBridge = nullptr;
     bool sessionViewActive = false;
 
     juce::Label viewLabel { {}, "Arrangement" };
     juce::ComboBox launchQuantizeBox;
     juce::ComboBox sceneLaunchModeBox;
+    juce::TextButton recordToArrangementButton { "Rec>" };
+    juce::TextButton captureButton { "Capture" };
+    juce::Label writePositionLabel { {}, "Write: 0.0.0" };
 
     juce::TextButton returnButton { "<<" }, playButton { "Play" }, stopButton { "Stop" },
         recordButton { "Rec" }, loopButton { "Loop" }, punchButton { "Punch" },

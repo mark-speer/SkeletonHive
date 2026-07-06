@@ -13,6 +13,8 @@ public:
                           ClipLibraryManager* clipLibrary);
 
     std::function<void (te::EditItemID trackId)> onTrackSelected;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onSlotFocused;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onCommitLoopToArrangement;
 
 private:
     void resized() override;

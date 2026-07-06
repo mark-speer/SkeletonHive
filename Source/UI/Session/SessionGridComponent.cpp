@@ -61,20 +61,22 @@ void SessionGridComponent::rebuild()
         {
             auto* slot = slots.add (new ClipSlotComponent (sessionManager, editViewState, clipLibraryManager,
                                                           track->itemID, scene));
-            slot->onTrackFocus = [this] (te::EditItemID trackId)
+            slot->onTrackFocus = [this] (te::EditItemID trackId, int sceneIndex)
             {
                 selectedTrackId = trackId;
                 if (onTrackSelected)
                     onTrackSelected (trackId);
 
-                for (auto* s : slots)
-                    s->setSelected (false);
+                if (onSlotFocused)
+                    onSlotFocused (trackId, sceneIndex);
 
                 for (auto* s : slots)
-                {
-                    // highlight slots on focused track only for selection feedback
-                    juce::ignoreUnused (s);
-                }
+                    s->setSelected (false);
+            };
+            slot->onCommitLoopToArrangement = [this] (te::EditItemID trackId, int sceneIndex)
+            {
+                if (onCommitLoopToArrangement)
+                    onCommitLoopToArrangement (trackId, sceneIndex);
             };
             addAndMakeVisible (*slot);
         }

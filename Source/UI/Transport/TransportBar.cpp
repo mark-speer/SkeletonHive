@@ -1,5 +1,6 @@
 #include "TransportBar.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/SessionArrangementBridge.h"
 #include "Engine/SessionManager.h"
 
 namespace skeletonhive
@@ -82,6 +83,24 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
         if (sessionManager != nullptr)
             sessionManager->setSceneLaunchMode (static_cast<SceneLaunchMode> (sceneLaunchModeBox.getSelectedId() - 1));
     };
+
+    recordToArrangementButton.setClickingTogglesState (true);
+    recordToArrangementButton.setTooltip ("Record session launches into the arrangement timeline");
+    recordToArrangementButton.onClick = [this]
+    {
+        if (onToggleRecordToArrangement)
+            onToggleRecordToArrangement();
+    };
+
+    captureButton.setTooltip ("Capture playing session clips into the arrangement (Shift+C)");
+    captureButton.onClick = [this]
+    {
+        if (onCaptureSession)
+            onCaptureSession();
+    };
+
+    writePositionLabel.setJustificationType (juce::Justification::centredLeft);
+    writePositionLabel.setFont (juce::FontOptions (10.0f));
 
     newButton.onClick = [this] { if (onNewProject) onNewProject(); };
     openButton.onClick = [this] { if (onOpenProject) onOpenProject(); };
@@ -166,6 +185,9 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (viewLabel);
     addAndMakeVisible (launchQuantizeBox);
     addAndMakeVisible (sceneLaunchModeBox);
+    addAndMakeVisible (recordToArrangementButton);
+    addAndMakeVisible (captureButton);
+    addAndMakeVisible (writePositionLabel);
 
     updateSessionControlsVisibility();
 
@@ -177,6 +199,9 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
 
 TransportBar::~TransportBar()
 {
+    if (sessionArrangementBridge != nullptr)
+        sessionArrangementBridge->removeChangeListener (this);
+
     edit.getTransport().removeChangeListener (this);
 }
 
@@ -217,6 +242,9 @@ void TransportBar::resized()
         viewLabel.setBounds (row2.removeFromLeft (90).reduced (1));
         launchQuantizeBox.setBounds (row2.removeFromLeft (130).reduced (1));
         sceneLaunchModeBox.setBounds (row2.removeFromLeft (130).reduced (1));
+        recordToArrangementButton.setBounds (row2.removeFromLeft (btnW).reduced (1));
+        captureButton.setBounds (row2.removeFromLeft (btnW + 8).reduced (1));
+        writePositionLabel.setBounds (row2.removeFromLeft (120).reduced (1));
     }
 }
 
@@ -224,6 +252,22 @@ void TransportBar::setSessionManager (SessionManager* manager)
 {
     sessionManager = manager;
     syncSessionControls();
+}
+
+void TransportBar::setSessionArrangementBridge (SessionArrangementBridge* bridge)
+{
+    if (sessionArrangementBridge != bridge)
+    {
+        if (sessionArrangementBridge != nullptr)
+            sessionArrangementBridge->removeChangeListener (this);
+
+        sessionArrangementBridge = bridge;
+
+        if (sessionArrangementBridge != nullptr)
+            sessionArrangementBridge->addChangeListener (this);
+    }
+
+    syncSessionCaptureControls();
 }
 
 void TransportBar::setSessionViewActive (bool active)
@@ -247,13 +291,38 @@ void TransportBar::updateSessionControlsVisibility()
 {
     launchQuantizeBox.setVisible (sessionViewActive);
     sceneLaunchModeBox.setVisible (sessionViewActive);
+    recordToArrangementButton.setVisible (sessionViewActive);
+    captureButton.setVisible (sessionViewActive);
+    writePositionLabel.setVisible (sessionViewActive);
     viewLabel.setVisible (true);
+}
+
+void TransportBar::syncSessionCaptureControls()
+{
+    if (sessionArrangementBridge == nullptr)
+    {
+        recordToArrangementButton.setToggleState (false, juce::dontSendNotification);
+        writePositionLabel.setText ("Write: 0.0.0", juce::dontSendNotification);
+        return;
+    }
+
+    recordToArrangementButton.setToggleState (sessionArrangementBridge->isRecordToArrangementEnabled(),
+                                              juce::dontSendNotification);
+    recordToArrangementButton.setColour (juce::TextButton::buttonColourId,
+                                         sessionArrangementBridge->isRecordToArrangementEnabled()
+                                             ? juce::Colour (0xffef476f)
+                                             : findColour (juce::TextButton::buttonColourId));
+
+    const auto writePos = sessionArrangementBridge->getArrangementWritePosition();
+    writePositionLabel.setText ("Write: " + EngineHelpers::timeToTimecodeString (writePos.inSeconds()),
+                                juce::dontSendNotification);
 }
 
 void TransportBar::timerCallback()
 {
     positionLabel.setText (EngineHelpers::getPositionString (edit), juce::dontSendNotification);
     syncTempoControls();
+    syncSessionCaptureControls();
 }
 
 void TransportBar::syncTempoControls()
@@ -269,8 +338,11 @@ void TransportBar::syncTempoControls()
         timeSigBox.setSelectedId (idx + 1, juce::dontSendNotification);
 }
 
-void TransportBar::changeListenerCallback (juce::ChangeBroadcaster*)
+void TransportBar::changeListenerCallback (juce::ChangeBroadcaster* source)
 {
+    if (source == sessionArrangementBridge)
+        syncSessionCaptureControls();
+
     updateButtonStates();
 }
 

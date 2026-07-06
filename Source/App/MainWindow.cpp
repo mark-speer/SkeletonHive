@@ -135,7 +135,9 @@ void MainContentComponent::rebuildEditUI()
                                                     projectManager.getInsertPoint(),
                                                     telemetryHub.get());
     sessionManager = std::make_unique<SessionManager> (*edit, timeline->getEditViewState(), *transportController);
-    sessionArrangementBridge = std::make_unique<SessionArrangementBridge> (*edit);
+    sessionArrangementBridge = std::make_unique<SessionArrangementBridge> (*edit, timeline->getEditViewState(),
+                                                                          *sessionManager, *transportController);
+    sessionManager->setArrangementBridge (sessionArrangementBridge.get());
     sessionView = std::make_unique<SessionViewComponent> (*sessionManager, timeline->getEditViewState(),
                                                           clipLibraryManager.get());
     mixerPanel = std::make_unique<MixerPanel> (*edit, telemetryHub.get());
@@ -218,8 +220,46 @@ void MainContentComponent::rebuildEditUI()
         syncRoamingFocus();
     };
 
+    sessionView->onSlotFocused = [this] (te::EditItemID trackId, int sceneIndex)
+    {
+        sessionFocusedTrackId = trackId;
+        sessionFocusedSceneIndex = sceneIndex;
+        syncRoamingFocus();
+    };
+
+    sessionView->onCommitLoopToArrangement = [this] (te::EditItemID trackId, int sceneIndex)
+    {
+        if (sessionArrangementBridge == nullptr)
+            return;
+
+        sessionArrangementBridge->duplicateLoopToArrangement (trackId, sceneIndex);
+
+        if (timeline != nullptr)
+            timeline->rebuildTracks();
+    };
+
     transportBar->setSessionManager (sessionManager.get());
+    transportBar->setSessionArrangementBridge (sessionArrangementBridge.get());
     transportBar->setSessionViewActive (timeline->getEditViewState().getMainView() == MainView::session);
+
+    transportBar->onToggleRecordToArrangement = [this]
+    {
+        if (sessionArrangementBridge == nullptr)
+            return;
+
+        sessionArrangementBridge->setRecordToArrangementEnabled (! sessionArrangementBridge->isRecordToArrangementEnabled());
+    };
+
+    transportBar->onCaptureSession = [this]
+    {
+        if (sessionArrangementBridge == nullptr)
+            return;
+
+        sessionArrangementBridge->captureAndInsert();
+
+        if (timeline != nullptr)
+            timeline->rebuildTracks();
+    };
 
     if (auto* tray = getPluginTray())
     {
@@ -695,6 +735,10 @@ void MainContentComponent::toggleMainView()
 
     auto& viewState = timeline->getEditViewState();
     const auto next = viewState.getMainView() == MainView::session ? MainView::arrangement : MainView::session;
+
+    if (next == MainView::session && sessionArrangementBridge != nullptr && transportController != nullptr)
+        sessionArrangementBridge->syncWritePositionFromTransport();
+
     viewState.setMainView (next);
 
     if (transportBar != nullptr)
@@ -773,6 +817,9 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
         AppCommandIDs::toggleDetailDevices,
         AppCommandIDs::toggleDetailClip,
         AppCommandIDs::toggleMainView,
+        AppCommandIDs::toggleRecordToArrangement,
+        AppCommandIDs::captureSessionToArrangement,
+        AppCommandIDs::duplicateSessionLoopToArrangement,
         AppCommandIDs::pluginCopy,
         AppCommandIDs::pluginPaste,
         AppCommandIDs::pluginDuplicate,
@@ -950,6 +997,38 @@ bool MainContentComponent::perform (const InvocationInfo& info)
         case AppCommandIDs::toggleMainView:
             toggleMainView();
             return true;
+        case AppCommandIDs::toggleRecordToArrangement:
+        case AppCommandIDs::captureSessionToArrangement:
+        case AppCommandIDs::duplicateSessionLoopToArrangement:
+        {
+            if (timeline == nullptr || timeline->getEditViewState().getMainView() != MainView::session)
+                break;
+
+            if (sessionArrangementBridge == nullptr)
+                break;
+
+            switch (info.commandID)
+            {
+                case AppCommandIDs::toggleRecordToArrangement:
+                    sessionArrangementBridge->setRecordToArrangementEnabled (
+                        ! sessionArrangementBridge->isRecordToArrangementEnabled());
+                    return true;
+                case AppCommandIDs::captureSessionToArrangement:
+                    sessionArrangementBridge->captureAndInsert();
+                    timeline->rebuildTracks();
+                    return true;
+                case AppCommandIDs::duplicateSessionLoopToArrangement:
+                    if (sessionFocusedTrackId != te::EditItemID())
+                    {
+                        sessionArrangementBridge->duplicateLoopToArrangement (sessionFocusedTrackId,
+                                                                              sessionFocusedSceneIndex);
+                        timeline->rebuildTracks();
+                    }
+                    return true;
+                default: break;
+            }
+            break;
+        }
         default:
             break;
     }

@@ -94,7 +94,7 @@ void ClipSlotComponent::mouseDown (const juce::MouseEvent& e)
         return;
 
     if (onTrackFocus)
-        onTrackFocus (trackId);
+        onTrackFocus (trackId, sceneIndex);
 }
 
 void ClipSlotComponent::mouseUp (const juce::MouseEvent& e)
@@ -174,6 +174,7 @@ void ClipSlotComponent::showContextMenu (juce::Point<int> screenPos)
     menu.addSeparator();
     menu.addItem (3, "Clear Slot", hasClip);
     menu.addItem (4, "Duplicate to Scene...", hasClip);
+    menu.addItem (5, "Commit Loop to Arrangement", hasClip);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
                         [this] (int result)
@@ -184,6 +185,10 @@ void ClipSlotComponent::showContextMenu (juce::Point<int> screenPos)
             case 2: sessionManager.stopSlot (trackId, sceneIndex); break;
             case 3: sessionManager.clearSlot (trackId, sceneIndex); refresh(); break;
             case 4: promptDuplicateToScene(); break;
+            case 5:
+                if (onCommitLoopToArrangement)
+                    onCommitLoopToArrangement (trackId, sceneIndex);
+                break;
             default: break;
         }
     });

@@ -19,6 +19,8 @@ public:
     static constexpr int trackHeaderWidth = 190;
 
     std::function<void (te::EditItemID trackId)> onTrackSelected;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onSlotFocused;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onCommitLoopToArrangement;
 
     void rebuild();
 

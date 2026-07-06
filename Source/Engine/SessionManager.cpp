@@ -1,6 +1,7 @@
 #include "SessionManager.h"
 #include "ClipLibraryManager.h"
 #include "EngineHelpers.h"
+#include "SessionArrangementBridge.h"
 #include "UI/Arrangement/TimelineGrid.h"
 
 namespace skeletonhive
@@ -320,6 +321,9 @@ void SessionManager::executeLaunch (SessionSlotKey key)
         transportController.play();
     }
 
+    if (arrangementBridge != nullptr)
+        arrangementBridge->onSlotLaunched (key);
+
     sendChangeMessage();
 }
 
@@ -366,6 +370,9 @@ void SessionManager::stopSlot (te::EditItemID trackId, int sceneIndex)
     if (auto* clip = getSlotClip (trackId, sceneIndex))
         EngineHelpers::parkSessionClip (*clip);
 
+    if (arrangementBridge != nullptr)
+        arrangementBridge->onSlotStopped (key);
+
     if (playingSlots.isEmpty())
         transportController.stop();
     else
@@ -406,10 +413,15 @@ void SessionManager::stopAll()
 {
     pendingLaunches.clear();
 
-    for (const auto& key : playingSlots)
+    const auto keys = playingSlots;
+
+    for (const auto& key : keys)
     {
         if (auto* clip = getSlotClip (key.trackId, key.sceneIndex))
             EngineHelpers::parkSessionClip (*clip);
+
+        if (arrangementBridge != nullptr)
+            arrangementBridge->onSlotStopped (key);
     }
 
     playingSlots.clear();
@@ -450,10 +462,15 @@ void SessionManager::changeListenerCallback (juce::ChangeBroadcaster*)
         if (playingSlots.isEmpty())
             return;
 
-        for (const auto& key : playingSlots)
+        const auto keys = playingSlots;
+
+        for (const auto& key : keys)
         {
             if (auto* clip = getSlotClip (key.trackId, key.sceneIndex))
                 EngineHelpers::parkSessionClip (*clip);
+
+            if (arrangementBridge != nullptr)
+                arrangementBridge->onSlotStopped (key);
         }
 
         playingSlots.clear();

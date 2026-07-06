@@ -59,6 +59,9 @@ enum
     toggleDetailDevices,
     toggleDetailClip,
     toggleMainView,
+    toggleRecordToArrangement,
+    captureSessionToArrangement,
+    duplicateSessionLoopToArrangement,
 };
 } // namespace AppCommandIDs
 

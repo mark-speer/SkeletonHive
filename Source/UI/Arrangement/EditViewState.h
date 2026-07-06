@@ -64,6 +64,8 @@ namespace IDs
     DECLARE_ID (slotsPerTrack)
     DECLARE_ID (launchQuantization)
     DECLARE_ID (sceneLaunchMode)
+    DECLARE_ID (arrangementWritePosition)
+    DECLARE_ID (recordToArrangementEnabled)
     DECLARE_ID (SLOT)
     DECLARE_ID (trackId)
     DECLARE_ID (sceneIndex)
@@ -100,6 +102,28 @@ public:
         slotsPerTrack.referTo (sessionState, IDs::slotsPerTrack, um, 8);
         launchQuantization.referTo (sessionState, IDs::launchQuantization, um, (int) LaunchQuantization::bar);
         sceneLaunchMode.referTo (sessionState, IDs::sceneLaunchMode, um, (int) SceneLaunchMode::stopOthers);
+        arrangementWritePosition.referTo (sessionState, IDs::arrangementWritePosition, um, 0s);
+        recordToArrangementEnabled.referTo (sessionState, IDs::recordToArrangementEnabled, um, false);
+    }
+
+    te::TimePosition getArrangementWritePosition() const
+    {
+        return arrangementWritePosition.get();
+    }
+
+    void setArrangementWritePosition (te::TimePosition pos)
+    {
+        arrangementWritePosition = pos;
+    }
+
+    bool isRecordToArrangementEnabled() const
+    {
+        return recordToArrangementEnabled.get();
+    }
+
+    void setRecordToArrangementEnabled (bool enabled)
+    {
+        recordToArrangementEnabled = enabled;
     }
 
     MainView getMainView() const
@@ -224,6 +248,8 @@ public:
     juce::CachedValue<int> slotsPerTrack;
     juce::CachedValue<int> launchQuantization;
     juce::CachedValue<int> sceneLaunchMode;
+    juce::CachedValue<te::TimePosition> arrangementWritePosition;
+    juce::CachedValue<bool> recordToArrangementEnabled;
 
     WaveformCache waveformCache;
     LaneBackgroundCache laneBackgroundCache;

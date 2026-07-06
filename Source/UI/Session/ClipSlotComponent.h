@@ -27,7 +27,8 @@ public:
     void setSelected (bool shouldBeSelected);
     bool isSelected() const { return selected; }
 
-    std::function<void (te::EditItemID trackId)> onTrackFocus;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onTrackFocus;
+    std::function<void (te::EditItemID trackId, int sceneIndex)> onCommitLoopToArrangement;
 
     bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
     void itemDropped (const SourceDetails& dragSourceDetails) override;

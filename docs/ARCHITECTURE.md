@@ -711,16 +711,21 @@ SessionArrangementBridge
 `EDITVIEWSTATE` pointing at clip IDs (additive-property pattern from §2.10).
 
 **Files:** `Source/UI/Session/*`, `Source/Engine/SessionManager.*`,
-`Source/Engine/SessionArrangementBridge.*` (stub for Tier 2),
+`Source/Engine/SessionArrangementBridge.*` (Tier 2 implemented),
 `MainWindow` view toggle, `TransportBar` launch-quantize controls.
 
-### Tier 2 — Session ↔ Arrangement bridge
+### Tier 2 — Session ↔ Arrangement bridge (implemented)
 
-- **Record to Arrangement** — launched clips write material into arrangement
-  lanes while playing.
-- **Capture & Insert** — grab currently playing session material into a new
-  arrangement clip at the playhead.
-- **Duplicate loop to arrangement** — one-click commit of a session loop.
+- **Record to Arrangement** — `Rec>` toggle; launched clips write material into arrangement
+  lanes while playing, extending each loop wrap until stopped.
+- **Capture & Insert** — grab currently playing session material into new
+  arrangement clips at the write position (Shift+C).
+- **Duplicate loop to arrangement** — per-slot context menu or command commits one
+  loop cycle at the snapped write cursor.
+
+**Files:** `SessionArrangementBridge.*`, `EditViewState` (`arrangementWritePosition`,
+`recordToArrangementEnabled`), `TransportBar` capture controls, `AppCommands`,
+`ClipSlotComponent` context menu.
 
 ### Tier 3 — Performance features
 
@@ -774,7 +779,7 @@ performance into the arrangement, and have the result look hand-arranged.
 | 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
 | 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
-| 8 | Tier 1 done | Session grid, scenes, launch quantize (Tier 2+ bridge planned) | Session View |
+| 8 | Tier 1–2 done | Session grid, scenes, launch quantize, arrangement bridge | Session View |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
 Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).
