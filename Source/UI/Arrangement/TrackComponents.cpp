@@ -23,6 +23,7 @@ enum class TimelineMenuResult
     copy,
     paste,
     createMidiClip,
+    loopSelection,
     newFolderTrack,
     fadeInLinear = 100,
     fadeInConvex,
@@ -95,7 +96,9 @@ void showTimelineContextMenu (juce::Component& target,
                               std::function<void()> onTakeLanesChanged,
                               std::function<void()> onClipsChanged,
                               std::function<void (te::Clip&)> onExportToLibrary,
-                              GroovePoolManager* groovePool)
+                              GroovePoolManager* groovePool,
+                              bool offerLoopSelection,
+                              std::function<void()> onLoopSelection)
 {
     juce::PopupMenu menu;
     const bool hasSelection = editViewState.selectionManager.getNumObjectsSelected() > 0;
@@ -190,10 +193,13 @@ void showTimelineContextMenu (juce::Component& target,
         menu.addItem ((int) TimelineMenuResult::clipProperties, "Clip Properties...");
     }
 
-    if (offerCreateMidiClip)
+    if (offerLoopSelection || offerCreateMidiClip)
     {
         menu.addSeparator();
-        menu.addItem ((int) TimelineMenuResult::createMidiClip, "Create MIDI Clip");
+        if (offerLoopSelection)
+            menu.addItem ((int) TimelineMenuResult::loopSelection, "Loop Selection");
+        if (offerCreateMidiClip)
+            menu.addItem ((int) TimelineMenuResult::createMidiClip, "Create MIDI Clip");
     }
 
     menu.addSeparator();
@@ -214,6 +220,7 @@ void showTimelineContextMenu (juce::Component& target,
                             .withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
                         [&editViewState, track, takeClip, groovePool,
                          onCreateMidiClip = std::move (onCreateMidiClip),
+                         onLoopSelection = std::move (onLoopSelection),
                          onShowClipProperties = std::move (onShowClipProperties),
                          onTakeLanesChanged = std::move (onTakeLanesChanged),
                          onClipsChanged = std::move (onClipsChanged),
@@ -281,6 +288,10 @@ void showTimelineContextMenu (juce::Component& target,
             case TimelineMenuResult::createMidiClip:
                 if (onCreateMidiClip)
                     onCreateMidiClip();
+                break;
+            case TimelineMenuResult::loopSelection:
+                if (onLoopSelection)
+                    onLoopSelection();
                 break;
             case TimelineMenuResult::newFolderTrack:
                 EngineHelpers::createFolderTrack (editViewState.edit, &editViewState.selectionManager);
@@ -1627,10 +1638,10 @@ void TrackFooterComponent::movePluginToSlot (te::Plugin& plugin, int targetSlotI
 TrackLaneComponent::TrackLaneComponent (EditViewState& evs, te::Track::Ptr t)
     : editViewState (evs), track (std::move (t))
 {
-    // Left-drag on MIDI lanes creates a time-range highlight. Without this flag
+    // Left-drag on clip lanes creates a time-range highlight. Without this flag
     // the timeline viewport's scroll-on-drag steals horizontal drags (especially
     // right-to-left) before the lane can extend the selection.
-    if (canDragCreateClips())
+    if (canDragSelectTimeRange())
         setViewportIgnoreDragFlag (true);
 
     track->state.addListener (this);
@@ -1703,6 +1714,11 @@ bool TrackLaneComponent::canDragCreateClips() const
     return EngineHelpers::canHostMidiClips (*track);
 }
 
+bool TrackLaneComponent::canDragSelectTimeRange() const
+{
+    return ! track->isFolderTrack();
+}
+
 bool TrackLaneComponent::isLaneLevelRendering() const
 {
     return useLaneLevelRendering (editViewState.getPixelsPerBeat());
@@ -1725,7 +1741,7 @@ void TrackLaneComponent::placePlayheadAtX (int x)
 
 void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.mods.isRightButtonDown())
+    if (e.mods.isPopupMenu() || e.mods.isRightButtonDown())
     {
         showLaneContextMenu (e);
         return;
@@ -1776,7 +1792,7 @@ void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 
     if (! dragCreateActive
         && e.getDistanceFromDragStart() >= timelineClickDragThresholdPx
-        && canDragCreateClips())
+        && canDragSelectTimeRange())
     {
         dragCreateActive = true;
     }
@@ -1840,6 +1856,16 @@ void TrackLaneComponent::clearRangeSelection()
     repaint();
 }
 
+void TrackLaneComponent::applyRangeSelectionToLoop()
+{
+    auto& transport = editViewState.edit.getTransport();
+    transport.setLoopRange (getRangeSelection());
+    transport.looping = true;
+
+    if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
+        timeline->repaintLoopBrace();
+}
+
 void TrackLaneComponent::createMidiClipFromRangeSelection()
 {
     if (! rangeSelectionActive || ! canDragCreateClips())
@@ -1870,7 +1896,9 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
                                      onClipSelectionChanged();
                              },
                              onExportClipToLibrary,
-                             groovePool);
+                             groovePool,
+                             rangeSelectionActive,
+                             [this] { applyRangeSelectionToLoop(); });
 }
 
 void TrackLaneComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)

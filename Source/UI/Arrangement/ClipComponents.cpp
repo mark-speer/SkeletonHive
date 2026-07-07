@@ -292,8 +292,17 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     {
         editViewState.selectionManager.selectOnly (clip.get());
 
+        bool offerLoopSelection = false;
+        std::function<void()> onLoopSelection;
+
         if (auto* lane = findParentComponentOfClass<TrackLaneComponent>())
+        {
+            offerLoopSelection = lane->hasRangeSelection();
+            if (offerLoopSelection)
+                onLoopSelection = [lane] { lane->applyRangeSelectionToLoop(); };
+
             lane->clearRangeSelection();
+        }
 
         if (editViewState.insertPoint != nullptr)
         {
@@ -320,7 +329,9 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
                                  onExportToLibrary,
                                  findParentComponentOfClass<TrackLaneComponent>() != nullptr
                                      ? findParentComponentOfClass<TrackLaneComponent>()->groovePool
-                                     : nullptr);
+                                     : nullptr,
+                                 offerLoopSelection,
+                                 std::move (onLoopSelection));
         if (onSelectionChanged)
             onSelectionChanged();
         return;

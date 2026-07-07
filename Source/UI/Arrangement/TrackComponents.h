@@ -27,7 +27,9 @@ void showTimelineContextMenu (juce::Component& target,
                               std::function<void()> onTakeLanesChanged = nullptr,
                               std::function<void()> onClipsChanged = nullptr,
                               std::function<void (te::Clip&)> onExportToLibrary = nullptr,
-                              GroovePoolManager* groovePool = nullptr);
+                              GroovePoolManager* groovePool = nullptr,
+                              bool offerLoopSelection = false,
+                              std::function<void()> onLoopSelection = nullptr);
 
 class FlaggedAsyncUpdater : public juce::AsyncUpdater
 {
@@ -227,6 +229,7 @@ public:
 
     void clearRangeSelection();
     bool hasRangeSelection() const { return rangeSelectionActive; }
+    void applyRangeSelectionToLoop();
 
     /** Re-applies clip bounds and visibility culling for the current view. */
     void refreshLayout();
@@ -268,6 +271,7 @@ private:
     void updateTakeLaneStack();
     int getClipAreaHeight() const;
     bool canDragCreateClips() const;
+    bool canDragSelectTimeRange() const;
     te::TimeRange getRangeSelection() const;
     void createMidiClipFromRangeSelection();
     te::Clip* insertSampleAtX (const juce::File& file, int localX);

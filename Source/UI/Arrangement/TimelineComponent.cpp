@@ -521,6 +521,11 @@ void TimelineComponent::clearRangeSelectionsExcept (TrackLaneComponent* except)
             lane->clearRangeSelection();
 }
 
+void TimelineComponent::repaintLoopBrace()
+{
+    ruler.repaint();
+}
+
 //==============================================================================
 // Keyboard commands
 
