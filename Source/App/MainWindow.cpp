@@ -818,10 +818,10 @@ bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Componen
 #if JUCE_DEBUG
     if (key == juce::KeyPress ('T', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier
                                          | juce::ModifierKeys::altModifier, 0)
-        && edit != nullptr)
+        && projectManager.getEdit() != nullptr)
     {
         const double startMs = juce::Time::getMillisecondCounterHiRes();
-        EngineHelpers::createStressTestTracks (*edit, 200, sessionManager != nullptr ? sessionManager->getSceneCount() : 8);
+        EngineHelpers::createStressTestTracks (*projectManager.getEdit(), 200, sessionManager != nullptr ? sessionManager->getSceneCount() : 8);
         const double afterTracksMs = juce::Time::getMillisecondCounterHiRes();
 
         if (sessionView != nullptr && sessionView->getGrid() != nullptr)

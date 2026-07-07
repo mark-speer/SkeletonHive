@@ -1,5 +1,10 @@
 #include "PluginWindow.h"
+#include "NativePluginEditor.h"
+#include "UI/Instruments/DrumRackEditor.h"
+#include "UI/Instruments/SamplerEditor.h"
+#include "Engine/DrumRackHelpers.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/NativePluginCatalog.h"
 
 namespace skeletonhive
 {
@@ -129,7 +134,23 @@ void PluginWindow::resizeToFitEditorContent()
 void PluginWindow::recreateEditor()
 {
     setEditor (nullptr);
-    setEditor (plugin.createEditor());
+
+    auto newEditor = plugin.createEditor();
+
+    if (newEditor == nullptr)
+        if (auto* rack = dynamic_cast<te::RackInstance*> (&plugin))
+            if (DrumRackHelpers::isDrumRack (*rack))
+                newEditor = DrumRackEditor::create (*rack);
+
+    if (newEditor == nullptr)
+        if (auto* sampler = dynamic_cast<te::SamplerPlugin*> (&plugin))
+            if (! plugin.isInRack())
+                newEditor = SamplerEditor::create (*sampler);
+
+    if (newEditor == nullptr && NativePluginCatalog::isNativePlugin (plugin))
+        newEditor = NativePluginEditor::create (plugin);
+
+    setEditor (std::move (newEditor));
     resizeToFitEditorContent();
 }
 

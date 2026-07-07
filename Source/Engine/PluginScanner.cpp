@@ -1,4 +1,5 @@
 #include "PluginScanner.h"
+#include "EngineHelpers.h"
 
 namespace skeletonhive
 {
@@ -245,7 +246,7 @@ bool PluginScanner::performScan (const juce::FileSearchPath& explicitPath,
 
 te::Plugin::Ptr PluginScanner::createPlugin (const juce::PluginDescription& desc, te::Edit& edit)
 {
-    return edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc);
+    return EngineHelpers::createPluginFromDescription (edit, desc);
 }
 
 } // namespace skeletonhive

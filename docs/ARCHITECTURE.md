@@ -773,12 +773,11 @@ performance into the arrangement, and have the result look hand-arranged.
 - Session launch timing must use TE transport APIs only — no custom audio-thread
   scheduling (§4, §2.7).
 
-### Explicitly deferred (Phase 9+)
+### Planned (Phase 9–12)
 
-- Built-in instruments (Simpler/Sampler/Operator equivalents).
-- Push/APC hardware profiles.
-- Collaboration / cloud / Ableton Link.
-- Full light-theme polish across every panel (Phase 5 foundation exists).
+The instrument, engine-depth, control-surface, and finish work once tracked as
+a single "Phase 9+" deferred bucket is now broken out into four scoped phases
+— see §16 for the full backlog.
 
 ---
 
@@ -794,6 +793,152 @@ performance into the arrangement, and have the result look hand-arranged.
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
 | 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
 | 8 | Tier 1–4 done | Session grid, scenes, launch quantize, arrangement bridge, performance, scale/probability, virtualization | Session View |
+| 9 | Tier 1–3 done | Native instruments/effects foundation (built-in synth, sampler, drum rack) | Simpler, Sampler, Drum Rack, Operator |
+| 10 | Planned | Warp engine, native effects rack, audio-to-MIDI, plugin process isolation, engine-scale testing | Warp markers, Live's built-in device library, crash isolation |
+| 11 | Planned | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
+| 12 | Planned | Version history, collaboration scoping, light-theme finish, accessibility audit | Project polish |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
-Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place).
+Phase 8 (largest lift; Tier 1 can start once Phase 6 comping is in place) →
+Phase 9 (unlocks native content for Session View) → Phase 10 (engine depth,
+depends on Phase 9's plugin base classes) → Phase 11 (depends on Phase 10's
+plugin isolation for safe hardware/MPE sessions) → Phase 12 (lowest
+architectural coupling; can slot in opportunistically).
+
+---
+
+## 16. Phase 9–12 backlog
+
+**Theme:** the remaining gaps between SkeletonHive and Ableton Live 12 fall
+into four categories — native content, audio-engine depth/robustness,
+hardware/expressive-control interop, and product finish. Each is scoped as
+its own phase so it can be implemented (and reviewed) independently, following
+the same TE-first, undo-safe, change-driven conventions as Phases 1–8 (§2,
+§11).
+
+### Phase 9 — Native Instruments & Effects Foundation (Tier 1–3 implemented)
+
+Today every plugin path (`PluginScanner`, `PluginBrowser`,
+`EngineHelpers::insertPluginOnTrack`) only deals with externally-scanned
+VST3/AU plugins; none of Tracktion Engine's built-in plugin classes are
+surfaced anywhere in the app. This is the largest single workflow gap vs. Live
+12, where Simpler/Sampler/Drum Rack/Wavetable are central to sketching a beat
+before ever touching a third-party plugin. It is also the prerequisite for
+Phase 10's native effects rack and Phase 11's hardware/Session workflows.
+
+- **Tier 1 — Expose TE's built-in plugins (implemented).** "Native" category in
+  `PluginBrowser`/`PluginPickerDialog` listing TE's built-in synth, sampler,
+  EQ, compressor, reverb, delay, and chorus/phaser plugins alongside scanned
+  VST3/AU results; insertion reuses `EngineHelpers::insertPluginOnTrack`.
+- **Tier 2 — Drum-Rack-equivalent (implemented).** Multi-pad sampler built on
+  `RackType`, reusing rack-macro infrastructure (`PerformanceMacroPanel`,
+  `RackMacroPanel`) for per-pad tuning/mixing; pads map to MIDI notes for
+  Session-grid and piano-roll triggering.
+- **Tier 3 — Simpler/Sampler-equivalent UI (implemented).** Dedicated
+  `SamplerEditor` with interactive waveform region editing (`SamplerWaveformComponent`),
+  per-sound gain/pan/root controls, and one-shot release toggle over
+  `te::SamplerPlugin` state (`setSoundExcerpt`, `setSoundGains`, `setSoundOpenEnded`).
+  Follows the `ClipInspectorPanel` thin-over-engine pattern with
+  `ValueTreeAllEventListener` on `plugin.state`.
+- **Tier 4 — Basic synth UI.** Subtractive/wavetable-style synth over TE's
+  built-in synth plugin if its parameter surface is sufficient; otherwise
+  scope as a new `juce::dsp`-based plugin (spike required either way).
+
+**Files:** `Source/Engine/NativePluginCatalog.*`, `Source/Engine/DrumRackHelpers.*`,
+`Source/Engine/SamplerHelpers.*`, `Source/UI/Plugins/NativePluginBrowserTab.*`,
+`Source/UI/Instruments/DrumRackEditor.*`, `Source/UI/Instruments/SamplerEditor.*`,
+`Source/UI/Instruments/SamplerWaveformComponent.*`, extensions to
+`PluginBrowser`/`PluginPickerDialog`/`PluginWindow`.
+
+**Dependencies and risks:** TE's `SamplerPlugin` has no ADSR envelope parameters
+and no region-loop playback while a note is held — Tier 3 surfaces gain/pan as
+the amplitude controls and maps one-shot to `openEnded` (release gating). True
+loop playback requires future engine work. Tier 4 may require net-new DSP rather
+than wrapping TE.
+
+### Phase 10 — Audio Engine Depth & Production-Grade Robustness
+
+**Theme:** close the "professional studio" gaps Phase 6 explicitly deferred,
+and harden the audio engine to Live's stability bar.
+
+- **Tier 1 — Warp engine.** Warp markers and transient-based warping over
+  TE's `WarpTimeManager`/time-stretch API — deferred from Phase 6 Tier 2
+  pending a dedicated API spike (§12).
+- **Tier 2 — Native effects rack.** EQ, compressor, saturation, multiband
+  dynamics, delay, and reverb built on top of Phase 9's native-plugin
+  exposure, wrapping TE's built-in DSP plugins per convention (§11: prefer
+  `te::` APIs over reimplementation) rather than a from-scratch `juce::dsp`
+  chain.
+- **Tier 3 — Audio-to-MIDI.** Melody/harmony/drum transcription from audio
+  clips; TE has no native transcription API, so this is a net-new analysis
+  engine.
+- **Tier 4 — Plugin process isolation.** Runtime plugin hosting is currently
+  in-process only (sandboxing today covers scan-time via the child-process
+  scanner and blacklist, §Phase 3 plugin hardening); a crashing VST3 during
+  playback takes down the whole app. Out-of-process hosting (a plugin bridge
+  executable + IPC) extends the existing out-of-process scanner pattern
+  (`SkeletonHiveApplication` already launches a second instance for scanning)
+  and is the single biggest concrete stability/performance parity item with
+  Live.
+- **Tier 5 — Engine-scale testing.** Disk streaming for large sample
+  libraries and freeze/render throughput profiling at scale, complementing
+  the existing UI-only 200-track stress test (§14 Tier 4) which does not
+  exercise audio-engine load.
+
+**Files:** `Source/Engine/WarpEngine.*` (new), extensions to
+`ExportManager`/`EngineHelpers`, new plugin-host bridge executable + IPC layer.
+
+**Dependencies and risks:** Tier 1 and Tier 4 both require upfront spikes into
+TE API surface/behaviour before implementation; Tier 4's IPC layer is the
+highest-risk item in this phase and should be prototyped in isolation before
+wiring into the main plugin-tray/track-footer paths (§7).
+
+### Phase 11 — Control Surfaces, MPE & Live Ecosystem Interop
+
+**Theme:** Live's hardware-first, expressive-performance workflow.
+
+- **Tier 1 — Generic MIDI control-surface API.** Extends the existing
+  `MidiLearnController`/`ParameterControlMappings` infrastructure (§10) from
+  single-parameter learn to full surface scripts (fader banks, transport,
+  session-grid feedback).
+- **Tier 2 — Push/APC-style hardware profile.** A mapping layer over the
+  existing `SessionGridComponent`/`ClipSlotComponent` slot-state model (§14),
+  largely a hardware-facing view rather than new engine surface.
+- **Tier 3 — MPE end-to-end.** Per-note pitch-bend/pressure in the piano
+  roll, extending the existing per-note probability/iteration lanes (§14
+  Tier 4); depends on what `te::MidiNote` exposes (flagged as a stretch goal
+  in §12 Tier 1).
+- **Tier 4 — Ableton Link.** Tempo/transport sync with other apps, built on
+  top of the existing centralised `TransportControl`/tempo-sequence timing
+  (§2.3, §4).
+
+**Files:** `Source/Engine/ControlSurfaceManager.*` (new),
+`Source/Engine/AbletonLinkBridge.*` (new), extensions to
+`MidiLearnController`.
+
+**Dependencies and risks:** best started after Phase 10 Tier 4 (plugin
+isolation) so hardware/MPE performance sessions aren't at risk from a single
+misbehaving plugin; Tier 3 is gated on TE's `MidiNote` API surface.
+
+### Phase 12 — Collaboration, Scale & Finish
+
+**Theme:** product polish that doesn't block workflows but separates a
+hobby-grade DAW from a Live-12-grade one. Lowest architectural coupling to
+other phases — items here can be picked up opportunistically.
+
+- **Tier 1 — Project version history.** A browsable version timeline beyond
+  the current rotating `Autosave/` snapshots (§Phase 3 plugin hardening).
+- **Tier 2 — Collaboration scoping.** Rather than live co-editing (out of
+  scope for this project), scope down to shared/exportable project packages.
+- **Tier 3 — Light-theme finish.** `AppLookAndFeel`/`AppColours` (§10) already
+  has dark/light plumbing; this is completing coverage across every panel.
+- **Tier 4 — Accessibility and final performance audit.** Screen-reader
+  support, scalable UI, and a closing profiling pass against the Phase 10
+  hardening work.
+
+**Files:** extensions to `ProjectManager` (version history),
+`AppLookAndFeel`/theme resources, no new subsystems expected.
+
+**Dependencies and risks:** none blocking; Tier 4's performance audit is most
+useful once Phase 10 Tier 4/5 land so there is a stable baseline to measure
+against.

@@ -35,7 +35,7 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 
 ## Roadmap
 
-Phases 1–7 and Phase 8 (Session View, arrangement bridge, performance features, scale/probability, grid virtualization) are implemented. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§15).
+Phases 1–7 and Phase 8 (Session View, arrangement bridge, performance features, scale/probability, grid virtualization) are implemented. Phases 9–12 (native instruments/effects, audio-engine depth, control surfaces/MPE/Link, and collaboration/finish) are planned. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§16).
 
 **Debug stress test (200 tracks):** In debug builds, press Ctrl+Shift+Alt+T to add 200 MIDI tracks and log grid rebuild timing plus live slot component count to the debug console.
 

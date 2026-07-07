@@ -1,6 +1,8 @@
 #include "EngineHelpers.h"
 #include "GrooveEngine.h"
 #include "ExportManager.h"
+#include "NativePluginCatalog.h"
+#include "DrumRackHelpers.h"
 #include "TrackInputRouting.h"
 #include "TrackPluginChainModel.h"
 #include "UI/AppLookAndFeel.h"
@@ -486,6 +488,10 @@ te::Plugin* EngineHelpers::insertPluginOnTrack (te::AudioTrack& track, te::Plugi
 
 juce::PluginDescription EngineHelpers::getPluginDescription (const te::Plugin& plugin)
 {
+    if (const auto nativeDesc = NativePluginCatalog::descriptionForPlugin (plugin);
+        nativeDesc.name.isNotEmpty())
+        return nativeDesc;
+
     for (const auto& desc : plugin.edit.engine.getPluginManager().knownPluginList.getTypes())
     {
         if (desc.name == plugin.getName())
@@ -497,13 +503,35 @@ juce::PluginDescription EngineHelpers::getPluginDescription (const te::Plugin& p
     return fallback;
 }
 
+te::Plugin::Ptr EngineHelpers::createPluginFromDescription (te::Edit& edit, const juce::PluginDescription& desc)
+{
+    if (NativePluginCatalog::isNativeDescription (desc))
+        return NativePluginCatalog::createPlugin (edit, desc);
+
+    return edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc);
+}
+
 bool EngineHelpers::isInstrumentDescription (const juce::PluginDescription& desc)
 {
+    if (NativePluginCatalog::isNativeDescription (desc))
+    {
+        const auto xmlType = NativePluginCatalog::xmlTypeNameFromDescription (desc);
+        return xmlType == te::SamplerPlugin::xmlTypeName
+            || xmlType == te::FourOscPlugin::xmlTypeName
+            || xmlType == DrumRackHelpers::drumRackXmlTypeName;
+    }
+
     return desc.isInstrument;
 }
 
 bool EngineHelpers::isInstrumentPlugin (const te::Plugin& plugin)
 {
+    if (NativePluginCatalog::isNativeInstrumentPlugin (plugin))
+        return true;
+
+    if (auto* rack = dynamic_cast<const te::RackInstance*> (&plugin))
+        return DrumRackHelpers::isDrumRack (*rack);
+
     if (auto* ext = dynamic_cast<const te::ExternalPlugin*> (&plugin))
     {
         const auto desc = getPluginDescription (plugin);
@@ -576,7 +604,7 @@ bool EngineHelpers::movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destT
     if (desc.name.isEmpty())
         return false;
 
-    if (auto newPlugin = plugin.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+    if (auto newPlugin = createPluginFromDescription (plugin.edit, desc))
     {
         insertPluginOnTrack (destTrack, newPlugin, insertIndex);
         PluginPresetManager::applyPluginState (*newPlugin, state);
@@ -601,7 +629,7 @@ te::Plugin* EngineHelpers::duplicatePluginOnTrack (te::Plugin& source, te::Audio
     if (insertIndex < 0)
         return nullptr;
 
-    if (auto newPlugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+    if (auto newPlugin = createPluginFromDescription (track.edit, desc))
     {
         auto* inserted = insertPluginOnTrack (track, newPlugin, insertIndex);
         PluginPresetManager::applyPluginState (*newPlugin, state);
@@ -640,7 +668,7 @@ te::Plugin* EngineHelpers::replacePluginOnTrack (te::AudioTrack& track, te::Plug
 
     oldPlugin.deleteFromParent();
 
-    if (auto newPlugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, newDesc))
+    if (auto newPlugin = createPluginFromDescription (track.edit, newDesc))
     {
         auto* inserted = insertPluginOnTrack (track, newPlugin, insertIndex);
 
@@ -671,7 +699,7 @@ te::Plugin* EngineHelpers::replacePluginInRack (te::RackInstance& rack, te::Plug
 
     oldPlugin.deleteFromParent();
 
-    if (auto newPlugin = rack.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, newDesc))
+    if (auto newPlugin = createPluginFromDescription (rack.edit, newDesc))
     {
         if (rack.type == nullptr || ! rack.type->addPlugin (*newPlugin, {}, true))
             return nullptr;
@@ -699,7 +727,7 @@ void EngineHelpers::applyDefaultDeviceChain (te::AudioTrack& track, const juce::
         if (desc.name.isEmpty())
             continue;
 
-        if (auto plugin = track.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+        if (auto plugin = createPluginFromDescription (track.edit, desc))
         {
             TrackPluginChainModel model (track);
             const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
@@ -722,6 +750,10 @@ void EngineHelpers::renamePlugin (te::Plugin& plugin, const juce::String& newNam
 
 juce::PluginDescription EngineHelpers::lookupKnownPlugin (te::Engine& engine, const juce::String& identifierString)
 {
+    if (const auto nativeDesc = NativePluginCatalog::lookupDescription (identifierString);
+        nativeDesc.name.isNotEmpty())
+        return nativeDesc;
+
     for (const auto& desc : engine.getPluginManager().knownPluginList.getTypes())
         if (desc.createIdentifierString() == identifierString)
             return desc;
@@ -2097,7 +2129,7 @@ void EngineHelpers::createStressTestTracks (te::Edit& edit, int trackCount, int 
     {
         if (auto* track = getOrInsertTrackForMidi (edit, edit.getTrackList().size()))
         {
-            track->setName ("Stress " + juce::String (i + 1), &edit.getUndoManager());
+            track->setName ("Stress " + juce::String (i + 1));
 
             if (auto clip = createMidiClipOnTrack (*track, { 0s, edit.tempoSequence.toTime (te::BeatPosition::fromBeats (4.0)) },
                                                    "Slot Clip"))

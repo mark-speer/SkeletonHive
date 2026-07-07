@@ -1,5 +1,7 @@
 #include "PluginPickerDialog.h"
+#include "NativePluginBrowserTab.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/NativePluginCatalog.h"
 
 namespace skeletonhive
 {
@@ -30,6 +32,7 @@ public:
             line << "  ·  " << desc.manufacturerName;
 
         g.drawText (line, 6, 0, width - 12, height, juce::Justification::centredLeft, true);
+        NativePluginBrowserTab::paintListRowBadge (desc, g, width, height);
     }
 
     void listBoxItemClicked (int row, const juce::MouseEvent& e) override
@@ -105,22 +108,28 @@ juce::Array<juce::PluginDescription> PluginPickerDialog::getFilteredPlugins() co
     const auto search = searchBox.getText().trim().toLowerCase();
     juce::Array<juce::PluginDescription> result;
 
-    for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
+    auto addIfMatch = [&] (const juce::PluginDescription& desc)
     {
         if (pickerFilter == PluginPickerFilter::instrumentsOnly && ! desc.isInstrument)
-            continue;
+            return;
         if (pickerFilter == PluginPickerFilter::effectsOnly && desc.isInstrument)
-            continue;
+            return;
 
         if (search.isNotEmpty())
         {
             const auto hay = (desc.name + " " + desc.manufacturerName + " " + desc.category).toLowerCase();
             if (! hay.contains (search))
-                continue;
+                return;
         }
 
         result.add (desc);
-    }
+    };
+
+    for (const auto& desc : NativePluginCatalog::getAllDescriptions())
+        addIfMatch (desc);
+
+    for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
+        addIfMatch (desc);
 
     return result;
 }

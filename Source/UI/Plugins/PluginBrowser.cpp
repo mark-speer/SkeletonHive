@@ -1,5 +1,7 @@
 #include "PluginBrowser.h"
+#include "NativePluginBrowserTab.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/NativePluginCatalog.h"
 #include "Engine/PluginDragManager.h"
 #include "Engine/TrackPluginChainModel.h"
 
@@ -30,15 +32,24 @@ public:
         if (desc.manufacturerName.isNotEmpty())
             line << "  ·  " << desc.manufacturerName;
 
-        g.drawText (line, 6, 0, width - 12, height, juce::Justification::centredLeft, true);
+        const int badgeInset = desc.isInstrument && ! NativePluginCatalog::isNativeDescription (desc)
+                                 ? 56
+                                 : (NativePluginCatalog::isNativeDescription (desc)
+                                        ? NativePluginBrowserTab::badgeWidth()
+                                        : 0);
+        const int textWidth = width - 12 - badgeInset;
 
-        if (desc.isInstrument)
+        g.drawText (line, 6, 0, textWidth, height, juce::Justification::centredLeft, true);
+
+        if (desc.isInstrument && ! NativePluginCatalog::isNativeDescription (desc))
         {
             g.setColour (juce::Colour (0xff5a189a).withAlpha (0.8f));
             g.fillRoundedRectangle ((float) width - 56.0f, 4.0f, 48.0f, (float) height - 8.0f, 3.0f);
             g.setColour (juce::Colours::white);
             g.drawText ("INST", width - 56, 0, 48, height, juce::Justification::centred, false);
         }
+
+        NativePluginBrowserTab::paintListRowBadge (desc, g, width, height);
     }
 
     void listBoxItemClicked (int row, const juce::MouseEvent& e) override
@@ -83,6 +94,7 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
     categoryFilter.addItem ("All", (int) PluginBrowserFilter::All + 1);
     categoryFilter.addItem ("Instruments", (int) PluginBrowserFilter::Instruments + 1);
     categoryFilter.addItem ("Effects", (int) PluginBrowserFilter::Effects + 1);
+    categoryFilter.addItem ("Native", (int) PluginBrowserFilter::Native + 1);
     categoryFilter.addItem ("Favorites", (int) PluginBrowserFilter::Favorites + 1);
     categoryFilter.addItem ("Recent", (int) PluginBrowserFilter::Recent + 1);
     categoryFilter.setSelectedId ((int) PluginBrowserFilter::All + 1, juce::dontSendNotification);
@@ -140,6 +152,7 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
 
     refreshList();
     updateFailedButton();
+    updateNativeFilterUi();
 }
 
 void PluginBrowser::resized()
@@ -162,6 +175,11 @@ void PluginBrowser::resized()
 void PluginBrowser::refreshList()
 {
     juce::StringArray vendors;
+
+    for (const auto& desc : NativePluginCatalog::getAllDescriptions())
+        if (desc.manufacturerName.isNotEmpty() && ! vendors.contains (desc.manufacturerName))
+            vendors.add (desc.manufacturerName);
+
     for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
         if (desc.manufacturerName.isNotEmpty() && ! vendors.contains (desc.manufacturerName))
             vendors.add (desc.manufacturerName);
@@ -187,6 +205,8 @@ juce::Array<juce::PluginDescription> PluginBrowser::getFilteredPlugins() const
 
     auto addIfMatch = [&] (const juce::PluginDescription& desc)
     {
+        if (filter == PluginBrowserFilter::Native && ! NativePluginCatalog::isNativeDescription (desc))
+            return;
         if (filter == PluginBrowserFilter::Instruments && ! desc.isInstrument)
             return;
         if (filter == PluginBrowserFilter::Effects && desc.isInstrument)
@@ -222,8 +242,21 @@ juce::Array<juce::PluginDescription> PluginBrowser::getFilteredPlugins() const
         return result;
     }
 
-    for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
-        addIfMatch (desc);
+    if (filter == PluginBrowserFilter::All
+        || filter == PluginBrowserFilter::Native
+        || filter == PluginBrowserFilter::Instruments
+        || filter == PluginBrowserFilter::Effects
+        || filter == PluginBrowserFilter::Favorites)
+    {
+        for (const auto& desc : NativePluginCatalog::getAllDescriptions())
+            addIfMatch (desc);
+    }
+
+    if (filter != PluginBrowserFilter::Native)
+    {
+        for (const auto& desc : pluginScanner.getKnownPluginList().getTypes())
+            addIfMatch (desc);
+    }
 
     return result;
 }
@@ -239,9 +272,32 @@ void PluginBrowser::textEditorTextChanged (juce::TextEditor&)
     rebuildListBox();
 }
 
-void PluginBrowser::comboBoxChanged (juce::ComboBox*)
+void PluginBrowser::comboBoxChanged (juce::ComboBox* box)
 {
+    if (box == &categoryFilter)
+        updateNativeFilterUi();
+
     rebuildListBox();
+}
+
+void PluginBrowser::updateNativeFilterUi()
+{
+    const auto filter = static_cast<PluginBrowserFilter> (categoryFilter.getSelectedId() - 1);
+    const bool nativeOnly = filter == PluginBrowserFilter::Native;
+
+    scanButton.setEnabled (! nativeOnly && ! pluginScanner.isScanning());
+    vendorFilter.setEnabled (! nativeOnly);
+
+    if (nativeOnly)
+        statusLabel.setText (juce::String (NativePluginCatalog::getEntries().size()) + " built-in devices",
+                             juce::dontSendNotification);
+    else if (statusLabel.getText().contains ("built-in devices"))
+        statusLabel.setText ("Ready", juce::dontSendNotification);
+
+    updateFailedButton();
+
+    if (nativeOnly)
+        failedButton.setEnabled (false);
 }
 
 void PluginBrowser::timerCallback()

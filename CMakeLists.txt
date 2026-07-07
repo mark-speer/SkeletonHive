@@ -57,6 +57,12 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/TransportController.cpp
     Source/Engine/PluginScanner.h
     Source/Engine/PluginScanner.cpp
+    Source/Engine/NativePluginCatalog.h
+    Source/Engine/NativePluginCatalog.cpp
+    Source/Engine/DrumRackHelpers.h
+    Source/Engine/DrumRackHelpers.cpp
+    Source/Engine/SamplerHelpers.h
+    Source/Engine/SamplerHelpers.cpp
     Source/Engine/ExtendedUIBehaviour.h
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
@@ -144,6 +150,18 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Mixer/ChannelStrip.cpp
     Source/UI/Plugins/PluginBrowser.h
     Source/UI/Plugins/PluginBrowser.cpp
+    Source/UI/Plugins/NativePluginBrowserTab.h
+    Source/UI/Plugins/NativePluginBrowserTab.cpp
+    Source/UI/Plugins/NativePluginEditor.h
+    Source/UI/Plugins/NativePluginEditor.cpp
+    Source/UI/Instruments/DrumPadComponent.h
+    Source/UI/Instruments/DrumPadComponent.cpp
+    Source/UI/Instruments/DrumRackEditor.h
+    Source/UI/Instruments/DrumRackEditor.cpp
+    Source/UI/Instruments/SamplerEditor.h
+    Source/UI/Instruments/SamplerEditor.cpp
+    Source/UI/Instruments/SamplerWaveformComponent.h
+    Source/UI/Instruments/SamplerWaveformComponent.cpp
     Source/UI/Plugins/PluginPickerDialog.h
     Source/UI/Plugins/PluginPickerDialog.cpp
     Source/UI/Plugins/PresetBrowserPanel.h

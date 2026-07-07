@@ -490,7 +490,7 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                     if (auto* at = dynamic_cast<te::AudioTrack*> (&track))
                     {
                         const auto desc = stateManager->getClipboardDescription();
-                        if (auto newPlugin = plugin.edit.getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc))
+                        if (auto newPlugin = EngineHelpers::createPluginFromDescription (plugin.edit, desc))
                         {
                             EngineHelpers::insertPluginOnTrack (*at, newPlugin);
                             PluginPresetManager::applyPluginState (*newPlugin, stateManager->getClipboardState());

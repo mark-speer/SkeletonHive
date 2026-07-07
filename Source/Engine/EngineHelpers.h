@@ -143,6 +143,7 @@ struct EngineHelpers
     static te::Plugin* insertPluginOnTrack (te::AudioTrack& track, te::Plugin::Ptr plugin, int index = -1);
 
     static juce::PluginDescription getPluginDescription (const te::Plugin& plugin);
+    static te::Plugin::Ptr createPluginFromDescription (te::Edit& edit, const juce::PluginDescription& desc);
     static bool isInstrumentDescription (const juce::PluginDescription& desc);
     static bool isInstrumentPlugin (const te::Plugin& plugin);
     static int findInstrumentSlot (te::AudioTrack& track);

@@ -11,6 +11,7 @@ enum class PluginBrowserFilter
     All,
     Instruments,
     Effects,
+    Native,
     Favorites,
     Recent
 };
@@ -38,6 +39,7 @@ private:
     void textEditorTextChanged (juce::TextEditor&) override;
     void comboBoxChanged (juce::ComboBox*) override;
     void updateFailedButton();
+    void updateNativeFilterUi();
 
     juce::Array<juce::PluginDescription> getFilteredPlugins() const;
     void rebuildListBox();
