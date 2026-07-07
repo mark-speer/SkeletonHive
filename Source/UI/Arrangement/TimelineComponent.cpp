@@ -1102,6 +1102,7 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
             onShowClipProperties();
     };
     lane->createPlugin = createPlugin;
+    lane->onPluginInserted = onPluginInserted;
     lane->onAddPlugin = onAddPlugin;
     lane->onSampleInserted = onSampleInserted;
     lane->onExportClipToLibrary = onExportClipToLibrary;
@@ -1136,6 +1137,8 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
         if (onTrackSelected)
             onTrackSelected (t);
     };
+    header->createPlugin = createPlugin;
+    header->onPluginInserted = onPluginInserted;
     trackHeaders.add (header.release());
 
     if (editViewState.showFooters)
@@ -1147,6 +1150,7 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
                 onAddPlugin (t);
         };
         footer->createPlugin = createPlugin;
+        footer->onPluginInserted = onPluginInserted;
         trackFooters.add (footer.release());
     }
 }
@@ -1155,7 +1159,6 @@ void TimelineComponent::rebuildTrackRowList()
 {
     trackRows.clear();
 
-    const int trackH = juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get());
     const int width = editViewState.getTimelineWidthPx();
     int y = 0;
 
@@ -1165,6 +1168,10 @@ void TimelineComponent::rebuildTrackRowList()
             || track->isMasterTrack() || track->isArrangerTrack())
             continue;
 
+        const int preferredHeaderH = TrackHeaderComponent::getPreferredHeight (*track);
+        const int footerExtra = editViewState.showFooters ? footerHeight : 0;
+        const int trackH = juce::jmax (preferredHeaderH + footerExtra,
+                                       juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get()));
         const int takeExtra = EngineHelpers::getTakeLaneExtraHeight (editViewState, *track);
         trackRows.add ({ track, y, trackH + takeExtra, takeExtra });
         y += trackH + takeExtra;
@@ -1255,7 +1262,8 @@ void TimelineComponent::refreshVisibleTracks()
 
         if (auto* header = trackHeaders[i])
         {
-            header->setBounds (0, row->y, headerWidth, row->height);
+            const int headerH = TrackHeaderComponent::getPreferredHeight (*row->track);
+            header->setBounds (0, row->y, headerWidth, headerH);
             headerContent.addAndMakeVisible (header);
         }
 

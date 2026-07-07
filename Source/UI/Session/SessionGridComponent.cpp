@@ -69,7 +69,7 @@ void SessionGridComponent::buildSlotLayout()
         row.track = track;
         row.trackId = track->itemID;
         row.y = y;
-        row.height = slotSize;
+        row.height = juce::jmax (slotSize, TrackHeaderComponent::getPreferredHeight (*track));
         trackRows.add (row);
         y += slotSize;
     }
@@ -239,7 +239,7 @@ void SessionGridComponent::layoutVisibleUI()
         {
             if (header->getTrackId() == row.trackId)
             {
-                header->setBounds (headerArea);
+                header->setBounds (headerArea.withHeight (TrackHeaderComponent::getPreferredHeight (*row.track)));
                 break;
             }
         }

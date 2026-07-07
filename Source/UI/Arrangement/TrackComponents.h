@@ -3,6 +3,7 @@
 #include "ClipComponents.h"
 #include "TakeLaneComponent.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/TrackInputRouting.h"
 #include "Engine/GroovePoolManager.h"
 #include "Engine/PluginDragManager.h"
 #include "Engine/ContentDragManager.h"
@@ -42,6 +43,7 @@ public:
 
 class TrackHeaderComponent : public juce::Component,
                              private te::ValueTreeAllEventListener,
+                             private juce::ComboBox::Listener,
                              public juce::DragAndDropTarget
 {
 public:
@@ -49,6 +51,7 @@ public:
     ~TrackHeaderComponent() override;
 
     void paint (juce::Graphics& g) override;
+    bool hitTest (int x, int y) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void resized() override;
@@ -57,8 +60,12 @@ public:
     std::function<void (te::Track&)> onMuteChanged;
     std::function<void (te::Track&)> onSoloChanged;
     std::function<void (te::Track&)> onTrackSelected;
+    std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (const juce::PluginDescription&)> onPluginInserted;
 
     te::EditItemID getTrackId() const { return track != nullptr ? track->itemID : te::EditItemID(); }
+
+    static int getPreferredHeight (const te::Track& track);
 
     // juce::DragAndDropTarget
     bool isInterestedInDragSource (const SourceDetails& dragSourceDetails) override;
@@ -73,17 +80,33 @@ private:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { updateKindBadge(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { updateKindBadge(); }
 
+    void comboBoxChanged (juce::ComboBox* box) override;
+
     void updateKindBadge();
+    void refreshSourceBoxes();
+    void populateSourceBox (juce::ComboBox& box, juce::Array<TrackInputOption>& storedOptions,
+                            TrackInputKind kind);
     void showHeaderContextMenu (juce::Point<int> screenPosition);
-    void showInputSelectionMenu();
     EngineHelpers::TrackDropZone dropZoneForPosition (juce::Point<int> localPos) const;
     void moveSelectedTracksToDropZone (EngineHelpers::TrackDropZone zone);
+    void insertBrowserPlugin (const juce::PluginDescription& desc);
+    void handleCrossTrackDrop (const PluginDragPayload& payload);
 
     EditViewState& editViewState;
     te::Track::Ptr track;
     juce::Label trackName;
     juce::Label kindBadge;
+    juce::Label audioSourceLabel;
+    juce::ComboBox audioSourceBox;
+    juce::Label midiSourceLabel;
+    juce::ComboBox midiSourceBox;
     juce::TextButton armButton { "R" }, muteButton { "M" }, soloButton { "S" };
+    juce::Array<TrackInputOption> audioSourceOptions;
+    juce::Array<TrackInputOption> midiSourceOptions;
+    bool refreshingSourceBoxes = false;
+
+    static constexpr int sourceRowHeight = 20;
+    static constexpr int mainRowHeight = 24;
 
     EngineHelpers::TrackDropZone dropHighlightZone = EngineHelpers::TrackDropZone::below;
     bool dropHighlightActive = false;
@@ -147,6 +170,7 @@ public:
 
     std::function<void (te::Track&)> onAddPlugin;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (const juce::PluginDescription&)> onPluginInserted;
 
     void setExpandedRack (te::RackInstance* rack);
 
@@ -170,6 +194,7 @@ private:
     void movePluginToSlot (te::Plugin& plugin, int targetSlotIndex);
     void removePlugin (te::Plugin& plugin);
     void insertBrowserPlugin (const juce::PluginDescription& desc, int slotIndex);
+    void handleCrossTrackDrop (const PluginDragPayload& payload, int slotIndex);
     int slotIndexAtX (int x) const;
     void showFooterContextMenu (const juce::MouseEvent& e);
     void groupSelectedIntoRack();
@@ -215,6 +240,7 @@ public:
     std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragEnd;
     std::function<void()> onTakeLanesChanged;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (const juce::PluginDescription&)> onPluginInserted;
     std::function<void (te::Track&)> onAddPlugin;
     std::function<void (const juce::File&, te::Clip*)> onSampleInserted;
     std::function<void (te::Clip&)> onExportClipToLibrary;

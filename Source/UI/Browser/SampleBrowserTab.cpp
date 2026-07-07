@@ -17,10 +17,9 @@ public:
             return;
 
         const auto& entry = tab.displayedEntries.getReference (row);
-        const bool hovering = row == tab.hoverRow;
 
-        if (selected || hovering)
-            g.fillAll (juce::Colours::white.withAlpha (selected ? 0.18f : 0.10f));
+        if (selected)
+            g.fillAll (juce::Colours::white.withAlpha (0.18f));
 
         if (tab.previewPlayer.isPlaying() && tab.previewPlayer.getCurrentFile() == entry.file)
         {
@@ -67,6 +66,7 @@ public:
         if (! juce::isPositiveAndBelow (row, tab.displayedEntries.size()))
             return;
 
+        tab.sampleList.selectRow (row);
         tab.selectedEntry = tab.displayedEntries.getReference (row);
         tab.previewRow (row);
 
@@ -183,9 +183,13 @@ void SampleBrowserTab::startSampleDrag (const juce::MouseEvent& e, int row)
 void SampleBrowserTab::mouseExit (const juce::MouseEvent& e)
 {
     juce::ignoreUnused (e);
-    hoverRow = -1;
-    previewPlayer.stop();
-    sampleList.repaint();
+    stopPreview();
+}
+
+void SampleBrowserTab::visibilityChanged()
+{
+    if (! isShowing())
+        stopPreview();
 }
 
 void SampleBrowserTab::textEditorTextChanged (juce::TextEditor&)
@@ -214,28 +218,30 @@ void SampleBrowserTab::timerCallback()
     statusLabel.setText (juce::String (displayedEntries.size()) + " samples",
                          juce::dontSendNotification);
 
-    const auto listPos = sampleList.getMouseXYRelative();
-    const auto listBounds = sampleList.getLocalBounds();
-
-    if (! listBounds.contains (listPos))
+    if (! isShowing() || ! isVisible())
     {
-        if (hoverRow >= 0)
-        {
-            hoverRow = -1;
-            previewPlayer.stop();
-            sampleList.repaint();
-        }
+        stopPreview();
         return;
     }
 
-    const int row = sampleList.getRowContainingPosition (listPos.x, listPos.y);
+    if (auto* tabs = findParentComponentOfClass<juce::TabbedComponent>())
+        if (tabs->getCurrentContentComponent() != this)
+        {
+            stopPreview();
+            return;
+        }
 
-    if (row != hoverRow)
-    {
-        hoverRow = row;
-        previewRow (row);
+    if (previewPlayer.isPlaying())
         sampleList.repaint();
-    }
+}
+
+void SampleBrowserTab::stopPreview()
+{
+    if (! previewPlayer.isPlaying())
+        return;
+
+    previewPlayer.stop();
+    sampleList.repaint();
 }
 
 void SampleBrowserTab::rebuildList()

@@ -77,6 +77,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/MultiOutputRouting.cpp
     Source/Engine/SidechainRouting.h
     Source/Engine/SidechainRouting.cpp
+    Source/Engine/TrackInputRouting.h
+    Source/Engine/TrackInputRouting.cpp
     Source/Engine/WaveformCache.h
     Source/Engine/WaveformCache.cpp
     Source/Engine/PluginDragManager.h

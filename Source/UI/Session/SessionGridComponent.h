@@ -17,7 +17,7 @@ public:
     SessionGridComponent (SessionManager& session, SessionMidiMapper& midiMapper, EditViewState& viewState,
                           ClipLibraryManager* clipLibrary);
 
-    static constexpr int slotSize = 80;
+    static constexpr int slotSize = 88;
     static constexpr int trackHeaderWidth = 190;
     static constexpr int verticalVirtualizationMargin = 200;
 

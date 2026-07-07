@@ -22,6 +22,17 @@ struct EngineHelpers
     static const juce::Identifier noteProbabilityProperty;
     static const juce::Identifier noteIterationProperty;
 
+    static const juce::Identifier soloedPluginIdProperty;
+    static const juce::Identifier trackKindProperty;
+
+    enum class TrackKind { audio, midi };
+
+    static void setTrackKind (te::Track& track, TrackKind kind);
+    static TrackKind getTrackKind (const te::Track& track);
+    static bool isAudioKindTrack (const te::Track& track);
+    static bool isMidiKindTrack (const te::Track& track);
+    static void ensureTrackKinds (te::Edit& edit);
+
     static te::Project::Ptr createTempProject (te::Engine& engine);
 
     static void showAudioDeviceSettings (te::Engine& engine);
@@ -40,10 +51,9 @@ struct EngineHelpers
 
     static te::AudioTrack* getOrInsertTrackForMidi (te::Edit& edit, int index);
 
-    // TE tracks are content-agnostic (skeletonHiveTrackKind was a removed UI-only
-    // property); these infer the track's apparent kind purely from its clips
-    // so they never gate engine behaviour, only presentation.
-    /** True if the track has only MIDI clips (used for the header badge). */
+    // TE tracks are content-agnostic; track kind is stored in skeletonHiveTrackKind
+    // for UI/routing presentation. Clip-based helpers remain for drag/create gates.
+    /** True if the track has only MIDI clips (used when kind property is absent). */
     static bool isMidiTrack (const te::Track& track);
     /** True unless the track already has audio clips (used to gate MIDI
         drag-to-create so an empty track can start out as either kind). */
@@ -171,7 +181,6 @@ struct EngineHelpers
     static te::AutomatableParameter* getWetParam (te::Plugin& plugin);
 
     // Solo-device monitoring (per-track ValueTree property)
-    static const juce::Identifier soloedPluginIdProperty;
     static te::EditItemID getSoloedPluginId (const te::Track& track);
     static void setSoloedPlugin (te::Track& track, te::Plugin* plugin);
     static void clearSoloedPlugin (te::Track& track);

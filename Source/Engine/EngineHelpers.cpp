@@ -1,6 +1,7 @@
 #include "EngineHelpers.h"
 #include "GrooveEngine.h"
 #include "ExportManager.h"
+#include "TrackInputRouting.h"
 #include "TrackPluginChainModel.h"
 #include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/EditViewState.h"
@@ -23,6 +24,7 @@ const juce::Identifier EngineHelpers::clipScaleLockProperty ("skeletonHiveScaleL
 const juce::Identifier EngineHelpers::noteProbabilityProperty ("skeletonHiveNoteProbability");
 const juce::Identifier EngineHelpers::noteIterationProperty ("skeletonHiveNoteIteration");
 const juce::Identifier EngineHelpers::soloedPluginIdProperty ("skeletonHiveSoloedPluginId");
+const juce::Identifier EngineHelpers::trackKindProperty ("skeletonHiveTrackKind");
 
 te::Clip* EngineHelpers::duplicateClip (te::Clip& clip, bool placeAfterOriginal)
 {
@@ -1038,6 +1040,62 @@ te::RackInstance* EngineHelpers::findRackOnTrack (te::AudioTrack& track, te::Edi
     return nullptr;
 }
 
+void EngineHelpers::setTrackKind (te::Track& track, TrackKind kind)
+{
+    track.state.setProperty (trackKindProperty,
+                             kind == TrackKind::midi ? "midi" : "audio",
+                             &track.edit.getUndoManager());
+}
+
+EngineHelpers::TrackKind EngineHelpers::getTrackKind (const te::Track& track)
+{
+    const auto stored = track.state.getProperty (trackKindProperty).toString();
+
+    if (stored == "midi")
+        return TrackKind::midi;
+
+    if (stored == "audio")
+        return TrackKind::audio;
+
+    if (isMidiTrack (track))
+        return TrackKind::midi;
+
+    if (auto* at = dynamic_cast<const te::AudioTrack*> (&track))
+    {
+        TrackPluginChainModel model (const_cast<te::AudioTrack&> (*at));
+
+        for (auto* plugin : model.getUserChainPlugins())
+            if (plugin != nullptr && isInstrumentPlugin (*plugin))
+                return TrackKind::midi;
+    }
+
+    return TrackKind::audio;
+}
+
+bool EngineHelpers::isAudioKindTrack (const te::Track& track)
+{
+    return getTrackKind (track) == TrackKind::audio;
+}
+
+bool EngineHelpers::isMidiKindTrack (const te::Track& track)
+{
+    return getTrackKind (track) == TrackKind::midi;
+}
+
+void EngineHelpers::ensureTrackKinds (te::Edit& edit)
+{
+    for (auto* t : te::getAudioTracks (edit))
+    {
+        if (t == nullptr || t->isFolderTrack() || isReturnTrack (*t))
+            continue;
+
+        if (t->state.hasProperty (trackKindProperty))
+            continue;
+
+        setTrackKind (*t, getTrackKind (*t));
+    }
+}
+
 bool EngineHelpers::isMidiTrack (const te::Track& track)
 {
     if (auto* clipTrack = dynamic_cast<const te::ClipTrack*> (&track))
@@ -1165,8 +1223,15 @@ void EngineHelpers::browseForAudioFile (te::Engine& engine, std::function<void (
 
 te::AudioTrack* EngineHelpers::getOrInsertAudioTrackAt (te::Edit& edit, int index)
 {
+    const int before = (int) te::getAudioTracks (edit).size();
     edit.ensureNumberOfAudioTracks (index + 1);
-    return te::getAudioTracks (edit)[index];
+    auto tracks = te::getAudioTracks (edit);
+
+    for (int i = before; i < tracks.size(); ++i)
+        if (tracks[i] != nullptr)
+            setTrackKind (*tracks[i], TrackKind::audio);
+
+    return tracks[index];
 }
 
 te::AudioTrack* EngineHelpers::getOrInsertAudioTrack (te::Edit& edit)
@@ -1176,7 +1241,15 @@ te::AudioTrack* EngineHelpers::getOrInsertAudioTrack (te::Edit& edit)
 
 te::AudioTrack* EngineHelpers::getOrInsertTrackForMidi (te::Edit& edit, int index)
 {
-    return getOrInsertAudioTrackAt (edit, index);
+    const int before = (int) te::getAudioTracks (edit).size();
+    edit.ensureNumberOfAudioTracks (index + 1);
+    auto tracks = te::getAudioTracks (edit);
+
+    for (int i = before; i < tracks.size(); ++i)
+        if (tracks[i] != nullptr)
+            setTrackKind (*tracks[i], TrackKind::midi);
+
+    return tracks[index];
 }
 
 te::WaveAudioClip::Ptr EngineHelpers::loadAudioFileAsClip (te::Edit& edit, const juce::File& file, int trackIndex)
@@ -1285,10 +1358,11 @@ void EngineHelpers::assignDefaultInputToTrack (te::AudioTrack& track, bool prefe
 
 void EngineHelpers::armTrackWithDefaultInput (te::AudioTrack& track, bool arm)
 {
-    // Prefer MIDI inputs only when the track's content is MIDI; empty tracks
-    // default to audio ("+ MIDI" tracks get MIDI inputs assigned at creation).
     if (arm && getInputInstancesForTrack (track).isEmpty())
-        assignDefaultInputToTrack (track, isMidiTrack (track));
+    {
+        const auto kind = isMidiKindTrack (track) ? TrackInputKind::midi : TrackInputKind::audio;
+        TrackInputRouting::assignFirstExternalSource (track, kind);
+    }
 
     armTrack (track, arm);
 }
@@ -1339,8 +1413,13 @@ void EngineHelpers::enableAllInputs (te::Edit& edit)
 void EngineHelpers::setupDefaultTracks (te::Edit& edit)
 {
     enableAllInputs (edit);
-    getOrInsertAudioTrackAt (edit, 0);
-    getOrInsertTrackForMidi (edit, 1);
+
+    if (auto* audioTrack = getOrInsertAudioTrackAt (edit, 0))
+        setTrackKind (*audioTrack, TrackKind::audio);
+
+    if (auto* midiTrack = getOrInsertTrackForMidi (edit, 1))
+        setTrackKind (*midiTrack, TrackKind::midi);
+
     edit.getTransport().ensureContextAllocated();
 
     int audioTrackNum = 0;
@@ -1350,7 +1429,10 @@ void EngineHelpers::setupDefaultTracks (te::Edit& edit)
         {
             if (auto* t = getOrInsertAudioTrackAt (edit, audioTrackNum))
             {
-                [[maybe_unused]] const auto audioTargetResult = instance->setTarget (t->itemID, true, &edit.getUndoManager(), 0);
+                TrackInputOption opt;
+                opt.type = TrackInputOption::Type::externalDevice;
+                opt.device = &instance->getInputDevice();
+                TrackInputRouting::setActiveSource (*t, opt, TrackInputKind::audio);
                 ++audioTrackNum;
             }
         }
@@ -1363,7 +1445,10 @@ void EngineHelpers::setupDefaultTracks (te::Edit& edit)
         {
             if (auto* t = getOrInsertTrackForMidi (edit, midiTrackNum))
             {
-                [[maybe_unused]] const auto midiTargetResult = instance->setTarget (t->itemID, true, &edit.getUndoManager(), 0);
+                TrackInputOption opt;
+                opt.type = TrackInputOption::Type::externalDevice;
+                opt.device = &instance->getInputDevice();
+                TrackInputRouting::setActiveSource (*t, opt, TrackInputKind::midi);
                 ++midiTrackNum;
             }
         }

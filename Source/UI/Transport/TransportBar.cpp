@@ -110,26 +110,11 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     writePositionLabel.setJustificationType (juce::Justification::centredLeft);
     writePositionLabel.setFont (juce::FontOptions (10.0f));
 
-    newButton.onClick = [this] { if (onNewProject) onNewProject(); };
-    openButton.onClick = [this] { if (onOpenProject) onOpenProject(); };
-    saveButton.onClick = [this] { if (onSaveProject) onSaveProject(); };
-    saveAsButton.onClick = [this] { if (onSaveProjectAs) onSaveProjectAs(); };
-    collectButton.setTooltip ("Collect All and Save — copy external audio into the project folder");
-    collectButton.onClick = [this] { if (onCollectAllAndSave) onCollectAllAndSave(); };
-    exportButton.onClick = [this] { if (onExport) onExport(); };
-    importButton.onClick = [this] { if (onImportAudio) onImportAudio(); };
     addAudioButton.onClick = [this] { if (onAddAudioTrack) onAddAudioTrack(); };
     addMidiButton.onClick = [this] { if (onAddMidiTrack) onAddMidiTrack(); };
     addClipButton.onClick = [this] { if (onAddMidiClip) onAddMidiClip(); };
-    settingsButton.onClick = [this] { if (onShowPreferences) onShowPreferences(); else if (onAudioSettings) onAudioSettings(); };
-    pluginsButton.onClick = [this] { if (onScanPlugins) onScanPlugins(); };
-    browserButton.setClickingTogglesState (true);
-    browserButton.setToggleState (true, juce::dontSendNotification);
-    browserButton.onClick = [this] { if (onToggleBrowser) onToggleBrowser(); };
     mixerButton.onClick = [this] { if (onToggleMixer) onToggleMixer(); };
     sidechainButton.onClick = [this] { if (onToggleSidechain) onToggleSidechain(); };
-    automationButton.setTooltip ("Show/hide the automation panel for the selected track");
-    automationButton.onClick = [this] { if (onToggleAutomation) onToggleAutomation(); };
 
     learnButton.setClickingTogglesState (true);
     learnButton.setTooltip ("MIDI learn mode — adjust a control, then move a MIDI controller");
@@ -166,22 +151,11 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     addAndMakeVisible (loopButton);
     addAndMakeVisible (punchButton);
     addAndMakeVisible (takesButton);
-    addAndMakeVisible (newButton);
-    addAndMakeVisible (openButton);
-    addAndMakeVisible (saveButton);
-    addAndMakeVisible (saveAsButton);
-    addAndMakeVisible (collectButton);
-    addAndMakeVisible (exportButton);
-    addAndMakeVisible (importButton);
     addAndMakeVisible (addAudioButton);
     addAndMakeVisible (addMidiButton);
     addAndMakeVisible (addClipButton);
-    addAndMakeVisible (settingsButton);
-    addAndMakeVisible (pluginsButton);
-    addAndMakeVisible (browserButton);
     addAndMakeVisible (mixerButton);
     addAndMakeVisible (sidechainButton);
-    addAndMakeVisible (automationButton);
     addAndMakeVisible (learnButton);
     addAndMakeVisible (clickButton);
     addAndMakeVisible (clickVolumeSlider);
@@ -221,11 +195,6 @@ void TransportBar::resized()
     const int btnW = 52;
 
     auto row1 = r.removeFromTop (h);
-    for (auto* btn : { &newButton, &openButton, &saveButton, &saveAsButton, &collectButton, &exportButton, &importButton })
-    {
-        btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
-    }
-    row1.removeFromLeft (8);
     for (auto* btn : { &returnButton, &playButton, &stopButton, &recordButton, &loopButton, &punchButton, &takesButton })
     {
         btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
@@ -236,8 +205,8 @@ void TransportBar::resized()
     timeSigBox.setBounds (row1.removeFromLeft (60));
 
     auto row2 = r.removeFromTop (h);
-    for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton, &settingsButton, &pluginsButton,
-                       &browserButton, &mixerButton, &sidechainButton, &automationButton, &learnButton })
+    for (auto* btn : { &addAudioButton, &addMidiButton, &addClipButton,
+                       &mixerButton, &sidechainButton, &learnButton })
     {
         btn->setBounds (row2.removeFromLeft (btnW + 10).reduced (1));
     }
@@ -376,11 +345,6 @@ void TransportBar::setLearnModeActive (bool active)
     learnButton.setToggleState (active, juce::dontSendNotification);
     learnButton.setColour (juce::TextButton::buttonColourId,
                            active ? juce::Colour (0xffca6702) : findColour (juce::TextButton::buttonColourId));
-}
-
-void TransportBar::setBrowserToggleState (bool visible)
-{
-    browserButton.setToggleState (visible, juce::dontSendNotification);
 }
 
 } // namespace skeletonhive

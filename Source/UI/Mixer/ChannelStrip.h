@@ -50,6 +50,7 @@ private:
     void initialise();
     void refreshSendControls();
     void updateFromModel();
+    void updateControlLabels();
     void showAddSendMenu();
     void showParameterContextMenu (te::AutomatableParameter& param, juce::Component& target);
 
@@ -59,6 +60,7 @@ private:
     UiTelemetryHub* telemetryHub = nullptr;
 
     juce::Slider fader, panSlider;
+    juce::Label volumeValueLabel, panValueLabel;
     juce::TextButton muteButton { "M" }, soloButton { "S" }, addSendButton { "+Send" };
     juce::Label nameLabel;
     std::unique_ptr<LevelMeter> meter;

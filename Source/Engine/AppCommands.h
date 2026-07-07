@@ -63,6 +63,13 @@ enum
     captureSessionToArrangement,
     duplicateSessionLoopToArrangement,
     togglePerformancePanel,
+
+    newProject,
+    openProject,
+    importAudio,
+    collectAllAndSave,
+    toggleBrowser,
+    toggleAutomation,
 };
 } // namespace AppCommandIDs
 

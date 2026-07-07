@@ -66,6 +66,8 @@ class MainContentComponent : public juce::Component,
 
                              public juce::ApplicationCommandTarget,
 
+                             private juce::MenuBarModel,
+
                              private juce::KeyListener,
 
                              private juce::Timer,
@@ -111,6 +113,14 @@ private:
     void getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result) override;
 
     bool perform (const InvocationInfo& info) override;
+
+
+
+    juce::StringArray getMenuBarNames() override;
+
+    juce::PopupMenu getMenuForIndex (int topLevelMenuIndex, const juce::String& menuName) override;
+
+    void menuItemSelected (int menuItemID, int topLevelMenuIndex) override;
 
 
 
@@ -205,6 +215,8 @@ private:
 
 
     juce::ApplicationCommandManager commandManager;
+
+    juce::MenuBarComponent menuBarComponent;
 
     std::unique_ptr<TransportController> transportController;
 

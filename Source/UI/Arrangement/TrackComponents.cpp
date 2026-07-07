@@ -3,6 +3,8 @@
 #include "TimelineLOD.h"
 #include "LaneClipSummaryPaint.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/TrackInputRouting.h"
+#include "Engine/TrackPluginChainModel.h"
 #include "Engine/UiTelemetryHub.h"
 #include "UI/Routing/SidechainMenu.h"
 #include "TracktionCommon.h"
@@ -356,15 +358,35 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     trackName.setJustificationType (juce::Justification::centredLeft);
 
     kindBadge.setJustificationType (juce::Justification::centred);
-    kindBadge.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-    kindBadge.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.95f));
+    kindBadge.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    kindBadge.setColour (juce::Label::textColourId, juce::Colours::white);
+    kindBadge.setOpaque (true);
     kindBadge.setInterceptsMouseClicks (false, false);
     updateKindBadge();
 
-    // Recording arm only makes sense for AudioTrack; folders/returns hide it.
+    audioSourceLabel.setText ("In", juce::dontSendNotification);
+    audioSourceLabel.setJustificationType (juce::Justification::centredLeft);
+    audioSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    audioSourceLabel.setColour (juce::Label::textColourId, juce::Colour (0xff2d6a4f));
+    audioSourceBox.setTextWhenNothingSelected ("None");
+    audioSourceBox.setTooltip ("Audio input source");
+    audioSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
+    audioSourceBox.setColour (juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha (0.3f));
+    audioSourceBox.setColour (juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha (0.7f));
+
+    midiSourceLabel.setText ("In", juce::dontSendNotification);
+    midiSourceLabel.setJustificationType (juce::Justification::centredLeft);
+    midiSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    midiSourceLabel.setColour (juce::Label::textColourId, juce::Colour (0xff4361ee));
+    midiSourceBox.setTextWhenNothingSelected ("None");
+    midiSourceBox.setTooltip ("MIDI input source");
+    midiSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
+    midiSourceBox.setColour (juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha (0.3f));
+    midiSourceBox.setColour (juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha (0.7f));
+
     armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
                           && ! EngineHelpers::isReturnTrack (*track));
-    armButton.setTooltip ("Arm for recording (right-click to choose inputs)");
+    armButton.setTooltip ("Arm for recording");
     armButton.setToggleState (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
                                   && EngineHelpers::isTrackArmed (*dynamic_cast<te::AudioTrack*> (track.get())),
                               juce::dontSendNotification);
@@ -379,8 +401,6 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
             if (onArmChanged) onArmChanged (*track);
         }
     };
-
-    armButton.addMouseListener (this, false);
 
     muteButton.onClick = [this]
     {
@@ -401,18 +421,37 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     addAndMakeVisible (armButton);
     addAndMakeVisible (muteButton);
     addAndMakeVisible (soloButton);
+    addAndMakeVisible (audioSourceLabel);
+    addAndMakeVisible (audioSourceBox);
+    addAndMakeVisible (midiSourceLabel);
+    addAndMakeVisible (midiSourceBox);
+
+    audioSourceBox.addListener (this);
+    midiSourceBox.addListener (this);
 
     track->state.addListener (this);
+    refreshSourceBoxes();
 }
 
 TrackHeaderComponent::~TrackHeaderComponent()
 {
+    audioSourceBox.removeListener (this);
+    midiSourceBox.removeListener (this);
     track->state.removeListener (this);
 }
 
 void TrackHeaderComponent::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff1a1a2e));
+
+    if (! track->isFolderTrack() && ! EngineHelpers::isReturnTrack (*track))
+    {
+        const auto accent = EngineHelpers::isMidiKindTrack (*track)
+                                ? juce::Colour (0xff4361ee)
+                                : juce::Colour (0xff2d6a4f);
+        g.setColour (accent);
+        g.fillRect (0, 0, 4, getHeight());
+    }
 
     if (dropHighlightActive)
     {
@@ -454,31 +493,61 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
 }
 
+int TrackHeaderComponent::getPreferredHeight (const te::Track& track)
+{
+    int height = mainRowHeight;
+
+    if (TrackInputRouting::shouldShowAudioSource (track))
+        height += sourceRowHeight;
+
+    if (TrackInputRouting::shouldShowMidiSource (track))
+        height += sourceRowHeight;
+
+    return height;
+}
+
 void TrackHeaderComponent::resized()
 {
     auto r = getLocalBounds().reduced (2);
     const int btnW = 22;
-    soloButton.setBounds (r.removeFromRight (btnW));
-    muteButton.setBounds (r.removeFromRight (btnW));
-    if (armButton.isVisible())
-        armButton.setBounds (r.removeFromRight (btnW));
-    kindBadge.setBounds (r.removeFromLeft (42).reduced (0, 3));
-    r.removeFromLeft (4);
 
-    // Indent nested tracks under their FolderTrack parent(s).
-    r.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
-    trackName.setBounds (r);
+    const bool showAudio = TrackInputRouting::shouldShowAudioSource (*track);
+    const bool showMidi = TrackInputRouting::shouldShowMidiSource (*track);
+
+    audioSourceLabel.setVisible (showAudio);
+    audioSourceBox.setVisible (showAudio);
+    midiSourceLabel.setVisible (showMidi);
+    midiSourceBox.setVisible (showMidi);
+
+    auto mainRow = r.removeFromTop (mainRowHeight);
+    soloButton.setBounds (mainRow.removeFromRight (btnW));
+    muteButton.setBounds (mainRow.removeFromRight (btnW));
+    if (armButton.isVisible())
+        armButton.setBounds (mainRow.removeFromRight (btnW));
+    kindBadge.setBounds (mainRow.removeFromLeft (42).reduced (0, 3));
+    mainRow.removeFromLeft (4);
+    mainRow.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
+    trackName.setBounds (mainRow);
+
+    if (showAudio)
+    {
+        auto row = r.removeFromTop (sourceRowHeight);
+        row.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
+        audioSourceLabel.setBounds (row.removeFromLeft (34));
+        audioSourceBox.setBounds (row);
+    }
+
+    if (showMidi)
+    {
+        auto row = r.removeFromTop (sourceRowHeight);
+        row.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
+        midiSourceLabel.setBounds (row.removeFromLeft (34));
+        midiSourceBox.setBounds (row);
+    }
 }
 
 void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.eventComponent == &armButton)
-    {
-        if (e.mods.isPopupMenu())
-            showInputSelectionMenu();
-        return;
-    }
-
     dragStarted = false;
 
     if (e.mods.isPopupMenu())
@@ -490,10 +559,37 @@ void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
 
     if (e.mods.isLeftButtonDown())
     {
+        if (auto* target = e.eventComponent)
+        {
+            if (target != this
+                && (dynamic_cast<juce::Button*> (target) != nullptr
+                    || dynamic_cast<juce::ComboBox*> (target) != nullptr
+                    || target->findParentComponentOfClass<juce::ComboBox>() != nullptr))
+                return;
+        }
+
         editViewState.selectionManager.selectOnly (track.get());
         if (onTrackSelected)
             onTrackSelected (*track);
     }
+}
+
+bool TrackHeaderComponent::hitTest (int x, int y)
+{
+    juce::ignoreUnused (x);
+
+    if (track == nullptr)
+        return false;
+
+    int interactiveHeight = mainRowHeight + 4;
+
+    if (TrackInputRouting::shouldShowAudioSource (*track))
+        interactiveHeight += sourceRowHeight;
+
+    if (TrackInputRouting::shouldShowMidiSource (*track))
+        interactiveHeight += sourceRowHeight;
+
+    return y < interactiveHeight;
 }
 
 void TrackHeaderComponent::mouseDrag (const juce::MouseEvent& e)
@@ -548,41 +644,90 @@ void TrackHeaderComponent::moveSelectedTracksToDropZone (EngineHelpers::TrackDro
     }
 }
 
-void TrackHeaderComponent::showInputSelectionMenu()
+void TrackHeaderComponent::populateSourceBox (juce::ComboBox& box, juce::Array<TrackInputOption>& storedOptions,
+                                              TrackInputKind kind)
 {
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        storedOptions = TrackInputRouting::getSourceOptions (editViewState.edit, *audioTrack, kind);
+        const auto active = TrackInputRouting::getActiveSource (*audioTrack, kind);
+
+        box.clear (juce::dontSendNotification);
+        int selectedId = 1;
+
+        for (int i = 0; i < storedOptions.size(); ++i)
+        {
+            const int itemId = i + 1;
+            box.addItem (storedOptions[i].displayName, itemId);
+
+            if (storedOptions[i] == active)
+                selectedId = itemId;
+        }
+
+        box.setSelectedId (selectedId, juce::dontSendNotification);
+    }
+}
+
+void TrackHeaderComponent::refreshSourceBoxes()
+{
+    refreshingSourceBoxes = true;
+
+    const bool showAudio = TrackInputRouting::shouldShowAudioSource (*track);
+    const bool showMidi = TrackInputRouting::shouldShowMidiSource (*track);
+
+    if (showAudio)
+        populateSourceBox (audioSourceBox, audioSourceOptions, TrackInputKind::audio);
+    else
+        audioSourceBox.clear (juce::dontSendNotification);
+
+    if (showMidi)
+        populateSourceBox (midiSourceBox, midiSourceOptions, TrackInputKind::midi);
+    else
+        midiSourceBox.clear (juce::dontSendNotification);
+
+    resized();
+    refreshingSourceBoxes = false;
+}
+
+void TrackHeaderComponent::comboBoxChanged (juce::ComboBox* box)
+{
+    if (refreshingSourceBoxes)
+        return;
+
     auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
     if (audioTrack == nullptr)
         return;
 
-    auto& edit = editViewState.edit;
-    juce::PopupMenu menu;
-    juce::Array<te::InputDeviceInstance*> instances;
+    const int itemId = box->getSelectedId();
+    if (itemId <= 0)
+        return;
 
-    for (auto* instance : edit.getAllInputDevices())
+    if (box == &audioSourceBox)
     {
-        instances.add (instance);
-        menu.addItem (instances.size(), instance->getInputDevice().getName(), true,
-                      EngineHelpers::isInputAssignedToTrack (*instance, *audioTrack));
+        if (! juce::isPositiveAndBelow (itemId - 1, audioSourceOptions.size()))
+            return;
+
+        const auto& option = audioSourceOptions[itemId - 1];
+        if (TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::audio) == option)
+            return;
+
+        TrackInputRouting::setActiveSource (*audioTrack, option, TrackInputKind::audio);
+        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
+        return;
     }
 
-    if (instances.isEmpty())
-        menu.addItem (-1, "No input devices available", false);
-
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&armButton),
-                        [safeThis = juce::Component::SafePointer (this), instances] (int result)
+    if (box == &midiSourceBox)
     {
-        if (result <= 0 || safeThis == nullptr)
+        if (! juce::isPositiveAndBelow (itemId - 1, midiSourceOptions.size()))
             return;
 
-        auto* at = dynamic_cast<te::AudioTrack*> (safeThis->track.get());
-        auto* instance = instances[result - 1];
-        if (at == nullptr || instance == nullptr)
+        const auto& option = midiSourceOptions[itemId - 1];
+        if (TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::midi) == option)
             return;
 
-        EngineHelpers::setInputAssignedToTrack (*instance, *at,
-                                                ! EngineHelpers::isInputAssignedToTrack (*instance, *at));
-        safeThis->armButton.setToggleState (EngineHelpers::isTrackArmed (*at), juce::dontSendNotification);
-    });
+        TrackInputRouting::setActiveSource (*audioTrack, option, TrackInputKind::midi);
+        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
+    }
 }
 
 void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPosition)
@@ -688,6 +833,12 @@ void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPositio
 
 bool TrackHeaderComponent::isInterestedInDragSource (const SourceDetails& details)
 {
+    const auto desc = details.description.toString();
+
+    if (desc.startsWith (PluginDragTypes::browserInsert)
+        || desc.startsWith (PluginDragTypes::crossTrack))
+        return true;
+
     const auto draggedId = EngineHelpers::parseTrackDrag (details.description);
     return draggedId.isValid() && draggedId != track->itemID;
 }
@@ -718,15 +869,94 @@ void TrackHeaderComponent::itemDragExit (const SourceDetails&)
 void TrackHeaderComponent::itemDropped (const SourceDetails& details)
 {
     dropHighlightActive = false;
+
+    const auto descStr = details.description.toString();
+
+    if (descStr.startsWith (PluginDragTypes::browserInsert))
+    {
+        const auto idStr = descStr.fromFirstOccurrenceOf (":", false, false);
+        insertBrowserPlugin (EngineHelpers::lookupKnownPlugin (editViewState.edit.engine, idStr));
+        repaint();
+        return;
+    }
+
+    if (descStr.startsWith (PluginDragTypes::crossTrack))
+    {
+        const auto payload = PluginDragPayload::parse (details.description);
+
+        if (payload.kind == PluginDragPayload::Kind::crossTrack)
+            handleCrossTrackDrop (payload);
+
+        repaint();
+        return;
+    }
+
     const auto zone = dropZoneForPosition (details.localPosition);
     moveSelectedTracksToDropZone (zone);
     repaint();
 }
 
+void TrackHeaderComponent::insertBrowserPlugin (const juce::PluginDescription& desc)
+{
+    if (createPlugin == nullptr || desc.name.isEmpty())
+        return;
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        if (auto plugin = createPlugin (desc))
+        {
+            TrackPluginChainModel model (*audioTrack);
+            const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
+                                                              EngineHelpers::isInstrumentDescription (desc),
+                                                              nullptr);
+            if (insertIndex >= 0)
+            {
+                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+
+                if (onPluginInserted)
+                    onPluginInserted (desc);
+            }
+        }
+        else
+        {
+            EngineHelpers::showPluginInsertFailureAlert (this, desc);
+        }
+    }
+}
+
+void TrackHeaderComponent::handleCrossTrackDrop (const PluginDragPayload& payload)
+{
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        TrackPluginChainModel model (*audioTrack);
+        const int userSlot = model.getUserChainSize();
+
+        for (auto t : te::getAudioTracks (editViewState.edit))
+        {
+            if (t->itemID != payload.sourceTrackId)
+                continue;
+
+            for (auto p : t->pluginList)
+            {
+                if (p->itemID == payload.pluginId)
+                {
+                    EngineHelpers::movePluginToTrack (*p, *audioTrack, userSlot);
+                    return;
+                }
+            }
+        }
+    }
+}
+
 void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier& id)
 {
     if (id == te::IDs::name)
+    {
         trackName.setText (track->getName(), juce::dontSendNotification);
+        refreshSourceBoxes();
+    }
+    else if (id == EngineHelpers::trackKindProperty)
+        updateKindBadge();
     else if (id == te::IDs::frozen || id == te::IDs::frozenIndividually)
         repaint();
 }
@@ -747,10 +977,11 @@ void TrackHeaderComponent::updateKindBadge()
         return;
     }
 
-    const bool isMidi = EngineHelpers::isMidiTrack (*track);
+    const bool isMidi = EngineHelpers::isMidiKindTrack (*track);
     kindBadge.setText (isMidi ? "MIDI" : "AUDIO", juce::dontSendNotification);
     kindBadge.setColour (juce::Label::backgroundColourId,
                         isMidi ? juce::Colour (0xff4361ee) : juce::Colour (0xff2d6a4f));
+    refreshSourceBoxes();
 }
 
 PluginSlotButton::PluginSlotButton (EditViewState& evs, te::Plugin::Ptr p)
@@ -1192,7 +1423,8 @@ bool TrackFooterComponent::isInterestedInDragSource (const SourceDetails& detail
 {
     const auto desc = details.description.toString();
     return desc.startsWith (PluginDragTypes::slotReorder)
-        || desc.startsWith (PluginDragTypes::browserInsert);
+        || desc.startsWith (PluginDragTypes::browserInsert)
+        || desc.startsWith (PluginDragTypes::crossTrack);
 }
 
 void TrackFooterComponent::itemDragEnter (const SourceDetails&)
@@ -1239,6 +1471,12 @@ void TrackFooterComponent::itemDropped (const SourceDetails& details)
         const auto idStr = desc.fromFirstOccurrenceOf (":", false, false);
         insertBrowserPlugin (EngineHelpers::lookupKnownPlugin (editViewState.edit.engine, idStr), slot);
     }
+    else if (desc.startsWith (PluginDragTypes::crossTrack))
+    {
+        const auto payload = PluginDragPayload::parse (details.description);
+        if (payload.kind == PluginDragPayload::Kind::crossTrack)
+            handleCrossTrackDrop (payload, slot);
+    }
 }
 
 void TrackFooterComponent::insertBrowserPlugin (const juce::PluginDescription& desc, int slotIndex)
@@ -1250,13 +1488,46 @@ void TrackFooterComponent::insertBrowserPlugin (const juce::PluginDescription& d
     {
         if (auto plugin = createPlugin (desc))
         {
-            const int baseIndex = EngineHelpers::getUserChainInsertIndex (*audioTrack);
-            const int insertIndex = baseIndex + juce::jlimit (0, plugins.size(), slotIndex);
-            EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+            TrackPluginChainModel model (*audioTrack);
+            const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
+            const int insertIndex = model.resolveInsertIndex (userSlot,
+                                                              EngineHelpers::isInstrumentDescription (desc),
+                                                              nullptr);
+            if (insertIndex >= 0)
+            {
+                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+
+                if (onPluginInserted)
+                    onPluginInserted (desc);
+            }
         }
         else
         {
             EngineHelpers::showPluginInsertFailureAlert (this, desc);
+        }
+    }
+}
+
+void TrackFooterComponent::handleCrossTrackDrop (const PluginDragPayload& payload, int slotIndex)
+{
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        TrackPluginChainModel model (*audioTrack);
+        const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
+
+        for (auto t : te::getAudioTracks (editViewState.edit))
+        {
+            if (t->itemID != payload.sourceTrackId)
+                continue;
+
+            for (auto p : t->pluginList)
+            {
+                if (p->itemID == payload.pluginId)
+                {
+                    EngineHelpers::movePluginToTrack (*p, *audioTrack, userSlot);
+                    return;
+                }
+            }
         }
     }
 }
@@ -1849,7 +2120,19 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
     {
         if (auto plugin = createPlugin (pd))
-            EngineHelpers::insertPluginOnTrack (*audioTrack, plugin);
+        {
+            TrackPluginChainModel model (*audioTrack);
+            const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
+                                                              EngineHelpers::isInstrumentDescription (pd),
+                                                              nullptr);
+            if (insertIndex >= 0)
+            {
+                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+
+                if (onPluginInserted)
+                    onPluginInserted (pd);
+            }
+        }
         else
             EngineHelpers::showPluginInsertFailureAlert (this, pd);
     }

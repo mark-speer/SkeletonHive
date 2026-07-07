@@ -5,6 +5,26 @@
 namespace skeletonhive
 {
 
+namespace
+{
+juce::String formatVolumeDbText (float db)
+{
+    if (db <= -99.5f)
+        return "-inf dB";
+
+    return juce::String (db, 1) + " dB";
+}
+
+juce::String formatPanText (float pan)
+{
+    if (std::abs (pan) < 0.005f)
+        return "C";
+
+    const int amount = juce::jlimit (1, 50, juce::roundToInt (std::abs (pan) * 50.0f));
+    return juce::String (amount) + (pan < 0.0f ? "L" : "R");
+}
+} // namespace
+
 LevelMeter::LevelMeter (te::LevelMeasurer& m, UiTelemetryHub* hub)
     : levelMeasurer (m), telemetryHub (hub)
 {
@@ -162,11 +182,26 @@ void ChannelStrip::initialise()
 
     if (volumePlugin != nullptr)
     {
-        fader.onValueChange = [this] { volumePlugin->setSliderPos ((float) fader.getValue()); };
-        panSlider.onValueChange = [this] { volumePlugin->setPan ((float) panSlider.getValue()); };
+        fader.onValueChange = [this]
+        {
+            volumePlugin->setSliderPos ((float) fader.getValue());
+            updateControlLabels();
+        };
+        panSlider.onValueChange = [this]
+        {
+            volumePlugin->setPan ((float) panSlider.getValue());
+            updateControlLabels();
+        };
 
         volumePlugin->volParam->addListener (this);
         volumePlugin->panParam->addListener (this);
+    }
+
+    for (auto* label : { &volumeValueLabel, &panValueLabel })
+    {
+        label->setJustificationType (juce::Justification::centred);
+        label->setFont (juce::FontOptions (10.0f));
+        label->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
     }
 
     muteButton.onClick = [this]
@@ -186,6 +221,8 @@ void ChannelStrip::initialise()
     addAndMakeVisible (nameLabel);
     addAndMakeVisible (fader);
     addAndMakeVisible (panSlider);
+    addAndMakeVisible (volumeValueLabel);
+    addAndMakeVisible (panValueLabel);
 
     if (! isMasterStrip())
     {
@@ -272,6 +309,21 @@ void ChannelStrip::updateFromModel()
                               solo ? juce::Colours::gold : findColour (juce::TextButton::buttonColourId));
         soloButton.setToggleState (solo, juce::dontSendNotification);
     }
+
+    updateControlLabels();
+}
+
+void ChannelStrip::updateControlLabels()
+{
+    if (volumePlugin == nullptr)
+    {
+        volumeValueLabel.setText ({}, juce::dontSendNotification);
+        panValueLabel.setText ({}, juce::dontSendNotification);
+        return;
+    }
+
+    volumeValueLabel.setText (formatVolumeDbText (volumePlugin->getVolumeDb()), juce::dontSendNotification);
+    panValueLabel.setText (formatPanText (volumePlugin->getPan()), juce::dontSendNotification);
 }
 
 void ChannelStrip::showParameterContextMenu (te::AutomatableParameter& param, juce::Component& target)
@@ -344,7 +396,11 @@ void ChannelStrip::resized()
         }
     }
 
-    panSlider.setBounds (r.removeFromBottom (40).reduced (2));
+    auto panArea = r.removeFromBottom (54);
+    panValueLabel.setBounds (panArea.removeFromBottom (14));
+    panSlider.setBounds (panArea.reduced (2));
+
+    volumeValueLabel.setBounds (r.removeFromBottom (14));
 
     if (meter != nullptr)
         meter->setBounds (r.removeFromRight (8));

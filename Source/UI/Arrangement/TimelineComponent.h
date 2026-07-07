@@ -77,6 +77,7 @@ public:
     std::function<void()> onClipSelectionChanged;
     std::function<void()> onShowClipProperties;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
+    std::function<void (const juce::PluginDescription&)> onPluginInserted;
     std::function<void (const juce::File&, te::Clip*)> onSampleInserted;
     std::function<void (te::Clip&)> onExportClipToLibrary;
     std::function<te::Clip* (te::ClipTrack&, te::TimePosition, const juce::File&)> instantiateClipPreset;
@@ -158,7 +159,7 @@ private:
     static constexpr int rulerHeight = 24;
     static constexpr int footerHeight = 28;
     static constexpr int hScrollBarHeight = 14;
-    static constexpr int minTrackHeight = 36;
+    static constexpr int minTrackHeight = 72;
     static constexpr int maxTrackHeight = 240;
 
     juce::Viewport timelineViewport;

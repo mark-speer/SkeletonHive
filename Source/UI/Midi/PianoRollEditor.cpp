@@ -1073,6 +1073,15 @@ void PianoRollEditor::mouseUp (const juce::MouseEvent&)
 
 void PianoRollEditor::mouseMove (const juce::MouseEvent& e)
 {
+    if (dragMode != DragMode::none && ! e.mods.isAnyMouseButtonDown())
+    {
+        dragMode = DragMode::none;
+        keyboardPendingClick = false;
+        stopAudition();
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+        return;
+    }
+
     if (dragMode != DragMode::none)
         return;
 
@@ -1363,6 +1372,9 @@ void PianoRollEditor::focusLost (juce::Component::FocusChangeType)
 {
     midiKeyDispatcher->listeners.remove (this);
     pendingLiveNotes.clear();
+    dragMode = DragMode::none;
+    keyboardPendingClick = false;
+    stopAudition();
 }
 
 void PianoRollEditor::midiKeyStateChanged (te::AudioTrack* track, const juce::Array<int>& notesOn,

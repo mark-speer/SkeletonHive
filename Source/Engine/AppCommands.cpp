@@ -43,6 +43,13 @@ void AppCommands::registerAllCommands (juce::ApplicationCommandManager& manager)
     reg (AppCommandIDs::duplicateSessionLoopToArrangement, "Commit Loop to Arrangement", "Commit a session clip loop to the arrangement timeline");
     reg (AppCommandIDs::togglePerformancePanel, "Performance Macros", "Show or hide the session performance macro panel");
 
+    reg (AppCommandIDs::newProject, "New", "Create a new project");
+    reg (AppCommandIDs::openProject, "Open", "Open an existing project");
+    reg (AppCommandIDs::importAudio, "Import", "Import audio into the project");
+    reg (AppCommandIDs::collectAllAndSave, "Collect All and Save", "Copy external audio into the project folder and save");
+    reg (AppCommandIDs::toggleBrowser, "Browser", "Show or hide the content browser panel");
+    reg (AppCommandIDs::toggleAutomation, "Automation", "Show or hide the automation panel");
+
     reg (AppCommandIDs::pluginCopy, "Copy Plugin", "Copy the selected plugin");
     reg (AppCommandIDs::pluginPaste, "Paste Plugin", "Paste a copied plugin");
     reg (AppCommandIDs::pluginDuplicate, "Duplicate Plugin", "Duplicate the selected plugin");
@@ -83,6 +90,11 @@ void AppCommands::registerDefaultKeyMappings (juce::KeyPressMappingSet& mappings
     mappings.addKeyPress (AppCommandIDs::redo, juce::KeyPress ('z', ctrl | shift, 0));
     mappings.addKeyPress (AppCommandIDs::redo, juce::KeyPress ('y', cmd, 0));
     mappings.addKeyPress (AppCommandIDs::redo, juce::KeyPress ('y', ctrl, 0));
+
+    mappings.addKeyPress (AppCommandIDs::newProject, juce::KeyPress ('n', cmd, 0));
+    mappings.addKeyPress (AppCommandIDs::newProject, juce::KeyPress ('n', ctrl, 0));
+    mappings.addKeyPress (AppCommandIDs::openProject, juce::KeyPress ('o', cmd, 0));
+    mappings.addKeyPress (AppCommandIDs::openProject, juce::KeyPress ('o', ctrl, 0));
 
     mappings.addKeyPress (AppCommandIDs::saveProject, juce::KeyPress ('s', cmd, 0));
     mappings.addKeyPress (AppCommandIDs::saveProject, juce::KeyPress ('s', ctrl, 0));
@@ -178,6 +190,12 @@ juce::String AppCommands::getCommandName (int commandID)
         case AppCommandIDs::captureSessionToArrangement: return "Capture and Insert";
         case AppCommandIDs::duplicateSessionLoopToArrangement: return "Commit Loop to Arrangement";
         case AppCommandIDs::togglePerformancePanel: return "Performance Macros";
+        case AppCommandIDs::newProject: return "New";
+        case AppCommandIDs::openProject: return "Open";
+        case AppCommandIDs::importAudio: return "Import";
+        case AppCommandIDs::collectAllAndSave: return "Collect All and Save";
+        case AppCommandIDs::toggleBrowser: return "Browser";
+        case AppCommandIDs::toggleAutomation: return "Automation";
         case AppCommandIDs::pluginCopy: return "Copy Plugin";
         case AppCommandIDs::pluginPaste: return "Paste Plugin";
         case AppCommandIDs::pluginDuplicate: return "Duplicate Plugin";

@@ -2,6 +2,7 @@
 #include "TracktionCommon.h"
 #include "Engine/AppSettings.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/TrackInputRouting.h"
 #include "Engine/ExportManager.h"
 #include "UI/Settings/PreferencesDialog.h"
 #include "UI/AppLookAndFeel.h"
@@ -47,6 +48,9 @@ MainContentComponent::MainContentComponent (SkeletonHiveApplication& app)
     AppCommands::registerDefaultKeyMappings (*commandManager.getKeyMappings());
     appSettings.loadKeyMappings (commandManager);
     commandManager.setFirstCommandTarget (this);
+
+    menuBarComponent.setModel (this);
+    addAndMakeVisible (menuBarComponent);
 
     pluginScanner = std::make_unique<PluginScanner> (engine);
     pluginStateManager = std::make_unique<PluginStateManager>();
@@ -168,24 +172,12 @@ void MainContentComponent::rebuildEditUI()
         showSidechainPanelForPlugin (plugin);
     };
 
-    transportBar->onNewProject = [this] { handleNewProject(); };
-    transportBar->onOpenProject = [this] { handleOpenProject(); };
-    transportBar->onSaveProject = [this] { handleSaveProject(); };
-    transportBar->onSaveProjectAs = [this] { handleSaveProjectAs(); };
-    transportBar->onCollectAllAndSave = [this] { handleCollectAllAndSave(); };
-    transportBar->onExport = [this] { handleExport(); };
-    transportBar->onImportAudio = [this] { handleImportAudio(); };
     transportBar->onAddAudioTrack = [this] { handleAddAudioTrack(); };
     transportBar->onAddMidiTrack = [this] { handleAddMidiTrack(); };
     transportBar->onAddMidiClip = [this] { handleAddMidiClip(); };
-    transportBar->onAudioSettings = [this] { showPreferences(); };
-    transportBar->onShowPreferences = [this] { showPreferences(); };
     transportBar->onToggleMidiLearn = [this] { toggleMidiLearn(); };
-    transportBar->onScanPlugins = [this] { showPluginsBrowser(); };
     transportBar->onToggleMixer = [this] { toggleMixer(); };
     transportBar->onToggleSidechain = [this] { toggleSidechainPanel(); };
-    transportBar->onToggleAutomation = [this] { toggleAutomationPanel(); };
-    transportBar->onToggleBrowser = [this] { toggleBrowserPanel(); };
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
@@ -217,6 +209,10 @@ void MainContentComponent::rebuildEditUI()
         if (auto* edit = projectManager.getEdit())
             return pluginScanner->createPlugin (desc, *edit);
         return te::Plugin::Ptr {};
+    };
+    timeline->onPluginInserted = [this] (const juce::PluginDescription& desc)
+    {
+        pluginStateManager->recordRecentUse (desc.createIdentifierString());
     };
 
     sessionView->onTrackSelected = [this] (te::EditItemID trackId)
@@ -296,8 +292,6 @@ void MainContentComponent::rebuildEditUI()
 
     if (browserVisible)
         addAndMakeVisible (*browserPanel);
-
-    transportBar->setBrowserToggleState (browserVisible);
 
     if (mixerVisible)
         addAndMakeVisible (*mixerPanel);
@@ -482,6 +476,7 @@ void MainContentComponent::handleAddAudioTrack()
 {
     if (auto* track = EngineHelpers::getOrInsertAudioTrack (*projectManager.getEdit()))
     {
+        TrackInputRouting::assignFirstExternalSource (*track, TrackInputKind::audio);
         EngineHelpers::applyDefaultDeviceChain (*track,
                                                 appSettings.getDefaultDeviceChain (DefaultChainKind::audioTrack),
                                                 engine,
@@ -495,7 +490,7 @@ void MainContentComponent::handleAddMidiTrack()
     const int idx = (int) te::getAudioTracks (*projectManager.getEdit()).size();
     if (auto* track = EngineHelpers::getOrInsertTrackForMidi (*projectManager.getEdit(), idx))
     {
-        EngineHelpers::assignDefaultInputToTrack (*track, true);
+        TrackInputRouting::assignFirstExternalSource (*track, TrackInputKind::midi);
         EngineHelpers::applyDefaultDeviceChain (*track,
                                                 appSettings.getDefaultDeviceChain (DefaultChainKind::midiTrack),
                                                 engine,
@@ -604,6 +599,7 @@ void MainContentComponent::toggleAutomationPanel()
         removeChildComponent (automationPanel.get());
     }
 
+    menuItemsChanged();
     resized();
 }
 
@@ -698,7 +694,8 @@ void MainContentComponent::showPluginsBrowser()
 void MainContentComponent::resized()
 {
     auto r = getLocalBounds();
-    transportBar->setBounds (r.removeFromTop (60));
+    menuBarComponent.setBounds (r.removeFromTop (24));
+    transportBar->setBounds (r.removeFromTop (52));
 
     if (midiLearnController.isActive())
         learnStatusLabel.setBounds (r.removeFromTop (18).reduced (8, 0));
@@ -863,6 +860,51 @@ ApplicationCommandTarget* MainContentComponent::getNextCommandTarget()
     return nullptr;
 }
 
+juce::StringArray MainContentComponent::getMenuBarNames()
+{
+    return { "File", "Edit", "View" };
+}
+
+juce::PopupMenu MainContentComponent::getMenuForIndex (int topLevelMenuIndex, const juce::String&)
+{
+    juce::PopupMenu menu;
+
+    switch (topLevelMenuIndex)
+    {
+        case 0:
+            menu.addCommandItem (&commandManager, AppCommandIDs::newProject);
+            menu.addCommandItem (&commandManager, AppCommandIDs::openProject);
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, AppCommandIDs::saveProject);
+            menu.addCommandItem (&commandManager, AppCommandIDs::saveProjectAs);
+            menu.addCommandItem (&commandManager, AppCommandIDs::collectAllAndSave);
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, AppCommandIDs::exportProject);
+            menu.addCommandItem (&commandManager, AppCommandIDs::importAudio);
+            break;
+
+        case 1:
+            menu.addCommandItem (&commandManager, AppCommandIDs::showPreferences);
+            break;
+
+        case 2:
+            menu.addCommandItem (&commandManager, AppCommandIDs::toggleBrowser);
+            menu.addCommandItem (&commandManager, AppCommandIDs::toggleAutomation);
+            break;
+
+        default:
+            break;
+    }
+
+    return menu;
+}
+
+void MainContentComponent::menuItemSelected (int menuItemID, int)
+{
+    // addCommandItem entries are invoked automatically by PopupMenu; do not invoke again here.
+    juce::ignoreUnused (menuItemID);
+}
+
 void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& commands)
 {
     const juce::CommandID ids[] {
@@ -895,6 +937,12 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
         AppCommandIDs::captureSessionToArrangement,
         AppCommandIDs::duplicateSessionLoopToArrangement,
         AppCommandIDs::togglePerformancePanel,
+        AppCommandIDs::newProject,
+        AppCommandIDs::openProject,
+        AppCommandIDs::importAudio,
+        AppCommandIDs::collectAllAndSave,
+        AppCommandIDs::toggleBrowser,
+        AppCommandIDs::toggleAutomation,
         AppCommandIDs::pluginCopy,
         AppCommandIDs::pluginPaste,
         AppCommandIDs::pluginDuplicate,
@@ -922,6 +970,18 @@ void MainContentComponent::getAllCommands (juce::Array<juce::CommandID>& command
 void MainContentComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
 {
     result.setInfo (AppCommands::getCommandName (commandID), AppCommands::getCommandName (commandID), "SkeletonHive", 0);
+
+    switch (commandID)
+    {
+        case AppCommandIDs::toggleBrowser:
+            result.setTicked (browserVisible);
+            break;
+        case AppCommandIDs::toggleAutomation:
+            result.setTicked (automationVisible);
+            break;
+        default:
+            break;
+    }
 }
 
 bool MainContentComponent::isPluginTrayContext() const
@@ -1013,6 +1073,24 @@ bool MainContentComponent::perform (const InvocationInfo& info)
             return true;
         case AppCommandIDs::showPreferences:
             showPreferences();
+            return true;
+        case AppCommandIDs::newProject:
+            handleNewProject();
+            return true;
+        case AppCommandIDs::openProject:
+            handleOpenProject();
+            return true;
+        case AppCommandIDs::importAudio:
+            handleImportAudio();
+            return true;
+        case AppCommandIDs::collectAllAndSave:
+            handleCollectAllAndSave();
+            return true;
+        case AppCommandIDs::toggleBrowser:
+            toggleBrowserPanel();
+            return true;
+        case AppCommandIDs::toggleAutomation:
+            toggleAutomationPanel();
             return true;
         case AppCommandIDs::toggleMidiLearn:
             toggleMidiLearn();
@@ -1162,9 +1240,7 @@ void MainContentComponent::toggleBrowserPanel()
         }
     }
 
-    if (transportBar != nullptr)
-        transportBar->setBrowserToggleState (browserVisible);
-
+    menuItemsChanged();
     resized();
 }
 

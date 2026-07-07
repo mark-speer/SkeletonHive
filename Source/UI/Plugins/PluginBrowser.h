@@ -37,7 +37,6 @@ private:
     void finishScan (const PluginScanReport& report);
     void textEditorTextChanged (juce::TextEditor&) override;
     void comboBoxChanged (juce::ComboBox*) override;
-    void mouseDrag (const juce::MouseEvent& e) override;
     void updateFailedButton();
 
     juce::Array<juce::PluginDescription> getFilteredPlugins() const;

@@ -292,6 +292,7 @@ void ProjectManager::setupEdit()
     edit->playInStopEnabled = true;
     edit->getTransport().ensureContextAllocated();
     EngineHelpers::setupDefaultTracks (*edit);
+    EngineHelpers::ensureTrackKinds (*edit);
 }
 
 void ProjectManager::recordFileModTime()

@@ -53,6 +53,24 @@ public:
             browser.insertButton.triggerClick();
     }
 
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& rowsToDescribe) override
+    {
+        if (rowsToDescribe.size() != 1)
+            return {};
+
+        const int row = rowsToDescribe[0];
+        const auto plugins = browser.getFilteredPlugins();
+        if (! juce::isPositiveAndBelow (row, plugins.size()))
+            return {};
+
+        browser.selectedPlugin = plugins[(size_t) row];
+
+        PluginDragPayload payload;
+        payload.kind = PluginDragPayload::Kind::browserInsert;
+        payload.pluginIdentifier = browser.selectedPlugin.createIdentifierString();
+        return payload.encode();
+    }
+
     PluginBrowser& browser;
 };
 
@@ -329,20 +347,6 @@ void PluginBrowser::showFailedPluginsDialog()
                 safeThis->finishScan (report);
         });
     });
-}
-
-void PluginBrowser::mouseDrag (const juce::MouseEvent& e)
-{
-    if (selectedPlugin.name.isEmpty() || e.getDistanceFromDragStart() < 6)
-        return;
-
-    if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
-    {
-        PluginDragPayload payload;
-        payload.kind = PluginDragPayload::Kind::browserInsert;
-        payload.pluginIdentifier = selectedPlugin.createIdentifierString();
-        container->startDragging (payload.encode(), this, juce::ScaledImage(), true, nullptr, &e.source);
-    }
 }
 
 void PluginBrowser::scanPlugins()

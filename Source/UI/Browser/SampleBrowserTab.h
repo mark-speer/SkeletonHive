@@ -26,6 +26,7 @@ public:
 
     void resized() override;
     void mouseExit (const juce::MouseEvent& e) override;
+    void visibilityChanged() override;
 
 private:
     friend class SampleListModel;
@@ -52,6 +53,7 @@ private:
     void timerCallback() override;
 
     void rebuildList();
+    void stopPreview();
     void previewRow (int row);
     void startSampleDrag (const juce::MouseEvent& e, int row);
     void showContextMenu (int row, juce::Point<int> screenPos);
@@ -72,7 +74,6 @@ private:
     juce::File rootFilter;
     juce::Array<ContentEntry> displayedEntries;
     ContentEntry selectedEntry;
-    int hoverRow = -1;
     std::unique_ptr<SampleListModel> listModel;
 };
 
