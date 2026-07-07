@@ -2,6 +2,7 @@
 #include "NativePluginEditor.h"
 #include "UI/Instruments/DrumRackEditor.h"
 #include "UI/Instruments/SamplerEditor.h"
+#include "UI/Instruments/SynthEditor.h"
 #include "Engine/DrumRackHelpers.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/NativePluginCatalog.h"
@@ -146,6 +147,10 @@ void PluginWindow::recreateEditor()
         if (auto* sampler = dynamic_cast<te::SamplerPlugin*> (&plugin))
             if (! plugin.isInRack())
                 newEditor = SamplerEditor::create (*sampler);
+
+    if (newEditor == nullptr)
+        if (auto* fourOsc = dynamic_cast<te::FourOscPlugin*> (&plugin))
+            newEditor = SynthEditor::create (*fourOsc);
 
     if (newEditor == nullptr && NativePluginCatalog::isNativePlugin (plugin))
         newEditor = NativePluginEditor::create (plugin);

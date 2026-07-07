@@ -63,6 +63,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/DrumRackHelpers.cpp
     Source/Engine/SamplerHelpers.h
     Source/Engine/SamplerHelpers.cpp
+    Source/Engine/SynthHelpers.h
+    Source/Engine/SynthHelpers.cpp
     Source/Engine/ExtendedUIBehaviour.h
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
@@ -162,6 +164,10 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Instruments/SamplerEditor.cpp
     Source/UI/Instruments/SamplerWaveformComponent.h
     Source/UI/Instruments/SamplerWaveformComponent.cpp
+    Source/UI/Instruments/SynthEditor.h
+    Source/UI/Instruments/SynthEditor.cpp
+    Source/UI/Instruments/SynthModMatrixPanel.h
+    Source/UI/Instruments/SynthModMatrixPanel.cpp
     Source/UI/Plugins/PluginPickerDialog.h
     Source/UI/Plugins/PluginPickerDialog.cpp
     Source/UI/Plugins/PresetBrowserPanel.h
