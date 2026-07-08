@@ -99,6 +99,14 @@ namespace IDs
     DECLARE_ID (channel)
     DECLARE_ID (number)
     DECLARE_ID (action)
+    DECLARE_ID (CONTROLSTATE)
+    DECLARE_ID (CONTROLSURFACEBINDING)
+    DECLARE_ID (CONTROLFEEDBACK)
+    DECLARE_ID (targetType)
+    DECLARE_ID (bankOffset)
+    DECLARE_ID (relativeIndex)
+    DECLARE_ID (noteNumber)
+    DECLARE_ID (faderBankOffset)
     #undef DECLARE_ID
 }
 

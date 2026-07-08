@@ -1,4 +1,5 @@
 #include "TimelineComponent.h"
+#include "ArrangementSelectionHelpers.h"
 #include "Engine/AppCommands.h"
 #include "UI/AppLookAndFeel.h"
 #include "Engine/EngineHelpers.h"
@@ -452,6 +453,7 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
 
     gridButton.setClickingTogglesState (true);
     gridButton.setToggleState (editViewState.showGrid.get(), juce::dontSendNotification);
+    gridButton.setTooltip ("Show arrangement grid");
     gridButton.onClick = [this]
     {
         editViewState.showGrid = gridButton.getToggleState();
@@ -460,6 +462,7 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
 
     snapButton.setClickingTogglesState (true);
     snapButton.setToggleState (editViewState.snapToGrid.get(), juce::dontSendNotification);
+    snapButton.setTooltip ("Snap clips and edits to the grid (hold Alt to bypass)");
     snapButton.onClick = [this]
     {
         editViewState.snapToGrid = snapButton.getToggleState();
@@ -951,7 +954,219 @@ void TimelineComponent::handleClipCrossTrackDragEnd (te::Clip& clip, const juce:
             EngineHelpers::moveClipGroupToTrack (clip, *dest, clip.getPosition().getStart());
     }
 
+    clearClipDragOverlay();
     clearCrossTrackDragState();
+}
+
+void TimelineComponent::clearClipMarqueeState()
+{
+    clipMarquee = {};
+    repaint();
+}
+
+void TimelineComponent::clearClipDragOverlay()
+{
+    clipDragOverlay = {};
+    repaint();
+}
+
+juce::Point<int> TimelineComponent::contentPointForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const
+{
+    const auto lanePoint = e.getEventRelativeTo (&lane).getPosition();
+    return { lanePoint.x, lane.getY() + lanePoint.y };
+}
+
+bool TimelineComponent::marqueeIntersectsClips (const juce::Rectangle<int>& rect) const
+{
+    for (auto* lane : trackLanes)
+    {
+        if (lane == nullptr || lane->getTrack().isFolderTrack())
+            continue;
+
+        const auto laneBounds = lane->getBounds();
+        if (! rect.intersects (laneBounds))
+            continue;
+
+        for (int i = 0; i < lane->getNumChildComponents(); ++i)
+        {
+            if (auto* clipComp = dynamic_cast<ClipComponent*> (lane->getChildComponent (i)))
+            {
+                auto clipBounds = clipComp->getBounds();
+                clipBounds = clipBounds.withPosition (clipBounds.getX(), clipBounds.getY() + laneBounds.getY());
+
+                if (clipBounds.intersects (rect))
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool TimelineComponent::handleEmptyLaneDrag (TrackLaneComponent& lane, const juce::MouseEvent& e)
+{
+    if (! clipMarquee.active)
+    {
+        if (e.getDistanceFromDragStart() < 4)
+            return false;
+
+        clipMarquee.active = true;
+        clipMarquee.anchorLane = &lane;
+        clipMarquee.startContent = contentPointForLaneEvent (lane, e);
+        clipMarquee.currentContent = clipMarquee.startContent;
+    }
+
+    clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
+
+    const auto rect = juce::Rectangle<int> (
+        juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+        juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
+        juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+        juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+
+    const int verticalSpan = std::abs (clipMarquee.currentContent.y - clipMarquee.startContent.y);
+
+    if (! clipMarquee.clipSelectMode
+        && (verticalSpan > 8 || marqueeIntersectsClips (rect)))
+    {
+        clipMarquee.clipSelectMode = true;
+
+        for (auto* otherLane : trackLanes)
+        {
+            if (otherLane != nullptr)
+                otherLane->cancelTimelineInteraction();
+        }
+    }
+
+    if (clipMarquee.clipSelectMode)
+    {
+        repaint();
+        return true;
+    }
+
+    return false;
+}
+
+bool TimelineComponent::handleEmptyLaneDragEnd (TrackLaneComponent& lane, const juce::MouseEvent& e)
+{
+    juce::ignoreUnused (lane);
+
+    if (! clipMarquee.active)
+        return false;
+
+    if (clipMarquee.clipSelectMode)
+    {
+        clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
+
+        const auto rect = juce::Rectangle<int> (
+            juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+            juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
+            juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+            juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+
+        ArrangementSelectionHelpers::selectClipsInRect (editViewState, rect, trackLanes);
+
+        if (onClipSelectionChanged)
+            onClipSelectionChanged();
+
+        clearClipMarqueeState();
+        return true;
+    }
+
+    clearClipMarqueeState();
+    return false;
+}
+
+void TimelineComponent::cancelEmptyLaneDrag (TrackLaneComponent& lane)
+{
+    juce::ignoreUnused (lane);
+    clearClipMarqueeState();
+}
+
+void TimelineComponent::handleClipDragOverlayUpdate (te::Clip& clip, ClipComponent::DragMode mode,
+                                                    te::TimePosition snapTime, te::TimePosition ghostStart,
+                                                    te::TimePosition ghostEnd)
+{
+    clipDragOverlay.active = true;
+    clipDragOverlay.clipId = clip.itemID;
+    clipDragOverlay.mode = mode;
+    clipDragOverlay.snapTime = snapTime;
+    clipDragOverlay.ghostStart = ghostStart;
+    clipDragOverlay.ghostEnd = ghostEnd;
+    clipDragOverlay.clipColour = EngineHelpers::getClipFillColour (clip, AppColours::clipAudioDefault (AppLookAndFeel::getCurrentTheme()));
+
+    if (auto* sourceTrack = clip.getClipTrack())
+        clipDragOverlay.sourceRowIndex = EngineHelpers::getArrangementTrackIndex (edit, *sourceTrack);
+
+    repaint();
+}
+
+void TimelineComponent::paintClipMarqueeOverlay (juce::Graphics& g)
+{
+    if (! clipMarquee.active || ! clipMarquee.clipSelectMode)
+        return;
+
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const int viewY = timelineViewport.getViewPositionY();
+    const int viewX = timelineViewport.getViewPositionX();
+
+    auto rect = juce::Rectangle<int> (
+        juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+        juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
+        juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
+        juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+
+    rect = rect.translated (headerWidth + timelineViewport.getX() - viewX,
+                            timelineViewport.getY() - viewY);
+
+    g.setColour (AppColours::marqueeFill (theme));
+    g.fillRect (rect);
+    g.setColour (AppColours::marqueeBorder (theme));
+    g.drawRect (rect, 1);
+}
+
+void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
+{
+    if (! clipDragOverlay.active)
+        return;
+
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const int viewY = timelineViewport.getViewPositionY();
+    const int viewX = timelineViewport.getViewPositionX();
+
+    const int snapX = headerWidth + timelineViewport.getX()
+                        + editViewState.timeToX (clipDragOverlay.snapTime) - viewX;
+
+    g.setColour (AppColours::snapGuideLine (theme).withAlpha (0.85f));
+    g.drawVerticalLine (snapX, (float) timelineViewport.getY(),
+                        (float) timelineViewport.getBottom());
+
+    if (! juce::isPositiveAndBelow (clipDragOverlay.sourceRowIndex, trackRows.size()))
+        return;
+
+    const auto& row = trackRows.getReference (clipDragOverlay.sourceRowIndex);
+    const int x1 = headerWidth + timelineViewport.getX()
+                     + editViewState.timeToX (clipDragOverlay.ghostStart) - viewX;
+    const int x2 = headerWidth + timelineViewport.getX()
+                     + editViewState.timeToX (clipDragOverlay.ghostEnd) - viewX;
+    const auto ghostBounds = juce::Rectangle<int> (x1, timelineViewport.getY() + row.y - viewY,
+                                                 juce::jmax (4, x2 - x1), row.height).reduced (2, 4);
+
+    g.setColour (clipDragOverlay.clipColour.withAlpha (0.30f));
+    g.fillRoundedRectangle (ghostBounds.toFloat(), 4.0f);
+    g.setColour (clipDragOverlay.clipColour.withAlpha (0.75f));
+    g.drawRoundedRectangle (ghostBounds.toFloat(), 4.0f, 1.5f);
+
+    const auto& ts = edit.tempoSequence;
+    const auto barsBeats = ts.toBarsAndBeats (clipDragOverlay.snapTime);
+    const juce::String label = juce::String (barsBeats.bars + 1) + "."
+                             + juce::String ((int) barsBeats.beats.inBeats() + 1);
+
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRoundedRectangle ((float) snapX + 4.0f, (float) ghostBounds.getY() - 16.0f, 48.0f, 14.0f, 3.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.92f));
+    g.setFont (juce::FontOptions (10.0f));
+    g.drawText (label, snapX + 6, ghostBounds.getY() - 16, 44, 14, juce::Justification::centredLeft, false);
 }
 
 void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
@@ -980,6 +1195,8 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
 
 void TimelineComponent::paintOverChildren (juce::Graphics& g)
 {
+    paintClipMarqueeOverlay (g);
+    paintClipDragOverlay (g);
     paintCrossTrackDropOverlay (g);
 }
 
@@ -1106,6 +1323,16 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
         if (onShowClipProperties)
             onShowClipProperties();
     };
+    lane->onEditWarpMarkers = [this] (te::Clip* clip)
+    {
+        if (onEditWarpMarkers && clip != nullptr)
+            onEditWarpMarkers (*clip);
+    };
+    lane->onAudioToMidi = [this] (te::Clip* clip, AudioToMidiMode mode)
+    {
+        if (onAudioToMidi && clip != nullptr)
+            onAudioToMidi (*clip, mode);
+    };
     lane->createPlugin = createPlugin;
     lane->onPluginInserted = onPluginInserted;
     lane->onAddPlugin = onAddPlugin;
@@ -1130,6 +1357,24 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
     {
         handleClipCrossTrackDragEnd (c, e);
     };
+    lane->onClipDragOverlayUpdate = [this] (te::Clip& c, ClipComponent::DragMode mode,
+                                              te::TimePosition snapTime, te::TimePosition ghostStart,
+                                              te::TimePosition ghostEnd)
+    {
+        handleClipDragOverlayUpdate (c, mode, snapTime, ghostStart, ghostEnd);
+    };
+    lane->onClipDragOverlayClear = [this]
+    {
+        clearClipDragOverlay();
+    };
+    lane->onEmptyLaneDrag = [this] (TrackLaneComponent& l, const juce::MouseEvent& e)
+    {
+        return handleEmptyLaneDrag (l, e);
+    };
+    lane->onEmptyLaneDragEnd = [this] (TrackLaneComponent& l, const juce::MouseEvent& e)
+    {
+        return handleEmptyLaneDragEnd (l, e);
+    };
     lane->onTakeLanesChanged = [this]
     {
         layoutTracks();
@@ -1139,6 +1384,9 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
     auto header = std::make_unique<TrackHeaderComponent> (editViewState, row.track);
     header->onTrackSelected = [this] (te::Track& t)
     {
+        for (auto* headerComp : trackHeaders)
+            headerComp->repaint();
+
         if (onTrackSelected)
             onTrackSelected (t);
     };
@@ -1331,6 +1579,45 @@ void TimelineComponent::resized()
     ruler.repaint();
 }
 
+void TimelineComponent::applyWheelDelta (double scaledDelta, bool horizontal, bool vertical)
+{
+    if (horizontal)
+    {
+        horizontalScrollAccumulator += scaledDelta;
+
+        if (std::abs (horizontalScrollAccumulator) >= 1.0)
+        {
+            const int delta = (int) std::round (horizontalScrollAccumulator);
+            horizontalScrollAccumulator -= delta;
+
+            timelineViewport.setViewPosition (juce::jmax (0, timelineViewport.getViewPositionX() - delta),
+                                              timelineViewport.getViewPositionY());
+            syncVisibleRange();
+            refreshLaneLayouts();
+            updateHorizontalScrollBarOverlay();
+            ruler.repaint();
+        }
+    }
+
+    if (vertical)
+    {
+        verticalScrollAccumulator += scaledDelta;
+
+        if (std::abs (verticalScrollAccumulator) >= 1.0)
+        {
+            const int delta = (int) std::round (verticalScrollAccumulator);
+            verticalScrollAccumulator -= delta;
+
+            const int maxY = juce::jmax (0, timelineContent.getHeight() - timelineViewport.getHeight());
+            const int newY = juce::jlimit (0, maxY, timelineViewport.getViewPositionY() - delta);
+            timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), newY);
+            headerViewport.setViewPosition (0, newY);
+            editViewState.viewY = newY;
+            refreshVisibleTracks();
+        }
+    }
+}
+
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
     const auto local = e.getEventRelativeTo (this);
@@ -1343,10 +1630,12 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
     }
 
     const bool ctrl = e.mods.isCtrlDown() || e.mods.isCommandDown();
+    const bool alt = e.mods.isAltDown();
+    const double smoothScale = wheel.isSmooth ? 0.35 : 1.0;
+    const double rawDelta = (wheel.deltaX + wheel.deltaY) * 120.0 * smoothScale;
 
     if (ctrl && e.mods.isShiftDown())
     {
-        // Vertical zoom: adjust track height around the current scroll position
         const int oldHeight = juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get());
         const int newHeight = juce::jlimit (minTrackHeight, maxTrackHeight,
                                             oldHeight + (wheel.deltaY > 0 ? 8 : -8));
@@ -1356,10 +1645,16 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
             layoutTracks();
         }
     }
-    else if (ctrl)
+    else if (e.mods.isShiftDown())
     {
-        // Horizontal zoom anchored at the mouse position. Components are kept
-        // alive and just re-laid-out: no track rebuild.
+        applyWheelDelta (rawDelta, true, false);
+    }
+    else if (ctrl || alt)
+    {
+        applyWheelDelta (wheel.deltaY * 120.0 * smoothScale, false, true);
+    }
+    else
+    {
         const int anchorX = local.x - headerWidth;
         const int scrollX = timelineViewport.getViewPositionX();
         const int newScroll = editViewState.zoomHorizontalAndGetScroll (wheel.deltaY > 0 ? 1.2 : 0.833,
@@ -1370,34 +1665,6 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
         refreshLaneLayouts();
         updateHorizontalScrollBarOverlay();
         repaintGrid();
-    }
-    else if (e.mods.isShiftDown() || timelineContent.getHeight() <= timelineViewport.getHeight())
-    {
-        // Horizontal scroll
-        const int delta = (int) std::round ((wheel.deltaX + wheel.deltaY) * 120.0);
-        if (delta != 0)
-        {
-            timelineViewport.setViewPosition (juce::jmax (0, timelineViewport.getViewPositionX() - delta),
-                                              timelineViewport.getViewPositionY());
-            syncVisibleRange();
-            refreshLaneLayouts();
-            updateHorizontalScrollBarOverlay();
-            ruler.repaint();
-        }
-    }
-    else
-    {
-        // Vertical scroll when the track list is taller than the viewport
-        const int delta = (int) std::round (wheel.deltaY * 120.0);
-        if (delta != 0)
-        {
-            const int maxY = juce::jmax (0, timelineContent.getHeight() - timelineViewport.getHeight());
-            const int newY = juce::jlimit (0, maxY, timelineViewport.getViewPositionY() - delta);
-            timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), newY);
-            headerViewport.setViewPosition (0, newY);
-            editViewState.viewY = newY;
-            refreshVisibleTracks();
-        }
     }
 }
 

@@ -178,4 +178,16 @@ void AppSettings::saveIfNeeded()
     properties.saveIfNeeded();
 }
 
+bool AppSettings::isPluginSandboxEnabled() const
+{
+    return properties.getBoolValue ("pluginSandboxEnabled", true);
+}
+
+void AppSettings::setPluginSandboxEnabled (bool enabled)
+{
+    properties.setValue ("pluginSandboxEnabled", enabled);
+    saveIfNeeded();
+    sendChangeMessage();
+}
+
 } // namespace skeletonhive

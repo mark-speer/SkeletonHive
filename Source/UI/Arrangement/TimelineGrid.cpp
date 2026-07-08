@@ -1,4 +1,5 @@
 #include "TimelineGrid.h"
+#include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
 {
@@ -6,6 +7,7 @@ namespace skeletonhive
 namespace
 {
 constexpr double minGridSpacingPx = 8.0;
+constexpr double minDrawSpacingPx = 6.0;
 constexpr int maxBarsToIterate = 100000;   // hard stop for degenerate zoom levels
 
 double intervalForDivision (GridDivision division, double barBeats)
@@ -93,6 +95,7 @@ void TimelineGrid::drawBarBackground (juce::Graphics& g, const te::Edit& edit, c
     if (area.isEmpty())
         return;
 
+    const auto theme = AppLookAndFeel::getCurrentTheme();
     const auto& ts = edit.tempoSequence;
     const int firstBar = juce::jmax (0, ts.toBarsAndBeats (viewState.xToTime (area.getX())).bars);
 
@@ -107,7 +110,8 @@ void TimelineGrid::drawBarBackground (juce::Graphics& g, const te::Edit& edit, c
             continue;
 
         const bool shaded = (bar & 1) != 0;
-        g.setColour (shaded ? juce::Colour (0xff141428) : juce::Colour (0xff10101f));
+        g.setColour (shaded ? AppColours::laneBackgroundAlt (theme)
+                            : AppColours::laneBackground (theme));
         g.fillRect (juce::Rectangle<int> (juce::jmax (area.getX(), x1), area.getY(),
                                           juce::jmin (area.getRight(), x2) - juce::jmax (area.getX(), x1),
                                           area.getHeight()));
@@ -120,6 +124,8 @@ void TimelineGrid::drawGridLines (juce::Graphics& g, const te::Edit& edit, const
     if (! viewState.showGrid.get() || area.isEmpty())
         return;
 
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const auto pixelsPerBeat = viewState.getPixelsPerBeat();
     const auto& ts = edit.tempoSequence;
     const int firstBar = juce::jmax (0, ts.toBarsAndBeats (viewState.xToTime (area.getX())).bars);
 
@@ -143,17 +149,17 @@ void TimelineGrid::drawGridLines (juce::Graphics& g, const te::Edit& edit, const
 
             if (b == 0.0)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.45f));
+                g.setColour (AppColours::gridBarLine (theme));
                 g.fillRect (x, area.getY(), 1, area.getHeight());
             }
             else if (isNearlyInteger (b))
             {
-                g.setColour (juce::Colours::white.withAlpha (0.18f));
+                g.setColour (AppColours::gridBeatLine (theme));
                 g.drawVerticalLine (x, (float) area.getY(), (float) area.getBottom());
             }
-            else
+            else if (interval * pixelsPerBeat >= minDrawSpacingPx)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.setColour (AppColours::gridSubdivisionLine (theme));
                 g.drawVerticalLine (x, (float) area.getY(), (float) area.getBottom());
             }
         }
@@ -163,8 +169,9 @@ void TimelineGrid::drawGridLines (juce::Graphics& g, const te::Edit& edit, const
 void TimelineGrid::drawRuler (juce::Graphics& g, const te::Edit& edit, const EditViewState& viewState,
                               juce::Rectangle<int> area)
 {
-    g.fillAll (juce::Colour (0xff1a1a2e));
-    g.setColour (juce::Colours::white.withAlpha (0.25f));
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    g.fillAll (AppColours::headerBackground (theme));
+    g.setColour (AppColours::trackSeparator (theme));
     g.drawHorizontalLine (area.getBottom() - 1, (float) area.getX(), (float) area.getRight());
 
     const auto& ts = edit.tempoSequence;
@@ -176,7 +183,8 @@ void TimelineGrid::drawRuler (juce::Graphics& g, const te::Edit& edit, const Edi
     const int firstBar = juce::jmax (0, ts.toBarsAndBeats (viewStart).bars);
     const int lastBar = ts.toBarsAndBeats (viewEnd).bars + 1;
 
-    g.setFont (juce::FontOptions (11.0f));
+    const float barFontSize = pixelsPerBeat < 12.0 ? 10.0f : 11.0f;
+    g.setFont (juce::FontOptions (barFontSize));
 
     for (int bar = firstBar; bar <= lastBar; ++bar)
     {
@@ -186,15 +194,14 @@ void TimelineGrid::drawRuler (juce::Graphics& g, const te::Edit& edit, const Edi
 
         const int x = area.getX() + viewState.timeToXInView (barTime, width);
 
-        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        g.setColour (AppColours::gridBarLine (theme));
         g.drawVerticalLine (x, (float) area.getY() + 2.0f, (float) area.getBottom() - 2.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
         g.drawText (juce::String (bar + 1),
-                    juce::Rectangle<int> (x + 4, area.getY(), 36, area.getHeight()),
+                    juce::Rectangle<int> (x + 4, area.getY(), 40, area.getHeight()),
                     juce::Justification::centredLeft, true);
 
-        // Beat ticks within the bar when zoomed in enough (Live-style).
         const double barBeats = beatsPerBar (edit, barTime);
         const double barStartBeat = ts.toBeats (barTime).inBeats();
 
@@ -208,7 +215,7 @@ void TimelineGrid::drawRuler (juce::Graphics& g, const te::Edit& edit, const Edi
                     continue;
 
                 const int bx = area.getX() + viewState.timeToXInView (beatTime, width);
-                g.setColour (juce::Colours::white.withAlpha (0.35f));
+                g.setColour (AppColours::gridBeatLine (theme));
                 g.drawVerticalLine (bx, (float) area.getBottom() - 8.0f, (float) area.getBottom() - 2.0f);
             }
         }

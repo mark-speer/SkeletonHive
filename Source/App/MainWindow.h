@@ -26,6 +26,8 @@
 
 #include "UI/Arrangement/ClipInspectorPanel.h"
 
+#include "Engine/AudioToMidiTypes.h"
+
 #include "UI/Browser/BrowserPanel.h"
 
 #include "UI/Detail/DetailPanelStack.h"
@@ -47,6 +49,8 @@
 #include "Engine/SessionArrangementBridge.h"
 
 #include "Engine/SessionMidiMapper.h"
+
+#include "Engine/ControlSurfaceManager.h"
 
 #include "UI/Session/SessionViewComponent.h"
 
@@ -158,6 +162,10 @@ private:
 
     void handleClipDoubleClick (te::Clip& clip);
 
+    void handleEditWarpMarkers (te::Clip& clip);
+
+    void handleAudioToMidi (te::Clip& clip, AudioToMidiMode mode);
+
     void handleAddPlugin (te::Track& track);
 
     void showPianoRoll (te::MidiClip& clip);
@@ -225,6 +233,8 @@ private:
     std::unique_ptr<SessionArrangementBridge> sessionArrangementBridge;
 
     std::unique_ptr<SessionMidiMapper> sessionMidiMapper;
+
+    std::unique_ptr<ControlSurfaceManager> controlSurfaceManager;
 
     std::unique_ptr<PluginScanner> pluginScanner;
 

@@ -1,5 +1,8 @@
 #include "SkeletonHiveApplication.h"
 #include "MainWindow.h"
+#include "Engine/Effects/NativeCustomPlugins.h"
+#include "Engine/PluginHost/PluginHostManager.h"
+#include "Engine/PluginHost/PluginHostWorker.h"
 
 namespace skeletonhive
 {
@@ -9,12 +12,17 @@ void SkeletonHiveApplication::initialise (const juce::String& commandLine)
     if (te::PluginManager::startChildProcessPluginScan (commandLine))
         return;
 
+    if (PluginHostWorker::tryInitialiseFromCommandLine (commandLine))
+        return;
+
     appLookAndFeel.setTheme (appSettings.getTheme());
     appLookAndFeel.applyThemeToDesktop();
 
     auto uiBehaviour = std::make_unique<ExtendedUIBehaviour>();
     auto engineBehaviour = std::make_unique<ExtendedEngineBehaviour>();
     engine = std::make_unique<te::Engine> ("SkeletonHive", std::move (uiBehaviour), std::move (engineBehaviour));
+    registerNativeCustomPlugins (*engine);
+    PluginHostManager::installCreatePluginInstanceHook (*engine, appSettings);
     projectManager = std::make_unique<ProjectManager> (*engine);
     midiLearnController = std::make_unique<MidiLearnController> (*engine);
 

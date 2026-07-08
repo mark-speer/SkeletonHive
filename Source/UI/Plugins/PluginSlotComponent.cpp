@@ -252,6 +252,8 @@ void PluginSlotComponent::paint (juce::Graphics& g)
             kind = "Rack";
         else if (nestedInRack)
             kind = "In Rack";
+        else if (EngineHelpers::isSandboxedExternalPlugin (*plugin))
+            kind = "Sandboxed";
         g.drawText (kind, titleArea.withTrimmedTop (14), juce::Justification::topLeft, true);
     }
 

@@ -1,6 +1,9 @@
 #include "NativePluginCatalog.h"
 
 #include "DrumRackHelpers.h"
+#include "Effects/NativeCustomPlugins.h"
+#include "Effects/SaturationPlugin.h"
+#include "Effects/MultibandDynamicsPlugin.h"
 
 namespace skeletonhive
 {
@@ -23,6 +26,8 @@ const juce::Array<NativePluginEntry>& builtInEntries()
         entries.add ({ "Delay", te::DelayPlugin::xmlTypeName, "Time", false });
         entries.add ({ "Chorus", te::ChorusPlugin::xmlTypeName, "Modulation", false });
         entries.add ({ "Phaser", te::PhaserPlugin::xmlTypeName, "Modulation", false });
+        entries.add ({ "Saturation", SaturationPlugin::xmlTypeName, "Distortion", false });
+        entries.add ({ "Multiband Dynamics", MultibandDynamicsPlugin::xmlTypeName, "Dynamics", false });
     }
 
     return entries;
@@ -71,6 +76,10 @@ juce::String pluginXmlTypeName (const te::Plugin& plugin)
         return te::ChorusPlugin::xmlTypeName;
     if (dynamic_cast<const te::PhaserPlugin*> (&plugin) != nullptr)
         return te::PhaserPlugin::xmlTypeName;
+    if (isSaturationPlugin (plugin))
+        return SaturationPlugin::xmlTypeName;
+    if (isMultibandDynamicsPlugin (plugin))
+        return MultibandDynamicsPlugin::xmlTypeName;
 
     return {};
 }

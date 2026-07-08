@@ -2,6 +2,7 @@
 
 #include "EditViewState.h"
 #include "TimelineLOD.h"
+#include "Engine/AudioToMidiTypes.h"
 
 namespace skeletonhive
 {
@@ -12,6 +13,9 @@ void drawMidiClipDensity (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle
 class ClipComponent : public juce::Component
 {
 public:
+    enum class DragMode { none, move, resizeStart, resizeEnd, fadeIn, fadeOut };
+    enum class HoverZone { none, left, right, body };
+
     ClipComponent (EditViewState& evs, te::Clip::Ptr c);
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -24,14 +28,16 @@ public:
     std::function<void (te::Clip&)> onDoubleClick;
     std::function<void()> onSelectionChanged;
     std::function<void()> onShowClipProperties;
+    std::function<void (te::Clip*)> onEditWarpMarkers;
+    std::function<void (te::Clip*, AudioToMidiMode)> onAudioToMidi;
     std::function<void()> onTakeLanesChanged;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragMove;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onCrossTrackDragEnd;
+    std::function<void (te::Clip&, DragMode, te::TimePosition, te::TimePosition, te::TimePosition)> onDragOverlayUpdate;
+    std::function<void()> onDragOverlayClear;
     std::function<void (te::Clip&)> onExportToLibrary;
 
 protected:
-    enum class DragMode { none, move, resizeStart, resizeEnd, fadeIn, fadeOut };
-
     struct GroupDragItem
     {
         te::Clip::Ptr clip;
@@ -54,6 +60,8 @@ protected:
     void captureRippleDragItems (te::TimePosition anchor);
     void applyAutoCrossfadeForClip (te::Clip& c) const;
     void paintSelectionAndGroupIndicators (juce::Graphics& g) const;
+    void paintResizeHoverIndicators (juce::Graphics& g) const;
+    int effectiveResizeHandleWidth() const;
     TimelineClipDetailLevel getDetailLevel() const;
     bool isFadeHandleZone (const juce::MouseEvent& e, bool& fadeIn) const;
     void cycleFadeCurveType (bool fadeIn);
@@ -74,8 +82,10 @@ protected:
 
     bool exportDragMode = false;
     bool exportDragStarted = false;
+    HoverZone hoverZone = HoverZone::none;
 
     static constexpr int resizeHandleWidth = 6;
+    static constexpr int resizeHandleWidthDetail = 8;
     static constexpr int fadeHandlePx = 10;
     static constexpr double minClipLengthSeconds = 0.05;
 };
@@ -92,6 +102,7 @@ public:
 private:
     void refreshThumbnailSource();
     void paintFadeOverlay (juce::Graphics& g) const;
+    void paintWarpOverlay (juce::Graphics& g) const;
 
     std::shared_ptr<te::SmartThumbnail> thumbnail;
     juce::int64 cachedFileKey = 0;

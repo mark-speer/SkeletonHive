@@ -2,8 +2,14 @@
 #include "TracktionCommon.h"
 #include "Engine/AppSettings.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/WarpEngine.h"
+#include "Engine/AudioToMidiEngine.h"
+#include "Engine/AudioToMidiTypes.h"
 #include "Engine/TrackInputRouting.h"
 #include "Engine/ExportManager.h"
+#if JUCE_DEBUG
+#include "Engine/EngineBenchmarkHarness.h"
+#endif
 #include "UI/Settings/PreferencesDialog.h"
 #include "UI/AppLookAndFeel.h"
 #include <JuceHeader.h>
@@ -123,6 +129,7 @@ void MainContentComponent::releaseEditUI()
     sessionView = nullptr;
     sessionManager = nullptr;
     sessionMidiMapper = nullptr;
+    controlSurfaceManager = nullptr;
     sessionArrangementBridge = nullptr;
     performanceMacroPanel = nullptr;
     transportBar = nullptr;
@@ -146,6 +153,9 @@ void MainContentComponent::rebuildEditUI()
                                                                           *sessionManager, *transportController);
     sessionManager->setArrangementBridge (sessionArrangementBridge.get());
     sessionMidiMapper = std::make_unique<SessionMidiMapper> (*edit, timeline->getEditViewState(), *sessionManager);
+    controlSurfaceManager = std::make_unique<ControlSurfaceManager> (*edit, timeline->getEditViewState(),
+                                                                     *transportController, *sessionManager);
+    controlSurfaceManager->installGenericFaderBankScript();
     sessionView = std::make_unique<SessionViewComponent> (*sessionManager, *sessionMidiMapper,
                                                           timeline->getEditViewState(), clipLibraryManager.get());
     performanceMacroPanel = std::make_unique<PerformanceMacroPanel> (*edit, timeline->getEditViewState());
@@ -154,7 +164,12 @@ void MainContentComponent::rebuildEditUI()
     automationPanel = std::make_unique<AutomationPanel> (*edit, timeline->getEditViewState());
 
     auto pluginTray = std::make_unique<PluginTrayComponent> (timeline->getEditViewState(), *pluginStateManager, *pluginScanner);
-    auto clipInspectorPanel = std::make_unique<ClipInspectorPanel> (*edit, projectManager.getSelectionManager());
+    auto clipInspectorPanel = std::make_unique<ClipInspectorPanel> (*edit, projectManager.getSelectionManager(),
+                                                                     timeline->getEditViewState());
+    clipInspectorPanel->onAudioToMidi = [this] (te::Clip& clip, AudioToMidiMode mode)
+    {
+        handleAudioToMidi (clip, mode);
+    };
     detailPanelStack = std::make_unique<DetailPanelStack> (std::move (pluginTray), std::move (clipInspectorPanel));
 
     groovePoolManager->loadForProject (projectManager.getCurrentProjectFile());
@@ -180,6 +195,8 @@ void MainContentComponent::rebuildEditUI()
     transportBar->onToggleSidechain = [this] { toggleSidechainPanel(); };
 
     timeline->onClipDoubleClick = [this] (te::Clip& c) { handleClipDoubleClick (c); };
+    timeline->onEditWarpMarkers = [this] (te::Clip& c) { handleEditWarpMarkers (c); };
+    timeline->onAudioToMidi = [this] (te::Clip& c, AudioToMidiMode mode) { handleAudioToMidi (c, mode); };
     timeline->onAddPlugin = [this] (te::Track& t) { handleAddPlugin (t); };
     timeline->onClipSelectionChanged = [this] { syncRoamingFocus(); };
     timeline->onShowClipProperties = [this] { syncRoamingFocus(); };
@@ -267,6 +284,7 @@ void MainContentComponent::rebuildEditUI()
     transportBar->onTogglePerformancePanel = [this] { togglePerformancePanel(); };
 
     sessionMidiMapper->onStatusChanged = [this] { updateLearnStatus(); };
+    controlSurfaceManager->onStatusChanged = [this] { updateLearnStatus(); };
 
     if (performanceMacroPanel != nullptr)
     {
@@ -510,7 +528,95 @@ void MainContentComponent::handleAddMidiClip()
 void MainContentComponent::handleClipDoubleClick (te::Clip& clip)
 {
     if (auto* midiClip = dynamic_cast<te::MidiClip*> (&clip))
+    {
         showPianoRoll (*midiClip);
+        return;
+    }
+
+    if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (&clip))
+    {
+        if (WarpEngine::supportsWarp (*audioClip))
+            handleEditWarpMarkers (clip);
+    }
+}
+
+void MainContentComponent::handleEditWarpMarkers (te::Clip& clip)
+{
+    if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (&clip))
+    {
+        projectManager.getSelectionManager().selectOnly (&clip);
+
+        if (detailPanelStack != nullptr)
+        {
+            detailPanelStack->setActiveView (DetailView::clip);
+
+            if (auto* inspector = detailPanelStack->getClipInspector())
+                inspector->openWarpEditor (*audioClip);
+        }
+
+        resized();
+    }
+}
+
+void MainContentComponent::handleAudioToMidi (te::Clip& clip, AudioToMidiMode mode)
+{
+    auto* audioClip = dynamic_cast<te::AudioClipBase*> (&clip);
+    if (audioClip == nullptr)
+        return;
+
+    projectManager.getSelectionManager().selectOnly (&clip);
+
+    struct ConversionTask : juce::ThreadWithProgressWindow
+    {
+        ConversionTask (te::AudioClipBase& source, AudioToMidiMode conversionMode)
+            : ThreadWithProgressWindow ("Converting to MIDI...", true, true),
+              sourceClip (source),
+              mode (conversionMode)
+        {
+        }
+
+        void run() override
+        {
+            transcription = AudioToMidiEngine::analyseClip (sourceClip, mode);
+        }
+
+        te::AudioClipBase& sourceClip;
+        AudioToMidiMode mode;
+        TranscriptionResult transcription;
+    };
+
+    ConversionTask task (*audioClip, mode);
+    task.runThread();
+
+    if (task.transcription.success)
+    {
+        juce::String error;
+        if (auto* midiClip = AudioToMidiEngine::createMidiClipFromTranscription (*projectManager.getEdit(),
+                                                                                 *audioClip,
+                                                                                 task.transcription,
+                                                                                 mode,
+                                                                                 &error))
+        {
+            projectManager.getSelectionManager().deselectAll();
+            projectManager.getSelectionManager().addToSelection (*midiClip);
+            timeline->rebuildTracks();
+            showPianoRoll (*midiClip);
+            return;
+        }
+
+        if (error.isNotEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                    "Convert to MIDI",
+                                                    error);
+            return;
+        }
+    }
+
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                            "Convert to MIDI",
+                                            task.transcription.error.isNotEmpty() ? task.transcription.error
+                                                                                  : "Audio-to-MIDI conversion failed.");
 }
 
 void MainContentComponent::handleAddPlugin (te::Track& track)
@@ -816,6 +922,14 @@ void MainContentComponent::togglePerformancePanel()
 bool MainContentComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
 #if JUCE_DEBUG
+    if (key == juce::KeyPress ('B', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier
+                                         | juce::ModifierKeys::altModifier, 0)
+        && projectManager.getEdit() != nullptr)
+    {
+        EngineBenchmarkHarness::runFullSuite (engine, *projectManager.getEdit(), 50);
+        return true;
+    }
+
     if (key == juce::KeyPress ('T', juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier
                                          | juce::ModifierKeys::altModifier, 0)
         && projectManager.getEdit() != nullptr)
@@ -884,6 +998,9 @@ juce::PopupMenu MainContentComponent::getMenuForIndex (int topLevelMenuIndex, co
             break;
 
         case 1:
+            menu.addCommandItem (&commandManager, AppCommandIDs::undo);
+            menu.addCommandItem (&commandManager, AppCommandIDs::redo);
+            menu.addSeparator();
             menu.addCommandItem (&commandManager, AppCommandIDs::showPreferences);
             break;
 
@@ -971,8 +1088,46 @@ void MainContentComponent::getCommandInfo (juce::CommandID commandID, juce::Appl
 {
     result.setInfo (AppCommands::getCommandName (commandID), AppCommands::getCommandName (commandID), "SkeletonHive", 0);
 
+    auto* edit = projectManager.getEdit();
+
     switch (commandID)
     {
+        case AppCommandIDs::undo:
+        {
+            juce::String name = "Undo";
+            bool enabled = false;
+
+            if (edit != nullptr)
+            {
+                auto& um = edit->getUndoManager();
+                enabled = um.canUndo();
+
+                if (enabled)
+                    name = "Undo " + um.getUndoDescription();
+            }
+
+            result.setInfo (name, "Undo last edit", "Edit", 0);
+            result.setActive (enabled);
+            break;
+        }
+        case AppCommandIDs::redo:
+        {
+            juce::String name = "Redo";
+            bool enabled = false;
+
+            if (edit != nullptr)
+            {
+                auto& um = edit->getUndoManager();
+                enabled = um.canRedo();
+
+                if (enabled)
+                    name = "Redo " + um.getRedoDescription();
+            }
+
+            result.setInfo (name, "Redo last undone edit", "Edit", 0);
+            result.setActive (enabled);
+            break;
+        }
         case AppCommandIDs::toggleBrowser:
             result.setTicked (browserVisible);
             break;
@@ -1249,6 +1404,9 @@ void MainContentComponent::toggleMidiLearn()
     if (sessionMidiMapper != nullptr)
         sessionMidiMapper->cancelLearn();
 
+    if (controlSurfaceManager != nullptr)
+        controlSurfaceManager->cancelLearn();
+
     midiLearnController.setActive (! midiLearnController.isActive());
     updateLearnStatus();
 }
@@ -1262,6 +1420,9 @@ void MainContentComponent::updateLearnStatus()
 
     if (sessionMidiMapper != nullptr)
         text = sessionMidiMapper->getStatusText();
+
+    if (text.isEmpty() && controlSurfaceManager != nullptr)
+        text = controlSurfaceManager->getStatusText();
 
     if (text.isEmpty())
     {

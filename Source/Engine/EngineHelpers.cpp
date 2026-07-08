@@ -1,6 +1,9 @@
 #include "EngineHelpers.h"
+#include "AudioToMidiEngine.h"
 #include "GrooveEngine.h"
 #include "ExportManager.h"
+#include "PluginHost/PluginHostHelpers.h"
+#include "PluginHost/SandboxedPluginInstance.h"
 #include "NativePluginCatalog.h"
 #include "DrumRackHelpers.h"
 #include "TrackInputRouting.h"
@@ -559,6 +562,27 @@ int EngineHelpers::findInstrumentSlot (te::AudioTrack& track)
     return -1;
 }
 
+bool EngineHelpers::trackHasInstrument (te::AudioTrack& track)
+{
+    return findInstrumentSlot (track) >= 0;
+}
+
+te::Plugin* EngineHelpers::ensureSamplerOnMidiTrack (te::AudioTrack& track)
+{
+    TrackPluginChainModel model (track);
+
+    if (! model.expectsInstrumentFirst() || trackHasInstrument (track))
+        return nullptr;
+
+    const auto desc = NativePluginCatalog::makeDescription ({ "Sampler", te::SamplerPlugin::xmlTypeName,
+                                                              "Instrument", true });
+
+    if (auto plugin = NativePluginCatalog::createPlugin (track.edit, desc))
+        return insertPluginOnTrack (track, plugin, 0);
+
+    return nullptr;
+}
+
 bool EngineHelpers::movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot)
 {
     TrackPluginChainModel model (track);
@@ -772,6 +796,30 @@ EngineHelpers::PluginLoadState EngineHelpers::getExternalPluginLoadState (te::Pl
         return PluginLoadState::ok;
     }
 
+    if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*external))
+    {
+        if (sandboxed->isCrashed())
+        {
+            statusMessage = "Plugin process crashed";
+            return PluginLoadState::failed;
+        }
+
+        if (sandboxed->isLoading())
+        {
+            statusMessage = "Loading plugin in sandbox...";
+            return PluginLoadState::loading;
+        }
+
+        if (! sandboxed->isLoaded())
+        {
+            statusMessage = "Plugin failed to load in sandbox.";
+            return PluginLoadState::failed;
+        }
+
+        statusMessage = {};
+        return PluginLoadState::ok;
+    }
+
     if (external->isInitialisingAsync())
     {
         statusMessage = "Loading plugin...";
@@ -797,6 +845,11 @@ juce::String EngineHelpers::getExternalPluginLoadError (te::Plugin& plugin)
     juce::String message;
     getExternalPluginLoadState (plugin, message);
     return message;
+}
+
+bool EngineHelpers::isSandboxedExternalPlugin (const te::Plugin& plugin)
+{
+    return PluginHostHelpers::isSandboxedExternalPlugin (plugin);
 }
 
 void EngineHelpers::showPluginLoadFailureAlert (juce::Component* parent,
@@ -1991,6 +2044,20 @@ int EngineHelpers::applyGrooveToSelection (te::Edit& edit, te::SelectionManager&
         return fail ("Selected MIDI clips contain no notes.");
 
     return noteCount;
+}
+
+te::MidiClip* EngineHelpers::convertAudioClipToMidi (te::Edit& edit, te::AudioClipBase& clip,
+                                                     AudioToMidiMode mode, te::SelectionManager& selection,
+                                                     juce::String* errorMessage)
+{
+    if (auto* midiClip = AudioToMidiEngine::convertClip (edit, clip, mode, errorMessage))
+    {
+        selection.deselectAll();
+        selection.addToSelection (*midiClip);
+        return midiClip;
+    }
+
+    return nullptr;
 }
 
 juce::String EngineHelpers::makeSessionSlotId (te::EditItemID trackId, int sceneIndex)

@@ -8,20 +8,21 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - MIDI sequencing with piano roll editor (velocity, CC, pitch bend, aftertouch lanes)
 - Audio and MIDI recording with punch/loop modes, metronome and count-in
 - Audio export/bounce to WAV or FLAC
-- VST3 plugin hosting (AU on macOS)
+- VST3 plugin hosting (AU on macOS); VST3 effects can run in a crash-isolated sandbox process (Preferences → Devices)
 - Mixer with level meters, sends and sidechain routing
 - Parameter automation (Read / Touch / Latch) with editable lanes
 - Arrangement markers and tempo/time-signature map editing
 - Track freeze
 - Customizable keyboard shortcuts and preferences (theme, autosave, audio)
-- MIDI controller learn for mixer fader/pan parameters
+- MIDI controller learn for mixer fader/pan parameters; generic control-surface fader bank (CC 1–8 volume, CC 9–16 pan) with session-grid LED feedback
 - Audio clip inspector (gain, transpose, reverse, speed, loop) in the arrangement view
 - Take lanes and comping for audio/MIDI clips (loop-record takes, comp editing, flatten)
 - In-place consolidate (Ctrl/Cmd+J) and flatten-to-audio for device chains
 - Linked clip-group editing (inspector + fade curves propagate to grouped peers)
 - Plugin hot-swap (Replace…) with state transfer; per-device preset browser with A/B compare
 - Default device chains for new audio/MIDI tracks (Preferences → Devices)
-- Sample browser with library scan, hover preview, and drag-to-timeline import
+- Native instruments: Sampler, Drum Rack, and 4OSC Synth with dedicated editors (waveform regions, mod matrix)
+- Sample browser with library scan, hover preview, and drag-to-timeline import (auto-inserts Sampler on empty MIDI tracks)
 - Clip library with drag-to-save presets, export-to-library, and Collect All and Save
 - Live-style detail panel (Devices | Clip tabs) with roaming track focus across tray, inspector, and automation
 - Global groove pool with project persistence; apply to MIDI clip selection (Shift+H) or from Grooves browser tab
@@ -35,9 +36,11 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 
 ## Roadmap
 
-Phases 1–7 and Phase 8 (Session View, arrangement bridge, performance features, scale/probability, grid virtualization) are implemented. Phases 9–12 (native instruments/effects, audio-engine depth, control surfaces/MPE/Link, and collaboration/finish) are planned. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§16).
+Phases 1–10 and Phase 9 Tier 4 / Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§16).
 
-**Debug stress test (200 tracks):** In debug builds, press Ctrl+Shift+Alt+T to add 200 MIDI tracks and log grid rebuild timing plus live slot component count to the debug console.
+**Debug stress tests (debug builds only):**
+- **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing and live slot component count.
+- **Ctrl+Shift+Alt+B** — run engine benchmark suite (populate audio tracks, freeze, render); log timings to the debug console.
 
 ## Requirements
 

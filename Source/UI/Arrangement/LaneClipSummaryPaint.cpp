@@ -1,5 +1,7 @@
 #include "LaneClipSummaryPaint.h"
 #include "TimelineGrid.h"
+#include "ArrangementClipVisuals.h"
+#include "UI/AppLookAndFeel.h"
 #include "Engine/EngineHelpers.h"
 
 namespace skeletonhive
@@ -22,11 +24,13 @@ enum class BarBucketKind
 
 juce::Colour fillColourForClip (const te::Clip& clip)
 {
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+
     if (dynamic_cast<const te::WaveAudioClip*> (&clip) != nullptr)
-        return EngineHelpers::getClipFillColour (clip, juce::Colour (0xff2d6a4f));
+        return EngineHelpers::getClipFillColour (clip, AppColours::clipAudioDefault (theme));
 
     if (dynamic_cast<const te::MidiClip*> (&clip) != nullptr)
-        return EngineHelpers::getClipFillColour (clip, juce::Colour (0xff4361ee));
+        return EngineHelpers::getClipFillColour (clip, AppColours::clipMidiDefault (theme));
 
     return EngineHelpers::getClipFillColour (clip, juce::Colours::darkgrey);
 }
@@ -63,10 +67,12 @@ void mergeBarBucket (BarBucketKind& bucket, const te::Clip& clip)
 
 juce::Colour colourForBarBucket (BarBucketKind kind)
 {
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+
     switch (kind)
     {
-        case BarBucketKind::audio: return juce::Colour (0xff2d6a4f);
-        case BarBucketKind::midi:  return juce::Colour (0xff4361ee);
+        case BarBucketKind::audio: return AppColours::clipAudioDefault (theme);
+        case BarBucketKind::midi:  return AppColours::clipMidiDefault (theme);
         case BarBucketKind::mixed: return juce::Colour (0xff888888);
         default:                   return juce::Colours::transparentBlack;
     }
@@ -78,14 +84,18 @@ void paintClipBlock (juce::Graphics& g, EditViewState& editViewState, te::Clip& 
     if (bounds.isEmpty())
         return;
 
-    constexpr float corner = 2.0f;
+    constexpr float corner = 3.0f;
     g.setColour (fillColourForClip (clip));
     g.fillRoundedRectangle (bounds.toFloat(), corner);
 
+    paintClipStateOverlay (g, editViewState, clip, bounds, corner);
+
     if (editViewState.selectionManager.isSelected (&clip))
     {
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), corner, 2.0f);
+        const auto theme = AppLookAndFeel::getCurrentTheme();
+        const auto border = AppColours::clipSelectedBorder (theme);
+        g.setColour (border.withAlpha (0.95f));
+        g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), corner, 1.5f);
     }
 
     if (EngineHelpers::getClipOuterGroup (clip).isNotEmpty())

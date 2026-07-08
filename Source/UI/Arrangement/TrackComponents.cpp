@@ -2,10 +2,14 @@
 #include "TimelineComponent.h"
 #include "TimelineLOD.h"
 #include "LaneClipSummaryPaint.h"
+#include "ArrangementSelectionHelpers.h"
+#include "Engine/AudioToMidiTypes.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/WarpEngine.h"
 #include "Engine/TrackInputRouting.h"
 #include "Engine/TrackPluginChainModel.h"
 #include "Engine/UiTelemetryHub.h"
+#include "UI/AppLookAndFeel.h"
 #include "UI/Routing/SidechainMenu.h"
 #include "TracktionCommon.h"
 #include "TimelineGrid.h"
@@ -39,6 +43,10 @@ enum class TimelineMenuResult
     freezeTrack = 300,
     flattenTrack,
     clipProperties = 400,
+    editWarpMarkers = 405,
+    convertToMidiMelody = 420,
+    convertToMidiHarmony,
+    convertToMidiDrums,
     showTakeLanes = 500,
     hideTakeLanes,
     newComp,
@@ -93,6 +101,8 @@ void showTimelineContextMenu (juce::Component& target,
                               std::function<void()> onCreateMidiClip,
                               te::Clip* contextClip,
                               std::function<void()> onShowClipProperties,
+                              std::function<void (te::Clip*)> onEditWarpMarkers,
+                              std::function<void (te::Clip*, AudioToMidiMode)> onAudioToMidi,
                               std::function<void()> onTakeLanesChanged,
                               std::function<void()> onClipsChanged,
                               std::function<void (te::Clip&)> onExportToLibrary,
@@ -191,6 +201,21 @@ void showTimelineContextMenu (juce::Component& target,
         addFadeCurveSubmenu (menu, "Fade In Curve", (int) TimelineMenuResult::fadeInLinear);
         addFadeCurveSubmenu (menu, "Fade Out Curve", (int) TimelineMenuResult::fadeOutLinear);
         menu.addItem ((int) TimelineMenuResult::clipProperties, "Clip Properties...");
+
+        if (takeClip != nullptr)
+        {
+            if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (takeClip))
+            {
+                if (WarpEngine::supportsWarp (*audioClip))
+                    menu.addItem ((int) TimelineMenuResult::editWarpMarkers, "Edit Warp Markers...");
+
+                juce::PopupMenu convertMenu;
+                convertMenu.addItem ((int) TimelineMenuResult::convertToMidiMelody, "Melody");
+                convertMenu.addItem ((int) TimelineMenuResult::convertToMidiHarmony, "Harmony");
+                convertMenu.addItem ((int) TimelineMenuResult::convertToMidiDrums, "Drums");
+                menu.addSubMenu ("Convert to MIDI Track", convertMenu);
+            }
+        }
     }
 
     if (offerLoopSelection || offerCreateMidiClip)
@@ -222,6 +247,8 @@ void showTimelineContextMenu (juce::Component& target,
                          onCreateMidiClip = std::move (onCreateMidiClip),
                          onLoopSelection = std::move (onLoopSelection),
                          onShowClipProperties = std::move (onShowClipProperties),
+                         onEditWarpMarkers = std::move (onEditWarpMarkers),
+                         onAudioToMidi = std::move (onAudioToMidi),
                          onTakeLanesChanged = std::move (onTakeLanesChanged),
                          onClipsChanged = std::move (onClipsChanged),
                          onExportToLibrary = std::move (onExportToLibrary)] (int result)
@@ -312,6 +339,22 @@ void showTimelineContextMenu (juce::Component& target,
                 if (onShowClipProperties)
                     onShowClipProperties();
                 break;
+            case TimelineMenuResult::editWarpMarkers:
+                if (takeClip != nullptr && onEditWarpMarkers)
+                    onEditWarpMarkers (takeClip);
+                break;
+            case TimelineMenuResult::convertToMidiMelody:
+                if (takeClip != nullptr && onAudioToMidi)
+                    onAudioToMidi (takeClip, AudioToMidiMode::melody);
+                break;
+            case TimelineMenuResult::convertToMidiHarmony:
+                if (takeClip != nullptr && onAudioToMidi)
+                    onAudioToMidi (takeClip, AudioToMidiMode::harmony);
+                break;
+            case TimelineMenuResult::convertToMidiDrums:
+                if (takeClip != nullptr && onAudioToMidi)
+                    onAudioToMidi (takeClip, AudioToMidiMode::drums);
+                break;
             case TimelineMenuResult::exportToLibrary:
                 if (takeClip != nullptr && onExportToLibrary)
                     onExportToLibrary (*takeClip);
@@ -367,6 +410,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
 {
     trackName.setText (track->getName(), juce::dontSendNotification);
     trackName.setJustificationType (juce::Justification::centredLeft);
+    trackName.setFont (juce::FontOptions (12.0f, juce::Font::bold));
 
     kindBadge.setJustificationType (juce::Justification::centred);
     kindBadge.setFont (juce::FontOptions (9.0f, juce::Font::bold));
@@ -378,7 +422,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     audioSourceLabel.setText ("In", juce::dontSendNotification);
     audioSourceLabel.setJustificationType (juce::Justification::centredLeft);
     audioSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-    audioSourceLabel.setColour (juce::Label::textColourId, juce::Colour (0xff2d6a4f));
+    audioSourceLabel.setColour (juce::Label::textColourId, AppColours::trackAccentAudio (AppLookAndFeel::getCurrentTheme()));
     audioSourceBox.setTextWhenNothingSelected ("None");
     audioSourceBox.setTooltip ("Audio input source");
     audioSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
@@ -388,7 +432,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     midiSourceLabel.setText ("In", juce::dontSendNotification);
     midiSourceLabel.setJustificationType (juce::Justification::centredLeft);
     midiSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-    midiSourceLabel.setColour (juce::Label::textColourId, juce::Colour (0xff4361ee));
+    midiSourceLabel.setColour (juce::Label::textColourId, AppColours::trackAccentMidi (AppLookAndFeel::getCurrentTheme()));
     midiSourceBox.setTextWhenNothingSelected ("None");
     midiSourceBox.setTooltip ("MIDI input source");
     midiSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
@@ -398,9 +442,10 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
                           && ! EngineHelpers::isReturnTrack (*track));
     armButton.setTooltip ("Arm for recording");
-    armButton.setToggleState (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
-                                  && EngineHelpers::isTrackArmed (*dynamic_cast<te::AudioTrack*> (track.get())),
-                              juce::dontSendNotification);
+    muteButton.setClickingTogglesState (true);
+    soloButton.setClickingTogglesState (true);
+    muteButton.setTooltip ("Mute");
+    soloButton.setTooltip ("Solo");
 
     armButton.onClick = [this]
     {
@@ -415,15 +460,21 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
 
     muteButton.onClick = [this]
     {
-        track->setMute (soloButton.getToggleState() ? false : ! track->isMuted (false));
-        muteButton.setToggleState (track->isMuted (false), juce::dontSendNotification);
+        if (track == nullptr)
+            return;
+
+        track->setMute (! track->isMuted (false));
+        updateFromModel();
         if (onMuteChanged) onMuteChanged (*track);
     };
 
     soloButton.onClick = [this]
     {
-        track->setSolo (soloButton.getToggleState());
-        soloButton.setToggleState (track->isSolo (false), juce::dontSendNotification);
+        if (track == nullptr)
+            return;
+
+        track->setSolo (! track->isSolo (false));
+        updateFromModel();
         if (onSoloChanged) onSoloChanged (*track);
     };
 
@@ -442,6 +493,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
 
     track->state.addListener (this);
     refreshSourceBoxes();
+    updateFromModel();
 }
 
 TrackHeaderComponent::~TrackHeaderComponent()
@@ -453,20 +505,37 @@ TrackHeaderComponent::~TrackHeaderComponent()
 
 void TrackHeaderComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff1a1a2e));
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const bool selected = editViewState.selectionManager.isSelected (track.get());
+    auto bg = AppColours::headerBackground (theme);
+
+    if (hovered)
+        bg = bg.brighter (0.05f);
+
+    g.fillAll (bg);
 
     if (! track->isFolderTrack() && ! EngineHelpers::isReturnTrack (*track))
     {
-        const auto accent = EngineHelpers::isMidiKindTrack (*track)
-                                ? juce::Colour (0xff4361ee)
-                                : juce::Colour (0xff2d6a4f);
+        auto accent = EngineHelpers::isMidiKindTrack (*track)
+                          ? AppColours::trackAccentMidi (theme)
+                          : AppColours::trackAccentAudio (theme);
+
+        if (selected)
+            accent = accent.brighter (0.2f);
+
         g.setColour (accent);
         g.fillRect (0, 0, 4, getHeight());
     }
 
+    if (selected)
+    {
+        g.setColour (AppColours::clipSelectedBorder (theme).withAlpha (0.55f));
+        g.drawRect (getLocalBounds().reduced (1));
+    }
+
     if (dropHighlightActive)
     {
-        g.setColour (juce::Colour (0xff06d6a0).withAlpha (0.35f));
+        g.setColour (AppColours::accentValidDrop (theme).withAlpha (0.35f));
 
         switch (dropHighlightZone)
         {
@@ -492,16 +561,39 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
         audioTrack != nullptr && audioTrack->isFrozen (te::Track::anyFreeze))
     {
-        g.setColour (juce::Colour (0xff4cc9f0).withAlpha (0.12f));
+        g.setColour (AppColours::accentFrozen (theme).withAlpha (0.12f));
         g.fillRect (getLocalBounds());
-        g.setColour (juce::Colour (0xff4cc9f0));
+        g.setColour (AppColours::accentFrozen (theme));
         g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         g.drawText ("FROZEN", getLocalBounds().removeFromBottom (12).withTrimmedLeft (4),
                     juce::Justification::centredLeft, false);
     }
 
-    g.setColour (juce::Colours::white.withAlpha (0.2f));
+    g.setColour (AppColours::trackSeparator (theme));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+}
+
+void TrackHeaderComponent::mouseEnter (const juce::MouseEvent& e)
+{
+    juce::ignoreUnused (e);
+    hovered = true;
+    repaint();
+}
+
+void TrackHeaderComponent::mouseExit (const juce::MouseEvent& e)
+{
+    juce::ignoreUnused (e);
+    hovered = false;
+    repaint();
+}
+
+void TrackHeaderComponent::updateFromModel()
+{
+    muteButton.setToggleState (track->isMuted (false), juce::dontSendNotification);
+    soloButton.setToggleState (track->isSolo (false), juce::dontSendNotification);
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
 }
 
 int TrackHeaderComponent::getPreferredHeight (const te::Track& track)
@@ -970,6 +1062,8 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
         updateKindBadge();
     else if (id == te::IDs::frozen || id == te::IDs::frozenIndividually)
         repaint();
+    else if (id == te::IDs::mute || id == te::IDs::solo)
+        updateFromModel();
 }
 
 void TrackHeaderComponent::updateKindBadge()
@@ -977,21 +1071,22 @@ void TrackHeaderComponent::updateKindBadge()
     if (track->isFolderTrack())
     {
         kindBadge.setText ("FOLDER", juce::dontSendNotification);
-        kindBadge.setColour (juce::Label::backgroundColourId, juce::Colour (0xff7209b7));
+        kindBadge.setColour (juce::Label::backgroundColourId, AppColours::trackAccentFolder (AppLookAndFeel::getCurrentTheme()));
         return;
     }
 
     if (EngineHelpers::isReturnTrack (*track))
     {
         kindBadge.setText ("RETURN", juce::dontSendNotification);
-        kindBadge.setColour (juce::Label::backgroundColourId, juce::Colour (0xffe63946));
+        kindBadge.setColour (juce::Label::backgroundColourId, AppColours::trackAccentReturn (AppLookAndFeel::getCurrentTheme()));
         return;
     }
 
     const bool isMidi = EngineHelpers::isMidiKindTrack (*track);
     kindBadge.setText (isMidi ? "MIDI" : "AUDIO", juce::dontSendNotification);
     kindBadge.setColour (juce::Label::backgroundColourId,
-                        isMidi ? juce::Colour (0xff4361ee) : juce::Colour (0xff2d6a4f));
+                         isMidi ? AppColours::trackAccentMidi (AppLookAndFeel::getCurrentTheme())
+                                : AppColours::trackAccentAudio (AppLookAndFeel::getCurrentTheme()));
     refreshSourceBoxes();
 }
 
@@ -1655,19 +1750,19 @@ TrackLaneComponent::~TrackLaneComponent()
 
 void TrackLaneComponent::paint (juce::Graphics& g)
 {
-    // Folder tracks are pure organisation: no clips, so no grid/lane content,
-    // just a distinct divider band matching the header's FOLDER badge colour.
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+
     if (track->isFolderTrack())
     {
-        g.fillAll (juce::Colour (0xff2a1a3e));
-        g.setColour (juce::Colour (0xff7209b7).withAlpha (0.5f));
+        g.fillAll (AppColours::folderLaneBackground (theme));
+        g.setColour (AppColours::trackAccentFolder (theme).withAlpha (0.5f));
         g.drawHorizontalLine (0, 0.0f, (float) getWidth());
         g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
         return;
     }
 
-    g.fillAll (juce::Colour (0xff0f0f23));
-    g.setColour (juce::Colours::white.withAlpha (0.08f));
+    g.fillAll (AppColours::laneBackground (theme));
+    g.setColour (AppColours::trackSeparator (theme));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
     editViewState.laneBackgroundCache.renderOrFetch (g, editViewState.edit, editViewState,
                                                      track->itemID, getLocalBounds());
@@ -1703,9 +1798,10 @@ void TrackLaneComponent::paintRangeSelection (juce::Graphics& g, te::TimePositio
         std::swap (x1, x2);
 
     auto r = juce::Rectangle<int> (x1, 2, juce::jmax (2, x2 - x1), getHeight() - 4);
-    g.setColour (juce::Colour (0xff4361ee).withAlpha (0.35f));
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    g.setColour (AppColours::rangeSelectionFill (theme));
     g.fillRoundedRectangle (r.toFloat(), 4.0f);
-    g.setColour (juce::Colour (0xff4361ee).withAlpha (0.9f));
+    g.setColour (AppColours::rangeSelectionBorder (theme));
     g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.5f);
 }
 
@@ -1751,7 +1847,7 @@ void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
     {
         if (auto* clip = findClipAtX (e.x))
         {
-            editViewState.selectionManager.selectOnly (clip);
+            ArrangementSelectionHelpers::handleClipClick (editViewState, *clip, e.mods);
             repaint();
             return;
         }
@@ -1790,6 +1886,9 @@ void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
     if (! pendingTimelineInteraction)
         return;
 
+    if (onEmptyLaneDrag != nullptr && onEmptyLaneDrag (*this, e))
+        return;
+
     if (! dragCreateActive
         && e.getDistanceFromDragStart() >= timelineClickDragThresholdPx
         && canDragSelectTimeRange())
@@ -1812,6 +1911,9 @@ void TrackLaneComponent::mouseUp (const juce::MouseEvent& e)
 
     pendingTimelineInteraction = false;
 
+    if (onEmptyLaneDragEnd != nullptr && onEmptyLaneDragEnd (*this, e))
+        return;
+
     if (dragCreateActive)
     {
         dragCreateActive = false;
@@ -1829,6 +1931,12 @@ void TrackLaneComponent::mouseUp (const juce::MouseEvent& e)
     }
 
     repaint();
+}
+
+void TrackLaneComponent::cancelTimelineInteraction()
+{
+    pendingTimelineInteraction = false;
+    dragCreateActive = false;
 }
 
 te::TimeRange TrackLaneComponent::getRangeSelection() const
@@ -1887,7 +1995,7 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
     showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, track.get(),
                              canDragCreateClips() && rangeSelectionActive,
                              [this] { createMidiClipFromRangeSelection(); },
-                             nullptr, nullptr, onTakeLanesChanged,
+                             nullptr, onShowClipProperties, onEditWarpMarkers, onAudioToMidi, onTakeLanesChanged,
                              [this]
                              {
                                  if (onTakeLanesChanged)
@@ -2021,6 +2129,16 @@ void TrackLaneComponent::buildClips()
                 if (onShowClipProperties)
                     onShowClipProperties();
             };
+            cc->onEditWarpMarkers = [this] (te::Clip* c)
+            {
+                if (onEditWarpMarkers && c != nullptr)
+                    onEditWarpMarkers (c);
+            };
+            cc->onAudioToMidi = [this] (te::Clip* c, AudioToMidiMode mode)
+            {
+                if (onAudioToMidi && c != nullptr)
+                    onAudioToMidi (c, mode);
+            };
             cc->onTakeLanesChanged = onTakeLanesChanged;
             cc->onCrossTrackDragMove = [this] (te::Clip& c, const juce::MouseEvent& ev)
             {
@@ -2031,6 +2149,18 @@ void TrackLaneComponent::buildClips()
             {
                 if (onClipCrossTrackDragEnd)
                     onClipCrossTrackDragEnd (c, ev);
+            };
+            cc->onDragOverlayUpdate = [this] (te::Clip& c, ClipComponent::DragMode mode,
+                                              te::TimePosition snapTime, te::TimePosition ghostStart,
+                                              te::TimePosition ghostEnd)
+            {
+                if (onClipDragOverlayUpdate)
+                    onClipDragOverlayUpdate (c, mode, snapTime, ghostStart, ghostEnd);
+            };
+            cc->onDragOverlayClear = [this]
+            {
+                if (onClipDragOverlayClear)
+                    onClipDragOverlayClear();
             };
             cc->onExportToLibrary = [this] (te::Clip& c)
             {
@@ -2206,6 +2336,9 @@ te::Clip* TrackLaneComponent::insertSampleAtX (const juce::File& file, int local
     if (clipTrack == nullptr || ! file.existsAsFile())
         return nullptr;
 
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+        EngineHelpers::ensureSamplerOnMidiTrack (*audioTrack);
+
     const auto time = TimelineGrid::snapTime (editViewState.edit, editViewState,
                                               editViewState.xToTime (localX));
 
@@ -2238,6 +2371,7 @@ PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHu
     : edit (e), editViewState (evs), telemetryHub (hub)
 {
     setInterceptsMouseClicks (false, false);
+    startTimerHz (60);
 
     if (telemetryHub != nullptr)
         telemetryHub->registerPlayhead (this);
@@ -2245,14 +2379,22 @@ PlayheadOverlay::PlayheadOverlay (te::Edit& e, EditViewState& evs, UiTelemetryHu
 
 PlayheadOverlay::~PlayheadOverlay()
 {
+    stopTimer();
+
     if (telemetryHub != nullptr)
         telemetryHub->unregisterPlayhead (this);
 }
 
 void PlayheadOverlay::paint (juce::Graphics& g)
 {
-    g.setColour (juce::Colours::red);
-    g.fillRect (xPosition, 0, 2, getHeight());
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const int x = displayXPosition;
+
+    g.setColour (AppColours::playheadGlow (theme).withAlpha (0.15f));
+    g.fillRect (x - 1, 0, 3, getHeight());
+
+    g.setColour (AppColours::playheadLine (theme));
+    g.fillRect (x, 0, 1, getHeight());
 }
 
 void PlayheadOverlay::updateFromTransport()
@@ -2260,10 +2402,35 @@ void PlayheadOverlay::updateFromTransport()
     if (getWidth() <= 0)
         return;
 
-    const auto newX = editViewState.timeToX (edit.getTransport().getPosition());
-    if (newX != xPosition)
+    targetXPosition = editViewState.timeToX (edit.getTransport().getPosition());
+    lastTransportUpdateMs = juce::Time::getMillisecondCounterHiRes();
+
+    if (std::abs (targetXPosition - displayXPosition) > 0)
+        repaint();
+}
+
+void PlayheadOverlay::timerCallback()
+{
+    if (getWidth() <= 0)
+        return;
+
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    const auto elapsed = now - lastTransportUpdateMs;
+
+    if (elapsed < 50.0 && targetXPosition != displayXPosition)
     {
-        xPosition = newX;
+        const float t = (float) juce::jlimit (0.0, 1.0, elapsed / 50.0);
+        const int newDisplay = (int) std::round (displayXPosition + (targetXPosition - displayXPosition) * t);
+
+        if (newDisplay != displayXPosition)
+        {
+            displayXPosition = newDisplay;
+            repaint();
+        }
+    }
+    else if (displayXPosition != targetXPosition)
+    {
+        displayXPosition = targetXPosition;
         repaint();
     }
 }

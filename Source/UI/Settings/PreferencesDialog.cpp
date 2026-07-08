@@ -305,6 +305,14 @@ public:
         wireButtons (audioAdd, audioRemove, audioUp, audioDown, audioList, true);
         wireButtons (midiAdd, midiRemove, midiUp, midiDown, midiList, false);
 
+        sandboxToggle.setButtonText ("Run VST3 effects in separate process (crash isolation)");
+        sandboxToggle.setToggleState (appSettings.isPluginSandboxEnabled(), juce::dontSendNotification);
+        sandboxToggle.onClick = [this]
+        {
+            appSettings.setPluginSandboxEnabled (sandboxToggle.getToggleState());
+        };
+
+        addAndMakeVisible (sandboxToggle);
         addAndMakeVisible (audioLabel);
         addAndMakeVisible (audioList);
         addAndMakeVisible (audioAdd);
@@ -328,6 +336,8 @@ public:
     void resized() override
     {
         auto r = getLocalBounds().reduced (12);
+        sandboxToggle.setBounds (r.removeFromTop (24));
+        r.removeFromTop (12);
         layoutChainSection (r, audioLabel, audioList, audioAdd, audioRemove, audioUp, audioDown);
         r.removeFromTop (12);
         layoutChainSection (r, midiLabel, midiList, midiAdd, midiRemove, midiUp, midiDown);
@@ -465,6 +475,7 @@ private:
     juce::StringArray audioChain;
     juce::StringArray midiChain;
 
+    juce::ToggleButton sandboxToggle;
     juce::Label audioLabel, midiLabel;
     juce::ListBox audioList, midiList;
     juce::TextButton audioAdd, audioRemove, audioUp, audioDown;

@@ -24,7 +24,8 @@ public:
     // this executable, so that instance must be allowed to run or scans will hang.
     bool moreThanOneInstanceAllowed() override
     {
-        return juce::JUCEApplicationBase::getCommandLineParameters().contains ("--PluginScan:");
+        const auto params = juce::JUCEApplicationBase::getCommandLineParameters();
+        return params.contains ("--PluginScan:") || params.contains ("SkeletonHivePluginHost");
     }
 
     void initialise (const juce::String& commandLine) override;

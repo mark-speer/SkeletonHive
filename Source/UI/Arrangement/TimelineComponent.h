@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TrackComponents.h"
+#include "Engine/AudioToMidiTypes.h"
 #include "TimelineGrid.h"
 #include "TimelineTypes.h"
 #include "Engine/GroovePoolManager.h"
@@ -76,6 +77,8 @@ public:
     std::function<void (te::Track&)> onTrackSelected;
     std::function<void()> onClipSelectionChanged;
     std::function<void()> onShowClipProperties;
+    std::function<void (te::Clip&)> onEditWarpMarkers;
+    std::function<void (te::Clip&, AudioToMidiMode)> onAudioToMidi;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (const juce::PluginDescription&)> onPluginInserted;
     std::function<void (const juce::File&, te::Clip*)> onSampleInserted;
@@ -128,10 +131,25 @@ private:
 
     void handleClipCrossTrackDragMove (te::Clip& clip, const juce::MouseEvent& e);
     void handleClipCrossTrackDragEnd (te::Clip& clip, const juce::MouseEvent& e);
+    void handleClipDragOverlayUpdate (te::Clip& clip, ClipComponent::DragMode mode,
+                                      te::TimePosition snapTime, te::TimePosition ghostStart,
+                                      te::TimePosition ghostEnd);
+    void clearClipDragOverlay();
+
+    bool handleEmptyLaneDrag (TrackLaneComponent& lane, const juce::MouseEvent& e);
+    bool handleEmptyLaneDragEnd (TrackLaneComponent& lane, const juce::MouseEvent& e);
+    void cancelEmptyLaneDrag (TrackLaneComponent& lane);
+
     int trackRowIndexAtContentY (int contentY) const;
     te::ClipTrack* clipTrackForRowIndex (int rowIndex) const;
     void paintCrossTrackDropOverlay (juce::Graphics& g);
+    void paintClipMarqueeOverlay (juce::Graphics& g);
+    void paintClipDragOverlay (juce::Graphics& g);
     void clearCrossTrackDragState();
+    void clearClipMarqueeState();
+    juce::Point<int> contentPointForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const;
+    bool marqueeIntersectsClips (const juce::Rectangle<int>& rect) const;
+    void applyWheelDelta (double scaledDelta, bool horizontal, bool vertical);
 
     struct CrossTrackDragState
     {
@@ -144,6 +162,33 @@ private:
     };
 
     CrossTrackDragState crossTrackDrag;
+
+    struct ClipMarqueeState
+    {
+        bool active = false;
+        bool clipSelectMode = false;
+        juce::Point<int> startContent;
+        juce::Point<int> currentContent;
+        TrackLaneComponent* anchorLane = nullptr;
+    };
+
+    struct ClipDragOverlayState
+    {
+        bool active = false;
+        te::EditItemID clipId;
+        ClipComponent::DragMode mode = ClipComponent::DragMode::none;
+        te::TimePosition snapTime;
+        te::TimePosition ghostStart;
+        te::TimePosition ghostEnd;
+        int sourceRowIndex = -1;
+        juce::Colour clipColour;
+    };
+
+    ClipMarqueeState clipMarquee;
+    ClipDragOverlayState clipDragOverlay;
+
+    double horizontalScrollAccumulator = 0.0;
+    double verticalScrollAccumulator = 0.0;
 
     te::Edit& edit;
     EditViewState editViewState;

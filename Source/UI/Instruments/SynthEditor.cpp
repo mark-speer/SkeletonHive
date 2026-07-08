@@ -1,6 +1,7 @@
 #include "SynthEditor.h"
 
 #include "Engine/SynthHelpers.h"
+#include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
 {
@@ -805,12 +806,13 @@ SynthEditor::SynthEditor (te::FourOscPlugin& synthPlugin)
 
     auto isUpdating = [this] { return updatingFromModel; };
 
-    tabs.addTab ("Global", juce::Colours::darkgrey.darker (0.4f), new GlobalPanel (synth, isUpdating), true);
-    tabs.addTab ("Osc", juce::Colours::darkgrey.darker (0.4f), new OscillatorPanel (synth, isUpdating), true);
-    tabs.addTab ("Filter", juce::Colours::darkgrey.darker (0.4f), new FilterPanel (synth, isUpdating), true);
-    tabs.addTab ("Amp", juce::Colours::darkgrey.darker (0.4f), new AmpPanel (synth, isUpdating), true);
-    tabs.addTab ("Mod", juce::Colours::darkgrey.darker (0.4f), new ModPanel (synth, isUpdating), true);
-    tabs.addTab ("FX", juce::Colours::darkgrey.darker (0.4f), new FxPanel (synth, isUpdating), true);
+    const auto tabBg = AppColours::surfaceBackground (AppLookAndFeel::getCurrentTheme());
+    tabs.addTab ("Global", tabBg, new GlobalPanel (synth, isUpdating), true);
+    tabs.addTab ("Osc", tabBg, new OscillatorPanel (synth, isUpdating), true);
+    tabs.addTab ("Filter", tabBg, new FilterPanel (synth, isUpdating), true);
+    tabs.addTab ("Amp", tabBg, new AmpPanel (synth, isUpdating), true);
+    tabs.addTab ("Mod", tabBg, new ModPanel (synth, isUpdating), true);
+    tabs.addTab ("FX", tabBg, new FxPanel (synth, isUpdating), true);
     addAndMakeVisible (tabs);
 
     setSize (560, 480);

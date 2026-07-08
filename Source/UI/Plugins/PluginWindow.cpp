@@ -3,8 +3,17 @@
 #include "UI/Instruments/DrumRackEditor.h"
 #include "UI/Instruments/SamplerEditor.h"
 #include "UI/Instruments/SynthEditor.h"
+#include "UI/Effects/EqualiserEditor.h"
+#include "UI/Effects/CompressorEditor.h"
+#include "UI/Effects/DelayReverbEditor.h"
+#include "UI/Effects/SaturationEditor.h"
+#include "UI/Effects/MultibandDynamicsEditor.h"
 #include "Engine/DrumRackHelpers.h"
+#include "Engine/Effects/NativeCustomPlugins.h"
+#include "Engine/Effects/SaturationPlugin.h"
+#include "Engine/Effects/MultibandDynamicsPlugin.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/PluginHost/SandboxedPluginInstance.h"
 #include "Engine/NativePluginCatalog.h"
 
 namespace skeletonhive
@@ -37,6 +46,11 @@ PluginWindow::PluginWindow (te::Plugin& plug)
 PluginWindow::~PluginWindow()
 {
     updateStoredBounds = false;
+
+    if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*external))
+            sandboxed->closeEditorInBridge();
+
     plugin.edit.flushPluginStateIfNeeded (plugin);
     setEditor (nullptr);
 }
@@ -59,6 +73,17 @@ std::unique_ptr<juce::Component> PluginWindow::create (te::Plugin& plugin, juce:
         {
             EngineHelpers::showPluginLoadFailureAlert (alertParent, plugin);
             return nullptr;
+        }
+
+        if (EngineHelpers::isSandboxedExternalPlugin (plugin))
+        {
+            if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*externalPlugin))
+                sandboxed->openEditorInBridge();
+
+            auto w = std::make_unique<PluginWindow> (plugin);
+            w->setSandboxPlaceholder();
+            w->show();
+            return w;
         }
     }
 
@@ -148,15 +173,53 @@ void PluginWindow::recreateEditor()
             if (! plugin.isInRack())
                 newEditor = SamplerEditor::create (*sampler);
 
+    // FourOsc is allowed inside racks (unlike SamplerEditor) — simpler parameter surface.
     if (newEditor == nullptr)
         if (auto* fourOsc = dynamic_cast<te::FourOscPlugin*> (&plugin))
             newEditor = SynthEditor::create (*fourOsc);
+
+    if (newEditor == nullptr)
+        if (auto* eq = dynamic_cast<te::EqualiserPlugin*> (&plugin))
+            newEditor = EqualiserEditor::create (*eq);
+
+    if (newEditor == nullptr)
+        if (auto* comp = dynamic_cast<te::CompressorPlugin*> (&plugin))
+            newEditor = CompressorEditor::create (*comp);
+
+    if (newEditor == nullptr)
+        if (auto* delay = dynamic_cast<te::DelayPlugin*> (&plugin))
+            newEditor = DelayEditor::create (*delay);
+
+    if (newEditor == nullptr)
+        if (auto* reverb = dynamic_cast<te::ReverbPlugin*> (&plugin))
+            newEditor = ReverbEditor::create (*reverb);
+
+    if (newEditor == nullptr)
+        if (auto* saturation = dynamic_cast<SaturationPlugin*> (&plugin))
+            newEditor = SaturationEditor::create (*saturation);
+
+    if (newEditor == nullptr)
+        if (auto* multiband = dynamic_cast<MultibandDynamicsPlugin*> (&plugin))
+            newEditor = MultibandDynamicsEditor::create (*multiband);
 
     if (newEditor == nullptr && NativePluginCatalog::isNativePlugin (plugin))
         newEditor = NativePluginEditor::create (plugin);
 
     setEditor (std::move (newEditor));
     resizeToFitEditorContent();
+}
+
+void PluginWindow::setSandboxPlaceholder()
+{
+    auto* label = new juce::Label();
+    label->setText ("This plugin is running in a separate sandbox process.\n"
+                      "Its editor opens in a dedicated bridge window.",
+                      juce::dontSendNotification);
+    label->setJustificationType (juce::Justification::centred);
+    label->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
+    setContentOwned (label, true);
+    setResizable (true, false);
+    setSize (420, 160);
 }
 
 void PluginWindow::setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor)

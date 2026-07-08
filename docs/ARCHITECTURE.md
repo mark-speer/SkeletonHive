@@ -332,7 +332,7 @@ Current state and the reasoning behind it:
 
 - **Persistent plugin blacklist** — scan no longer clears `KnownPluginList` blacklist or dead-man's-pedal state; crashed plugins stay blacklisted across sessions (TE property storage). `PluginScanner::rescanFailedPlugins()` and per-file retry are explicit opt-in. Failed-plugins UI in the plugin browser lists blacklisted entries with Retry / Retry All.
 - **Plugin load-failure UX** — tray slots, track-footer slots, and plugin windows surface loading/failed states (amber/red tint, tooltips with TE `getLoadError()`). Failed inserts show an alert instead of failing silently.
-- **VST3 editor resize** — `PluginWindow` resizes to follow editor content size changes (`childBoundsChanged` / `resizeToFitEditorContent`). Runtime plugin hosting remains in-process; sandboxing covers scan-time only (TE child-process scanner + blacklist).
+- **VST3 editor resize** — `PluginWindow` resizes to follow editor content size changes (`childBoundsChanged` / `resizeToFitEditorContent`). **Runtime VST3 effects** can run in a separate sandbox process (Phase 10 Tier 4 MVP via `PluginHostManager` / `SandboxedPluginInstance`); scan-time sandboxing remains via the TE child-process scanner + blacklist. Native TE plugins, AU, and VST3 instruments still load in-process.
 - **Versioned autosave** — 60s timer writes TE `saveTempVersion()` when the edit is dirty (never overwrites the project file). Manual save creates rotating snapshots in `<project>/Autosave/` (newest 10 retained) and deletes the temp version.
 - **Crash recovery** — on Open, if `.tmp_<project>` exists and is newer than the saved file, offers Recover autosaved version / Open last saved / Cancel.
 - **Save As + dirty tracking** — Save As button and Ctrl/Cmd+Shift+S; window title shows `*` when dirty; unsaved-changes prompts on New/Open/Close.
@@ -614,7 +614,8 @@ BrowserPanel
 `Source/Engine/PreviewPlayer.*`, `Source/Engine/ContentDragManager.*`.
 
 **Deferred from Tier 1 spec:** drag to empty MIDI track → auto-insert sampler
-(plugin-specific; wave clip drop works on any `ClipTrack`).
+(plugin-specific; wave clip drop works on any `ClipTrack`) — **implemented** via
+`EngineHelpers::ensureSamplerOnMidiTrack` in `TrackLaneComponent::insertSampleAtX`.
 
 ### Tier 2 — Hot-swap and preset workflow (implemented)
 
@@ -793,9 +794,9 @@ a single "Phase 9+" deferred bucket is now broken out into four scoped phases
 | 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
 | 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
 | 8 | Tier 1–4 done | Session grid, scenes, launch quantize, arrangement bridge, performance, scale/probability, virtualization | Session View |
-| 9 | Tier 1–3 done | Native instruments/effects foundation (built-in synth, sampler, drum rack) | Simpler, Sampler, Drum Rack, Operator |
-| 10 | Planned | Warp engine, native effects rack, audio-to-MIDI, plugin process isolation, engine-scale testing | Warp markers, Live's built-in device library, crash isolation |
-| 11 | Planned | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
+| 9 | Tier 1–4 done | Native instruments/effects foundation (built-in synth, sampler, drum rack, 4OSC editor) | Simpler, Sampler, Drum Rack, Operator |
+| 10 | Implemented | Warp engine, native effects rack, audio-to-MIDI, VST3 effect sandbox (MVP), engine benchmark harness | Warp markers, Live's built-in device library, crash isolation |
+| 11 | Tier 1 done | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
 | 12 | Planned | Version history, collaboration scoping, light-theme finish, accessibility audit | Project polish |
 
 **Suggested implementation order:** Phase 6 → Phase 7 (after 6 Tier 1–2) →
@@ -816,7 +817,7 @@ its own phase so it can be implemented (and reviewed) independently, following
 the same TE-first, undo-safe, change-driven conventions as Phases 1–8 (§2,
 §11).
 
-### Phase 9 — Native Instruments & Effects Foundation (Tier 1–3 implemented)
+### Phase 9 — Native Instruments & Effects Foundation (Tier 1–4 implemented)
 
 Today every plugin path (`PluginScanner`, `PluginBrowser`,
 `EngineHelpers::insertPluginOnTrack`) only deals with externally-scanned
@@ -840,67 +841,83 @@ Phase 10's native effects rack and Phase 11's hardware/Session workflows.
   `te::SamplerPlugin` state (`setSoundExcerpt`, `setSoundGains`, `setSoundOpenEnded`).
   Follows the `ClipInspectorPanel` thin-over-engine pattern with
   `ValueTreeAllEventListener` on `plugin.state`.
-- **Tier 4 — Basic synth UI.** Subtractive/wavetable-style synth over TE's
-  built-in synth plugin if its parameter surface is sufficient; otherwise
-  scope as a new `juce::dsp`-based plugin (spike required either way).
+- **Tier 4 — Basic synth UI (implemented).** Dedicated `SynthEditor` over TE's
+  `FourOscPlugin` with tabbed sections (Global / Osc / Filter / Amp / Mod / FX),
+  automatable parameter rows, LFO/mod-env panels, and a `SynthModMatrixPanel`
+  for source/destination/depth routing. `SynthHelpers` centralises wave-name
+  lists and mod-matrix destinations; `PluginWindow` routes FourOsc before the
+  generic `NativePluginEditor` fallback (including rack-nested instances).
+  No custom `juce::dsp` spike was required — TE's FourOsc parameter surface
+  was sufficient.
 
 **Files:** `Source/Engine/NativePluginCatalog.*`, `Source/Engine/DrumRackHelpers.*`,
-`Source/Engine/SamplerHelpers.*`, `Source/UI/Plugins/NativePluginBrowserTab.*`,
+`Source/Engine/SamplerHelpers.*`, `Source/Engine/SynthHelpers.*`,
+`Source/UI/Plugins/NativePluginBrowserTab.*`,
 `Source/UI/Instruments/DrumRackEditor.*`, `Source/UI/Instruments/SamplerEditor.*`,
-`Source/UI/Instruments/SamplerWaveformComponent.*`, extensions to
+`Source/UI/Instruments/SamplerWaveformComponent.*`,
+`Source/UI/Instruments/SynthEditor.*`, `Source/UI/Instruments/SynthModMatrixPanel.*`,
+extensions to
 `PluginBrowser`/`PluginPickerDialog`/`PluginWindow`.
 
 **Dependencies and risks:** TE's `SamplerPlugin` has no ADSR envelope parameters
 and no region-loop playback while a note is held — Tier 3 surfaces gain/pan as
 the amplitude controls and maps one-shot to `openEnded` (release gating). True
-loop playback requires future engine work. Tier 4 may require net-new DSP rather
-than wrapping TE.
+loop playback requires future engine work.
 
 ### Phase 10 — Audio Engine Depth & Production-Grade Robustness
 
 **Theme:** close the "professional studio" gaps Phase 6 explicitly deferred,
 and harden the audio engine to Live's stability bar.
 
-- **Tier 1 — Warp engine.** Warp markers and transient-based warping over
-  TE's `WarpTimeManager`/time-stretch API — deferred from Phase 6 Tier 2
-  pending a dedicated API spike (§12).
-- **Tier 2 — Native effects rack.** EQ, compressor, saturation, multiband
-  dynamics, delay, and reverb built on top of Phase 9's native-plugin
-  exposure, wrapping TE's built-in DSP plugins per convention (§11: prefer
-  `te::` APIs over reimplementation) rather than a from-scratch `juce::dsp`
-  chain.
-- **Tier 3 — Audio-to-MIDI.** Melody/harmony/drum transcription from audio
-  clips; TE has no native transcription API, so this is a net-new analysis
-  engine.
-- **Tier 4 — Plugin process isolation.** Runtime plugin hosting is currently
-  in-process only (sandboxing today covers scan-time via the child-process
-  scanner and blacklist, §Phase 3 plugin hardening); a crashing VST3 during
-  playback takes down the whole app. Out-of-process hosting (a plugin bridge
-  executable + IPC) extends the existing out-of-process scanner pattern
-  (`SkeletonHiveApplication` already launches a second instance for scanning)
-  and is the single biggest concrete stability/performance parity item with
-  Live.
-- **Tier 5 — Engine-scale testing.** Disk streaming for large sample
-  libraries and freeze/render throughput profiling at scale, complementing
-  the existing UI-only 200-track stress test (§14 Tier 4) which does not
-  exercise audio-engine load.
+- **Tier 1 — Warp engine (implemented).** Warp markers and transient-based
+  warping over TE's `WarpTimeManager`/time-stretch API — deferred from Phase 6
+  Tier 2 pending a dedicated API spike (§12). `WarpEngine` wraps marker CRUD,
+  transient detection, and undo-safe edits; `ClipWarpEditor` in the clip
+  inspector provides interactive marker editing with transient snap; warp marker
+  ticks render on arrangement clips at Detail LOD; double-click / context menu
+  open the Clip tab warp editor.
+- **Tier 2 — Native effects rack (implemented).** Dedicated device editors for
+  TE's EQ, Compressor, Delay, and Reverb (`EqualiserEditor` with frequency-response
+  curve, `CompressorEditor`, `DelayEditor`, `ReverbEditor`), plus two custom
+  `juce::dsp` TE plugins — `SaturationPlugin` and `MultibandDynamicsPlugin` —
+  registered via `registerNativeCustomPlugins()` and exposed in
+  `NativePluginCatalog`. All six devices route through `PluginWindow` before the
+  generic `NativePluginEditor` fallback; insertion reuses the existing device chain.
+- **Tier 3 — Audio-to-MIDI (implemented).** Melody/harmony/drum transcription from audio
+  clips via a new `AudioToMidiEngine` backed by aubio (`aubio_notes` for monophonic
+  melody, `aubio_onset` + spectral-centroid GM mapping for drums with `WarpEngine`
+  transient fallback, chromagram chord-template block chords for harmony v1).
+  Output lands on a new MIDI track below the source clip; entry points are the audio
+  clip context menu (**Convert to MIDI Track → Melody / Harmony / Drums**) and the
+  clip inspector **Convert to MIDI** button. Analysis runs on a background thread
+  behind a cancellable progress dialog; clip creation is undo-safe and opens the piano
+  roll on success.
+- **Tier 4 — Plugin process isolation (MVP implemented).** VST3 **effects** (non-instruments) run in a separate bridge process launched from the same executable (`PluginHostWorker` via JUCE `ChildProcessCoordinator`/`ChildProcessWorker`). Audio I/O uses lock-free shared memory (`PluginHostSharedMemory`); control messages (load, prepare, state, editor open/close) use IPC (`PluginHostProtocol`). `SandboxedPluginInstance` is returned from `PluginManager::createPluginInstance` when the user pref is enabled (Preferences → Devices, default on). Bridge-owned floating editor window; host `PluginWindow` shows a placeholder. Bridge crash marks the slot failed without taking down the host. **Deferred:** VST3 instruments (MIDI over IPC), AU, embedded editor HWND/Cocoa forwarding, sidechain/multi-out through bridge, host-side parameter automation forwarding.
+- **Tier 5 — Engine-scale testing (debug harness implemented).** `EngineBenchmarkHarness` populates audio stress tracks, times freeze/render, and logs results. Debug builds: **Ctrl+Shift+Alt+B** (complements the UI-only **Ctrl+Shift+Alt+T** 200-track stress test in §14 Tier 4).
 
-**Files:** `Source/Engine/WarpEngine.*` (new), extensions to
-`ExportManager`/`EngineHelpers`, new plugin-host bridge executable + IPC layer.
+**Files:** `Source/Engine/WarpEngine.*`, `Source/UI/Arrangement/ClipWarpEditor.*`,
+`Source/Engine/Effects/*`, `Source/UI/Effects/*`, `Source/Engine/AudioToMidiEngine.*`,
+`Source/Engine/AudioToMidiAnalysis.*`, `Source/Engine/AudioToMidiHarmony.*`,
+`Source/Engine/AudioSampleExtractor.*`, `external/aubio/CMakeLists.txt`, extensions to
+`NativePluginCatalog`/`PluginWindow`, extensions to
+`ClipInspectorPanel`/`ClipComponents`, extensions to
+`ExportManager`/`EngineHelpers`, `Source/Engine/PluginHost/*`, `Source/Engine/EngineBenchmarkHarness.*`.
 
-**Dependencies and risks:** Tier 1 and Tier 4 both require upfront spikes into
-TE API surface/behaviour before implementation; Tier 4's IPC layer is the
-highest-risk item in this phase and should be prototyped in isolation before
-wiring into the main plugin-tray/track-footer paths (§7).
+**Dependencies and risks:** Tier 4 MVP is in place for VST3 effects; expanding to instruments, AU, embedded editors, and sidechain/multi-out remains the highest-risk follow-up before Phase 11 hardware sessions.
 
 ### Phase 11 — Control Surfaces, MPE & Live Ecosystem Interop
 
 **Theme:** Live's hardware-first, expressive-performance workflow.
 
-- **Tier 1 — Generic MIDI control-surface API.** Extends the existing
-  `MidiLearnController`/`ParameterControlMappings` infrastructure (§10) from
-  single-parameter learn to full surface scripts (fader banks, transport,
-  session-grid feedback).
+- **Tier 1 — Generic MIDI control-surface API (implemented).** `ControlSurfaceManager`
+  extends the Phase 5 `MidiLearnController`/`ParameterControlMappings` stack with
+  project-persisted bindings (`CONTROLSTATE` under `EDITVIEWSTATE`): fader-bank
+  volume/pan (8 tracks per bank), transport play/stop, scene/slot launch, and
+  session-grid LED feedback via `juce::MidiOutput`. CC input is tapped from
+  enabled JUCE MIDI inputs; note triggers reuse TE's `MidiKeyChangeDispatcher`.
+  A generic fader-bank script (CC 1–8 volume, CC 9–16 pan, notes 36/37
+  play/stop) is installed on first project load when no bindings exist. Learn
+  mode arms new bindings; status merges with session MIDI learn in the transport bar.
 - **Tier 2 — Push/APC-style hardware profile.** A mapping layer over the
   existing `SessionGridComponent`/`ClipSlotComponent` slot-state model (§14),
   largely a hardware-facing view rather than new engine surface.

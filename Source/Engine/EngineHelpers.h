@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MidiScale.h"
+#include "AudioToMidiTypes.h"
 #include "TracktionCommon.h"
 #include "GrooveTemplate.h"
 
@@ -147,6 +148,9 @@ struct EngineHelpers
     static bool isInstrumentDescription (const juce::PluginDescription& desc);
     static bool isInstrumentPlugin (const te::Plugin& plugin);
     static int findInstrumentSlot (te::AudioTrack& track);
+    static bool trackHasInstrument (te::AudioTrack& track);
+    /** Inserts the native Sampler when a MIDI-capable track has no instrument yet. */
+    static te::Plugin* ensureSamplerOnMidiTrack (te::AudioTrack& track);
 
     static bool movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot);
     static bool movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destTrack, int userSlot);
@@ -170,6 +174,7 @@ struct EngineHelpers
 
     static PluginLoadState getExternalPluginLoadState (te::Plugin& plugin, juce::String& statusMessage);
     static juce::String getExternalPluginLoadError (te::Plugin& plugin);
+    static bool isSandboxedExternalPlugin (const te::Plugin& plugin);
     static void showPluginLoadFailureAlert (juce::Component* parent,
                                             const juce::String& pluginName,
                                             const juce::String& errorMessage);
@@ -275,6 +280,11 @@ struct EngineHelpers
     /** Apply a groove template to all notes in selected MIDI clips. Returns note count changed. */
     static int applyGrooveToSelection (te::Edit& edit, te::SelectionManager& selection,
                                        const GrooveTemplate& groove, juce::String* errorMessage = nullptr);
+
+    /** Transcribe an audio clip and create a new MIDI clip on the track below. */
+    static te::MidiClip* convertAudioClipToMidi (te::Edit& edit, te::AudioClipBase& clip,
+                                                 AudioToMidiMode mode, te::SelectionManager& selection,
+                                                 juce::String* errorMessage = nullptr);
 
     static juce::String makeSessionSlotId (te::EditItemID trackId, int sceneIndex);
     static bool isSessionClip (const te::Clip& clip);

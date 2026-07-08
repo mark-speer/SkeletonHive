@@ -1,6 +1,7 @@
 #include "LaneBackgroundCache.h"
 #include "EditViewState.h"
 #include "TimelineGrid.h"
+#include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
 {
@@ -14,7 +15,8 @@ juce::String makeCacheKey (te::EditItemID trackId, EditViewState& viewState, juc
          + juce::String (juce::roundToInt (viewState.viewX1.get().inSeconds() * 4.0)) + "|"
          + juce::String (juce::roundToInt (viewState.viewX2.get().inSeconds() * 4.0)) + "|"
          + juce::String (bounds.getHeight()) + "|"
-         + (viewState.showGrid.get() ? "1" : "0");
+         + (viewState.showGrid.get() ? "1" : "0") + "|"
+         + juce::String ((int) AppLookAndFeel::getCurrentTheme());
 }
 } // namespace
 
@@ -48,7 +50,8 @@ juce::Image LaneBackgroundCache::getCachedImage (te::EditItemID trackId,
                            + juce::String (juce::roundToInt (viewX1.inSeconds() * 4.0)) + "|"
                            + juce::String (juce::roundToInt (viewX2.inSeconds() * 4.0)) + "|"
                            + juce::String (trackHeight) + "|"
-                           + (showGrid ? "1" : "0");
+                           + (showGrid ? "1" : "0") + "|"
+                           + juce::String ((int) AppLookAndFeel::getCurrentTheme());
 
     if (images.contains (key))
         return images[key];
@@ -71,8 +74,9 @@ void LaneBackgroundCache::ensureImage (te::Edit& edit,
     juce::Image image (juce::Image::ARGB, bounds.getWidth(), bounds.getHeight(), true);
     juce::Graphics imgG (image);
 
-    imgG.fillAll (juce::Colour (0xff0f0f23));
-    imgG.setColour (juce::Colours::white.withAlpha (0.08f));
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    imgG.fillAll (AppColours::laneBackground (theme));
+    imgG.setColour (AppColours::trackSeparator (theme));
     imgG.drawHorizontalLine (bounds.getHeight() - 1, 0.0f, (float) bounds.getWidth());
 
     if (viewState.showGrid.get())

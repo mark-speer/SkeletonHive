@@ -1,5 +1,6 @@
 #include "ClipInspectorPanel.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/WarpEngine.h"
 #include "UI/AppLookAndFeel.h"
 
 namespace skeletonhive
@@ -24,8 +25,8 @@ void configureLinearSlider (juce::Slider& slider, const juce::String& suffix)
 }
 } // namespace
 
-ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
-    : edit (e), selectionManager (sm)
+ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm, EditViewState& evs)
+    : edit (e), selectionManager (sm), editViewState (evs), warpEditor (evs)
 {
     titleLabel.setText ("Clip", juce::dontSendNotification);
     titleLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
@@ -73,6 +74,8 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
     speedLabel.setText ("Speed", juce::dontSendNotification);
     stretchLabel.setText ("Stretch", juce::dontSendNotification);
     loopLengthLabel.setText ("Loop len", juce::dontSendNotification);
+    warpLabel.setText ("Warp", juce::dontSendNotification);
+    warpedLengthLabel.setText ("Warp len", juce::dontSendNotification);
     takeLabel.setText ("Take", juce::dontSendNotification);
 
     takeBox.setTooltip ("Active take or comp");
@@ -118,6 +121,7 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
     speedSlider.setRange (25.0, 400.0, 1.0);
     speedSlider.setNumDecimalPlacesToDisplay (0);
     speedSlider.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v)); };
+    speedSlider.setTooltip ("Clip playback speed (disabled while warp is active)");
     speedSlider.onValueChange = [this]
     {
         if (updatingFromModel)
@@ -126,6 +130,9 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
         const double ratio = speedSlider.getValue() / 100.0;
         applyToAudioClips ([ratio] (te::AudioClipBase& ac)
         {
+            if (ac.getWarpTime())
+                return;
+
             ac.setSpeedRatio (ratio);
         });
     };
@@ -155,6 +162,56 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
         {
             ac.setTimeStretchMode (mode);
         });
+    };
+
+    warpButton.setTooltip ("Enable segmented warp markers for the clip source");
+    warpButton.onClick = [this]
+    {
+        if (updatingFromModel)
+            return;
+
+        const bool enabled = warpButton.getToggleState();
+        applyToAudioClips ([enabled, um = &edit.getUndoManager()] (te::AudioClipBase& ac)
+        {
+            WarpEngine::setWarpEnabled (ac, enabled, um);
+        });
+
+        updateControlVisibility();
+        notifyLayoutChanged();
+    };
+
+    transientButton.setTooltip ("Place warp markers at detected transients");
+    transientButton.onClick = [this]
+    {
+        if (updatingFromModel || audioClips.isEmpty())
+            return;
+
+        warpEditor.requestTransientMarkers();
+    };
+
+    convertToMidiModeBox.addItem ("Melody", 1);
+    convertToMidiModeBox.addItem ("Harmony", 2);
+    convertToMidiModeBox.addItem ("Drums", 3);
+    convertToMidiModeBox.setSelectedId (1, juce::dontSendNotification);
+    convertToMidiModeBox.setTooltip ("Audio-to-MIDI conversion mode");
+
+    convertToMidiButton.setTooltip ("Create a new MIDI clip from this audio clip");
+    convertToMidiButton.onClick = [this]
+    {
+        if (updatingFromModel || clips.size() != 1 || audioClips.isEmpty() || ! onAudioToMidi)
+            return;
+
+        const AudioToMidiMode mode = [&]
+        {
+            switch (convertToMidiModeBox.getSelectedId())
+            {
+                case 2:  return AudioToMidiMode::harmony;
+                case 3:  return AudioToMidiMode::drums;
+                default: return AudioToMidiMode::melody;
+            }
+        }();
+
+        onAudioToMidi (*clips.getFirst(), mode);
     };
 
     loopButton.onClick = [this]
@@ -216,6 +273,13 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm)
     addAndMakeVisible (reverseButton);
     addAndMakeVisible (loopButton);
     addAndMakeVisible (stretchModeBox);
+    addAndMakeVisible (warpLabel);
+    addAndMakeVisible (warpButton);
+    addAndMakeVisible (transientButton);
+    addAndMakeVisible (convertToMidiModeBox);
+    addAndMakeVisible (convertToMidiButton);
+    addAndMakeVisible (warpedLengthLabel);
+    addAndMakeVisible (warpEditor);
     addAndMakeVisible (takeLabel);
     addAndMakeVisible (takeBox);
 
@@ -294,10 +358,24 @@ int ClipInspectorPanel::getPreferredHeight() const
 
     if (hasAudioSelection())
     {
-        if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
-            return panelHeight + takeRowHeight + 4;
+        int height = panelHeight;
 
-        return panelHeight;
+        if (clips.size() == 1 && WarpEngine::supportsWarp (*audioClips.getFirst()))
+            height += warpRowHeight + 4;
+
+        if (clips.size() == 1 && ! audioClips.isEmpty() && WarpEngine::isWarpEnabled (*audioClips.getFirst()))
+        {
+            height += warpRowHeight + 4;
+            height += warpEditorHeight + 4;
+        }
+
+        if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
+            height += takeRowHeight + 4;
+
+        if (clips.size() == 1 && ! audioClips.isEmpty())
+            height += convertRowHeight + 4;
+
+        return height;
     }
 
     return midiPanelHeight;
@@ -333,7 +411,46 @@ void ClipInspectorPanel::setClips (const juce::Array<te::Clip*>& newClips)
     refreshFromModel();
     updateControlVisibility();
     setVisible (hasClipSelection());
+
+    if (clips.size() == 1 && ! audioClips.isEmpty())
+        warpEditor.setClip (audioClips.getFirst());
+    else
+        warpEditor.setClip (nullptr);
+
+    notifyLayoutChanged();
+}
+
+void ClipInspectorPanel::openWarpEditor (te::AudioClipBase& clip)
+{
+    if (! WarpEngine::supportsWarp (clip))
+        return;
+
+    juce::Array<te::Clip*> selected;
+    selected.add (&clip);
+    setClips (selected);
+
+    if (! WarpEngine::isWarpEnabled (clip))
+    {
+        WarpEngine::setWarpEnabled (clip, true, &edit.getUndoManager());
+        updateControlVisibility();
+    }
+
+    focusWarpEditor();
+    notifyLayoutChanged();
+}
+
+void ClipInspectorPanel::focusWarpEditor()
+{
+    if (warpEditor.isVisible())
+        warpEditor.grabEditorFocus();
+}
+
+void ClipInspectorPanel::notifyLayoutChanged()
+{
     resized();
+
+    if (auto* parent = getParentComponent())
+        parent->resized();
 }
 
 void ClipInspectorPanel::attachClipListener (te::Clip* clip)
@@ -362,6 +479,8 @@ void ClipInspectorPanel::detachClipListener()
 void ClipInspectorPanel::valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&)
 {
     refreshFromModel();
+    updateControlVisibility();
+    notifyLayoutChanged();
 }
 
 void ClipInspectorPanel::refreshFromModel()
@@ -410,6 +529,20 @@ void ClipInspectorPanel::refreshFromModel()
 
         if (looping)
             loopLengthSlider.setValue (audio.getLoopLengthBeats().inBeats(), juce::dontSendNotification);
+
+        const bool supportsWarp = WarpEngine::supportsWarp (audio);
+        const bool warpEnabled = audio.getWarpTime();
+        warpButton.setToggleState (warpEnabled, juce::dontSendNotification);
+        warpButton.setEnabled (supportsWarp);
+        transientButton.setEnabled (supportsWarp && warpEnabled);
+        speedSlider.setEnabled (! warpEnabled);
+        warpedLengthLabel.setVisible (supportsWarp && warpEnabled && clips.size() == 1);
+
+        if (warpEnabled)
+            warpedLengthLabel.setText ("Warp len: " + juce::String (WarpEngine::getWarpedLengthSeconds (audio), 2) + " s",
+                                       juce::dontSendNotification);
+        else
+            warpedLengthLabel.setText ("Warp len", juce::dontSendNotification);
     }
 
     if (! midiClips.isEmpty())
@@ -474,6 +607,10 @@ void ClipInspectorPanel::updateControlVisibility()
 {
     const bool showAudio = hasAudioSelection();
     const bool showMidi = hasMidiSelection() && ! showAudio;
+    const bool showWarpRow = showAudio && clips.size() == 1 && ! audioClips.isEmpty()
+                             && WarpEngine::supportsWarp (*audioClips.getFirst());
+    const bool showWarpEditor = showWarpRow && WarpEngine::isWarpEnabled (*audioClips.getFirst());
+    const bool showWarpedLength = showWarpEditor;
 
     for (auto* label : { &gainLabel, &transposeLabel, &speedLabel, &stretchLabel, &loopLengthLabel })
         label->setVisible (showAudio);
@@ -485,6 +622,20 @@ void ClipInspectorPanel::updateControlVisibility()
     reverseButton.setVisible (showAudio);
     loopButton.setVisible (showAudio);
     stretchModeBox.setVisible (showAudio);
+    warpLabel.setVisible (showWarpRow);
+    warpButton.setVisible (showWarpRow);
+    transientButton.setVisible (showWarpRow);
+    const bool showConvert = showAudio && clips.size() == 1 && ! audioClips.isEmpty();
+    convertToMidiModeBox.setVisible (showConvert);
+    convertToMidiButton.setVisible (showConvert);
+    warpedLengthLabel.setVisible (showWarpedLength);
+    warpEditor.setVisible (showWarpEditor);
+
+    if (showWarpEditor && ! audioClips.isEmpty())
+        warpEditor.setClip (audioClips.getFirst());
+    else if (! showWarpEditor)
+        warpEditor.setClip (nullptr);
+
     takeLabel.setVisible (showAudio && clips.size() == 1 && ! clips.isEmpty()
                           && EngineHelpers::hasMultipleTakes (*clips.getFirst()));
     takeBox.setVisible (takeLabel.isVisible());
@@ -569,8 +720,37 @@ void ClipInspectorPanel::resized()
 
         placeRow (loopLengthLabel, loopLengthSlider, area);
 
+        if (clips.size() == 1 && ! audioClips.isEmpty() && WarpEngine::supportsWarp (*audioClips.getFirst()))
+        {
+            auto warpRow = area.removeFromTop (rowHeight);
+            warpLabel.setBounds (warpRow.removeFromLeft (labelWidth));
+            warpRow.removeFromLeft (gap);
+            transientButton.setBounds (warpRow.removeFromRight (84).reduced (0, 1));
+            warpRow.removeFromRight (gap);
+            warpButton.setBounds (warpRow.removeFromRight (56).reduced (0, 1));
+            area.removeFromTop (2);
+
+            if (WarpEngine::isWarpEnabled (*audioClips.getFirst()))
+            {
+                auto warpedRow = area.removeFromTop (rowHeight);
+                warpedLengthLabel.setBounds (warpedRow.reduced (labelWidth + gap, 0));
+                area.removeFromTop (2);
+
+                warpEditor.setBounds (area.removeFromTop (warpEditorHeight));
+                area.removeFromTop (2);
+            }
+        }
+
         if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
             placeRow (takeLabel, takeBox, area);
+
+        if (clips.size() == 1 && ! audioClips.isEmpty())
+        {
+            auto convertRow = area.removeFromTop (rowHeight);
+            convertToMidiButton.setBounds (convertRow.removeFromRight (120).reduced (0, 1));
+            convertRow.removeFromRight (gap);
+            convertToMidiModeBox.setBounds (convertRow);
+        }
     }
     else if (hasMidiSelection())
     {

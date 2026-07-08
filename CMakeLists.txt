@@ -35,6 +35,21 @@ else()
     FetchContent_MakeAvailable(tracktion_engine)
 endif()
 
+include(FetchContent)
+FetchContent_Declare(
+    aubio
+    GIT_REPOSITORY https://github.com/aubio/aubio.git
+    GIT_TAG        0.4.9
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(aubio)
+if(NOT aubio_POPULATED)
+    FetchContent_Populate(aubio)
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/external/aubio/CMakeLists.txt"
+         DESTINATION "${aubio_SOURCE_DIR}")
+    add_subdirectory(${aubio_SOURCE_DIR} ${aubio_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
+
 juce_add_gui_app(SkeletonHive
     PRODUCT_NAME "SkeletonHive"
     COMPANY_NAME "SkeletonHive"
@@ -57,6 +72,23 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/TransportController.cpp
     Source/Engine/PluginScanner.h
     Source/Engine/PluginScanner.cpp
+    Source/Engine/PluginHost/PluginHostConstants.h
+    Source/Engine/PluginHost/PluginHostProtocol.h
+    Source/Engine/PluginHost/PluginHostProtocol.cpp
+    Source/Engine/PluginHost/PluginHostSharedMemory.h
+    Source/Engine/PluginHost/PluginHostSharedMemory.cpp
+    Source/Engine/PluginHost/PluginHostHelpers.h
+    Source/Engine/PluginHost/PluginHostHelpers.cpp
+    Source/Engine/PluginHost/PluginHostCoordinator.h
+    Source/Engine/PluginHost/PluginHostCoordinator.cpp
+    Source/Engine/PluginHost/SandboxedPluginInstance.h
+    Source/Engine/PluginHost/SandboxedPluginInstance.cpp
+    Source/Engine/PluginHost/PluginHostWorker.h
+    Source/Engine/PluginHost/PluginHostWorker.cpp
+    Source/Engine/PluginHost/PluginHostManager.h
+    Source/Engine/PluginHost/PluginHostManager.cpp
+    Source/Engine/EngineBenchmarkHarness.h
+    Source/Engine/EngineBenchmarkHarness.cpp
     Source/Engine/NativePluginCatalog.h
     Source/Engine/NativePluginCatalog.cpp
     Source/Engine/DrumRackHelpers.h
@@ -65,6 +97,27 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/SamplerHelpers.cpp
     Source/Engine/SynthHelpers.h
     Source/Engine/SynthHelpers.cpp
+    Source/Engine/WarpEngine.h
+    Source/Engine/WarpEngine.cpp
+    Source/Engine/AudioToMidiTypes.h
+    Source/Engine/AudioSampleExtractor.h
+    Source/Engine/AudioSampleExtractor.cpp
+    Source/Engine/AudioToMidiAnalysis.h
+    Source/Engine/AudioToMidiAnalysis.cpp
+    Source/Engine/AudioToMidiHarmony.h
+    Source/Engine/AudioToMidiHarmony.cpp
+    Source/Engine/AudioToMidiEngine.h
+    Source/Engine/AudioToMidiEngine.cpp
+    Source/Engine/Effects/NativeCustomPlugins.h
+    Source/Engine/Effects/NativeCustomPlugins.cpp
+    Source/Engine/Effects/SaturationPlugin.h
+    Source/Engine/Effects/SaturationPlugin.cpp
+    Source/Engine/Effects/MultibandDynamicsPlugin.h
+    Source/Engine/Effects/MultibandDynamicsPlugin.cpp
+    Source/Engine/Effects/EqualiserHelpers.h
+    Source/Engine/Effects/EqualiserHelpers.cpp
+    Source/Engine/Effects/CompressorHelpers.h
+    Source/Engine/Effects/CompressorHelpers.cpp
     Source/Engine/ExtendedUIBehaviour.h
     Source/Engine/ExtendedEngineBehaviour.h
     Source/Engine/EngineHelpers.h
@@ -79,6 +132,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/AppCommands.cpp
     Source/Engine/MidiLearnController.h
     Source/Engine/MidiLearnController.cpp
+    Source/Engine/ControlSurfaceManager.h
+    Source/Engine/ControlSurfaceManager.cpp
     Source/Engine/ExportManager.h
     Source/Engine/ExportManager.cpp
     Source/Engine/MultiOutputRouting.h
@@ -131,8 +186,12 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Arrangement/LaneBackgroundCache.cpp
     Source/UI/Arrangement/LaneClipSummaryPaint.h
     Source/UI/Arrangement/LaneClipSummaryPaint.cpp
+    Source/UI/Arrangement/ArrangementSelectionHelpers.cpp
+    Source/UI/Arrangement/ArrangementClipVisuals.cpp
     Source/UI/Arrangement/ClipInspectorPanel.h
     Source/UI/Arrangement/ClipInspectorPanel.cpp
+    Source/UI/Arrangement/ClipWarpEditor.h
+    Source/UI/Arrangement/ClipWarpEditor.cpp
     Source/UI/Detail/DetailPanelStack.h
     Source/UI/Detail/DetailPanelStack.cpp
     Source/UI/Arrangement/TakeLaneComponent.h
@@ -168,6 +227,20 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Instruments/SynthEditor.cpp
     Source/UI/Instruments/SynthModMatrixPanel.h
     Source/UI/Instruments/SynthModMatrixPanel.cpp
+    Source/UI/Effects/EffectControlComponents.h
+    Source/UI/Effects/EffectControlComponents.cpp
+    Source/UI/Effects/EqualiserCurveComponent.h
+    Source/UI/Effects/EqualiserCurveComponent.cpp
+    Source/UI/Effects/EqualiserEditor.h
+    Source/UI/Effects/EqualiserEditor.cpp
+    Source/UI/Effects/CompressorEditor.h
+    Source/UI/Effects/CompressorEditor.cpp
+    Source/UI/Effects/DelayReverbEditor.h
+    Source/UI/Effects/DelayReverbEditor.cpp
+    Source/UI/Effects/SaturationEditor.h
+    Source/UI/Effects/SaturationEditor.cpp
+    Source/UI/Effects/MultibandDynamicsEditor.h
+    Source/UI/Effects/MultibandDynamicsEditor.cpp
     Source/UI/Plugins/PluginPickerDialog.h
     Source/UI/Plugins/PluginPickerDialog.cpp
     Source/UI/Plugins/PresetBrowserPanel.h
@@ -232,12 +305,14 @@ target_compile_definitions(SkeletonHive PRIVATE
 )
 
 target_link_libraries(SkeletonHive PRIVATE
+    aubio
     tracktion::tracktion_core
     tracktion::tracktion_engine
     tracktion::tracktion_graph
     juce::juce_audio_devices
     juce::juce_audio_processors
     juce::juce_audio_utils
+    juce::juce_dsp
     juce::juce_gui_extra
     juce::juce_opengl
     juce::juce_recommended_config_flags

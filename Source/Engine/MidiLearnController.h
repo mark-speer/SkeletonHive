@@ -5,7 +5,8 @@
 namespace skeletonhive
 {
 
-/** Thin wrapper around TE MIDI learn / parameter mapping. */
+/** Thin wrapper around TE MIDI learn / parameter mapping.
+    For fader-bank, transport, and session-grid surface bindings see ControlSurfaceManager. */
 class MidiLearnController : public juce::ChangeListener
 {
 public:

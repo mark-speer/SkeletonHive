@@ -1,7 +1,11 @@
 #include "ClipComponents.h"
 #include "TimelineGrid.h"
 #include "TrackComponents.h"
+#include "ArrangementSelectionHelpers.h"
+#include "ArrangementClipVisuals.h"
+#include "UI/AppLookAndFeel.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/WarpEngine.h"
 #include "Engine/ContentDragManager.h"
 
 namespace skeletonhive
@@ -21,8 +25,7 @@ void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle
 
     const float pixelsPerSecond = (float) area.getWidth() / (float) viewRange.getLength().inSeconds();
     const int lowestNote = 36, highestNote = 96, noteRange = highestNote - lowestNote;
-
-    g.setColour (juce::Colours::white.withAlpha (0.8f));
+    const auto noteTint = juce::Colours::white;
 
     for (int i = 0; i < clip.getSequence().getNumNotes(); ++i)
     {
@@ -32,7 +35,9 @@ void drawMidiClipPreview (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle
         const float w = juce::jmax (2.0f, (float) note->getLengthSeconds (clip).inSeconds() * pixelsPerSecond);
         const float y = area.getHeight() * (1.0f - (float) (note->getNoteNumber() - lowestNote) / (float) noteRange);
         const float h = juce::jmax (2.0f, area.getHeight() / (float) noteRange);
+        const float velocityAlpha = 0.45f + 0.5f * (float) note->getVelocity() / 127.0f;
 
+        g.setColour (noteTint.withAlpha (velocityAlpha));
         g.fillRect (x, y - h, w, h);
     }
 }
@@ -69,13 +74,14 @@ void drawMidiClipDensity (juce::Graphics& g, te::MidiClip& clip, juce::Rectangle
         return;
 
     const float bucketWidth = (float) area.getWidth() / (float) buckets;
-    g.setColour (juce::Colours::white.withAlpha (0.55f));
+    const auto baseColour = EngineHelpers::getClipFillColour (clip, AppColours::clipMidiDefault (AppLookAndFeel::getCurrentTheme()));
 
     for (int i = 0; i < buckets; ++i)
     {
         const float normalised = density[i] / maxDensity;
         const float barHeight = juce::jmax (2.0f, normalised * (float) area.getHeight() * 0.75f);
         const float x = (float) area.getX() + bucketWidth * (float) i;
+        g.setColour (baseColour.brighter (0.15f + normalised * 0.35f).withAlpha (0.75f));
         g.fillRect (x + 1.0f,
                     (float) area.getBottom() - barHeight,
                     juce::jmax (1.0f, bucketWidth - 2.0f),
@@ -121,16 +127,22 @@ ClipComponent::DragMode ClipComponent::dragModeForEvent (const juce::MouseEvent&
         }
     }
 
-    if (getWidth() <= resizeHandleWidth * 2)
+    if (getWidth() <= effectiveResizeHandleWidth() * 2)
         return DragMode::move;
 
-    if (e.x <= resizeHandleWidth)
+    const int handleWidth = effectiveResizeHandleWidth();
+    if (e.x <= handleWidth)
         return DragMode::resizeStart;
 
-    if (e.x >= getWidth() - resizeHandleWidth)
+    if (e.x >= getWidth() - handleWidth)
         return DragMode::resizeEnd;
 
     return DragMode::move;
+}
+
+int ClipComponent::effectiveResizeHandleWidth() const
+{
+    return getDetailLevel() == TimelineClipDetailLevel::Detail ? resizeHandleWidthDetail : resizeHandleWidth;
 }
 
 void ClipComponent::updateCursorForMode (DragMode mode)
@@ -146,30 +158,62 @@ void ClipComponent::updateCursorForMode (DragMode mode)
 void ClipComponent::paint (juce::Graphics& g)
 {
     const auto detail = getDetailLevel();
-    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colours::darkgrey));
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f);
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const float cornerRadius = clipCornerRadius (detail, getWidth());
+    g.setColour (EngineHelpers::getClipFillColour (*clip, AppColours::clipAudioDefault (theme).darker (0.15f)));
+    g.fillRoundedRectangle (getLocalBounds().toFloat(), cornerRadius);
 
     if (detail != TimelineClipDetailLevel::Summary)
     {
-        g.setColour (juce::Colours::white);
-        g.drawRoundedRectangle (getLocalBounds().toFloat(), 4.0f, 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.12f));
+        g.drawRoundedRectangle (getLocalBounds().toFloat(), cornerRadius, 1.0f);
     }
 
     if (shouldShowClipLabel (detail, getWidth()))
     {
-        g.setColour (juce::Colours::white);
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
         g.drawText (clip->getName(), getLocalBounds().reduced (4), juce::Justification::centredLeft, true);
     }
 
+    paintClipStateOverlay (g, editViewState, *clip, getLocalBounds(), cornerRadius);
+    paintResizeHoverIndicators (g);
     paintSelectionAndGroupIndicators (g);
+}
+
+void ClipComponent::paintResizeHoverIndicators (juce::Graphics& g) const
+{
+    if (getDetailLevel() != TimelineClipDetailLevel::Detail)
+        return;
+
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const auto accent = AppColours::clipHoverBorder (theme);
+    const auto bounds = getLocalBounds();
+
+    if (hoverZone == HoverZone::left)
+    {
+        g.setColour (accent);
+        g.fillRect (bounds.getX(), bounds.getY(), 2, bounds.getHeight());
+    }
+    else if (hoverZone == HoverZone::right)
+    {
+        g.setColour (accent);
+        g.fillRect (bounds.getRight() - 2, bounds.getY(), 2, bounds.getHeight());
+    }
 }
 
 void ClipComponent::paintSelectionAndGroupIndicators (juce::Graphics& g) const
 {
+    const auto detail = getDetailLevel();
+    const float cornerRadius = clipCornerRadius (detail, getWidth());
+
     if (editViewState.selectionManager.isSelected (clip.get()))
     {
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 4.0f, 2.0f);
+        const auto theme = AppLookAndFeel::getCurrentTheme();
+        const auto border = AppColours::clipSelectedBorder (theme);
+        g.setColour (border.withAlpha (0.25f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (2.0f), cornerRadius - 1.0f);
+        g.setColour (border.withAlpha (0.95f));
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), cornerRadius, 1.5f);
     }
 
     if (EngineHelpers::getClipOuterGroup (*clip).isNotEmpty())
@@ -290,7 +334,7 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
 {
     if (e.mods.isRightButtonDown())
     {
-        editViewState.selectionManager.selectOnly (clip.get());
+        ArrangementSelectionHelpers::handleClipClick (editViewState, *clip, e.mods);
 
         bool offerLoopSelection = false;
         std::function<void()> onLoopSelection;
@@ -318,7 +362,7 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         }
 
         showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, clip->getTrack(), false, nullptr, clip.get(),
-                                 onShowClipProperties, onTakeLanesChanged,
+                                 onShowClipProperties, onEditWarpMarkers, onAudioToMidi, onTakeLanesChanged,
                                  [this]
                                  {
                                      if (onTakeLanesChanged)
@@ -344,7 +388,7 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    editViewState.selectionManager.selectOnly (clip.get());
+    ArrangementSelectionHelpers::handleClipClick (editViewState, *clip, e.mods);
 
     if (onSelectionChanged)
         onSelectionChanged();
@@ -557,6 +601,18 @@ void ClipComponent::mouseDrag (const juce::MouseEvent& e)
         if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get()))
             audioClip->setFadeOut (juce::jmax (te::TimeDuration(), originalEnd - currentTime));
     }
+
+    if (onDragOverlayUpdate
+        && (dragMode == DragMode::move || dragMode == DragMode::resizeStart || dragMode == DragMode::resizeEnd))
+    {
+        const auto pos = clip->getPosition();
+        te::TimePosition snapPoint = pos.getStart();
+
+        if (dragMode == DragMode::resizeEnd)
+            snapPoint = pos.getEnd();
+
+        onDragOverlayUpdate (*clip, dragMode, snapPoint, pos.getStart(), pos.getEnd());
+    }
 }
 
 void ClipComponent::mouseUp (const juce::MouseEvent& e)
@@ -582,6 +638,9 @@ void ClipComponent::mouseUp (const juce::MouseEvent& e)
             onCrossTrackDragEnd (*clip, e);
     }
 
+    if (onDragOverlayClear)
+        onDragOverlayClear();
+
     dragMode = DragMode::none;
     groupDragItems.clear();
     groupResizeItems.clear();
@@ -595,6 +654,21 @@ void ClipComponent::mouseMove (const juce::MouseEvent& e)
         return;
 
     const auto mode = dragModeForEvent (e);
+    HoverZone newZone = HoverZone::none;
+
+    if (mode == DragMode::resizeStart)
+        newZone = HoverZone::left;
+    else if (mode == DragMode::resizeEnd)
+        newZone = HoverZone::right;
+    else if (mode == DragMode::move)
+        newZone = HoverZone::body;
+
+    if (newZone != hoverZone)
+    {
+        hoverZone = newZone;
+        repaint();
+    }
+
     if (mode == DragMode::resizeStart || mode == DragMode::resizeEnd)
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     else if (mode == DragMode::fadeIn || mode == DragMode::fadeOut)
@@ -665,10 +739,11 @@ void AudioClipComponent::refreshThumbnailSource()
 void AudioClipComponent::paint (juce::Graphics& g)
 {
     const auto detail = getDetailLevel();
+    const auto theme = AppLookAndFeel::getCurrentTheme();
     auto bounds = getLocalBounds();
-    const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
+    const float cornerRadius = clipCornerRadius (detail, bounds.getWidth());
 
-    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colour (0xff2d6a4f)));
+    g.setColour (EngineHelpers::getClipFillColour (*clip, AppColours::clipAudioDefault (theme)));
     g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
 
     if (shouldShowWaveforms (detail, editViewState.drawWaveforms.get()) && isVisible())
@@ -677,21 +752,29 @@ void AudioClipComponent::paint (juce::Graphics& g)
 
         if (thumbnail != nullptr)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.setColour (juce::Colours::black.withAlpha (0.25f));
+            g.fillRoundedRectangle (bounds.reduced (1).toFloat(), cornerRadius - 1.0f);
+            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+            g.setColour (juce::Colours::white.withAlpha (0.85f));
             const te::TimeRange viewRange { editViewState.viewX1, editViewState.viewX2 };
             thumbnail->drawChannels (g, bounds, viewRange, 1.0f);
         }
     }
+
+    if (shouldShowWarpMarkers (detail))
+        paintWarpOverlay (g);
 
     if (shouldShowFadeCurves (detail))
         paintFadeOverlay (g);
 
     if (shouldShowClipLabel (detail, bounds.getWidth()))
     {
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
         g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
     }
 
+    paintClipStateOverlay (g, editViewState, *clip, bounds, cornerRadius);
+    paintResizeHoverIndicators (g);
     paintSelectionAndGroupIndicators (g);
 }
 
@@ -757,6 +840,32 @@ void AudioClipComponent::paintFadeOverlay (juce::Graphics& g) const
     g.fillRect (bounds.getRight() - (float) fadeHandlePx, bounds.getY(), (float) fadeHandlePx, 3.0f);
 }
 
+void AudioClipComponent::paintWarpOverlay (juce::Graphics& g) const
+{
+    auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip.get());
+
+    if (audioClip == nullptr || ! WarpEngine::isWarpEnabled (*audioClip))
+        return;
+
+    const auto bounds = getLocalBounds();
+    const auto markers = WarpEngine::getMarkers (*audioClip);
+
+    if (markers.isEmpty() || bounds.getWidth() <= 0)
+        return;
+
+    for (int i = 0; i < markers.size(); ++i)
+    {
+        const auto& marker = markers.getReference (i);
+        const double fraction = WarpEngine::warpTimeToClipLocalFraction (*audioClip, marker.warpTimeSeconds);
+        const int x = bounds.getX() + juce::roundToInt (fraction * bounds.getWidth());
+        const bool isEndPoint = WarpEngine::isEndpointMarker (i, markers.size());
+
+        g.setColour (isEndPoint ? juce::Colours::lightblue.withAlpha (0.55f)
+                                : juce::Colours::white.withAlpha (0.45f));
+        g.drawVerticalLine (x, (float) bounds.getY() + 2.0f, (float) bounds.getBottom() - 2.0f);
+    }
+}
+
 MidiClipComponent::MidiClipComponent (EditViewState& evs, te::Clip::Ptr c)
     : ClipComponent (evs, std::move (c))
 {
@@ -799,10 +908,11 @@ void MidiClipComponent::rebuildPreviewIfNeeded()
 void MidiClipComponent::paint (juce::Graphics& g)
 {
     const auto detail = getDetailLevel();
+    const auto theme = AppLookAndFeel::getCurrentTheme();
     auto bounds = getLocalBounds();
-    const float cornerRadius = detail == TimelineClipDetailLevel::Summary ? 2.0f : 4.0f;
+    const float cornerRadius = clipCornerRadius (detail, bounds.getWidth());
 
-    g.setColour (EngineHelpers::getClipFillColour (*clip, juce::Colour (0xff4361ee)));
+    g.setColour (EngineHelpers::getClipFillColour (*clip, AppColours::clipMidiDefault (theme)));
     g.fillRoundedRectangle (bounds.toFloat(), cornerRadius);
 
     if (isVisible())
@@ -815,6 +925,7 @@ void MidiClipComponent::paint (juce::Graphics& g)
 
             if (previewImage.isValid())
             {
+                g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
                 g.drawImage (previewImage,
                              previewArea.getX(), previewArea.getY(),
                              previewArea.getWidth(), previewArea.getHeight(),
@@ -830,10 +941,12 @@ void MidiClipComponent::paint (juce::Graphics& g)
 
     if (shouldShowClipLabel (detail, bounds.getWidth()))
     {
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
         g.drawText (clip->getName(), bounds.reduced (4), juce::Justification::centredLeft, true);
     }
 
+    paintClipStateOverlay (g, editViewState, *clip, bounds, cornerRadius);
+    paintResizeHoverIndicators (g);
     paintSelectionAndGroupIndicators (g);
 }
 

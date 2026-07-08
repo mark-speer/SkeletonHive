@@ -56,6 +56,11 @@ inline bool shouldShowFadeHandles (TimelineClipDetailLevel level)
     return level == TimelineClipDetailLevel::Detail;
 }
 
+inline bool shouldShowWarpMarkers (TimelineClipDetailLevel level)
+{
+    return level == TimelineClipDetailLevel::Detail;
+}
+
 inline bool shouldShowClipLabel (TimelineClipDetailLevel level, int clipWidthPx)
 {
     if (level == TimelineClipDetailLevel::Summary)

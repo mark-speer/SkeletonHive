@@ -44,6 +44,9 @@ public:
 
     void saveIfNeeded();
 
+    bool isPluginSandboxEnabled() const;
+    void setPluginSandboxEnabled (bool enabled);
+
 private:
     juce::File storageFile;
     juce::PropertiesFile properties;

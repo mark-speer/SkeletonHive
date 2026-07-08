@@ -2,6 +2,7 @@
 
 #include "ClipComponents.h"
 #include "TakeLaneComponent.h"
+#include "Engine/AudioToMidiTypes.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/TrackInputRouting.h"
 #include "Engine/GroovePoolManager.h"
@@ -24,6 +25,8 @@ void showTimelineContextMenu (juce::Component& target,
                               std::function<void()> onCreateMidiClip,
                               te::Clip* contextClip = nullptr,
                               std::function<void()> onShowClipProperties = nullptr,
+                              std::function<void (te::Clip*)> onEditWarpMarkers = nullptr,
+                              std::function<void (te::Clip*, AudioToMidiMode)> onAudioToMidi = nullptr,
                               std::function<void()> onTakeLanesChanged = nullptr,
                               std::function<void()> onClipsChanged = nullptr,
                               std::function<void (te::Clip&)> onExportToLibrary = nullptr,
@@ -56,7 +59,11 @@ public:
     bool hitTest (int x, int y) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseEnter (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
     void resized() override;
+
+    void updateFromModel();
 
     std::function<void (te::Track&)> onArmChanged;
     std::function<void (te::Track&)> onMuteChanged;
@@ -113,6 +120,7 @@ private:
     EngineHelpers::TrackDropZone dropHighlightZone = EngineHelpers::TrackDropZone::below;
     bool dropHighlightActive = false;
     bool dragStarted = false;
+    bool hovered = false;
 };
 
 class PluginSlotButton : public juce::TextButton,
@@ -230,6 +238,7 @@ public:
     void clearRangeSelection();
     bool hasRangeSelection() const { return rangeSelectionActive; }
     void applyRangeSelectionToLoop();
+    void cancelTimelineInteraction();
 
     /** Re-applies clip bounds and visibility culling for the current view. */
     void refreshLayout();
@@ -239,8 +248,14 @@ public:
     std::function<void (te::Clip&)> onClipDoubleClick;
     std::function<void()> onClipSelectionChanged;
     std::function<void()> onShowClipProperties;
+    std::function<void (te::Clip*)> onEditWarpMarkers;
+    std::function<void (te::Clip*, AudioToMidiMode)> onAudioToMidi;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragMove;
     std::function<void (te::Clip&, const juce::MouseEvent&)> onClipCrossTrackDragEnd;
+    std::function<void (te::Clip&, ClipComponent::DragMode, te::TimePosition, te::TimePosition, te::TimePosition)> onClipDragOverlayUpdate;
+    std::function<void()> onClipDragOverlayClear;
+    std::function<bool (TrackLaneComponent&, const juce::MouseEvent&)> onEmptyLaneDrag;
+    std::function<bool (TrackLaneComponent&, const juce::MouseEvent&)> onEmptyLaneDragEnd;
     std::function<void()> onTakeLanesChanged;
     std::function<te::Plugin::Ptr (const juce::PluginDescription& desc)> createPlugin;
     std::function<void (const juce::PluginDescription&)> onPluginInserted;
@@ -302,7 +317,8 @@ private:
     static constexpr int timelineClickDragThresholdPx = 4;
 };
 
-class PlayheadOverlay : public juce::Component
+class PlayheadOverlay : public juce::Component,
+                        private juce::Timer
 {
 public:
     PlayheadOverlay (te::Edit& edit, EditViewState& evs, UiTelemetryHub* telemetryHub = nullptr);
@@ -312,10 +328,14 @@ public:
     void updateFromTransport();
 
 private:
+    void timerCallback() override;
+
     te::Edit& edit;
     EditViewState& editViewState;
     UiTelemetryHub* telemetryHub = nullptr;
-    int xPosition = 0;
+    int targetXPosition = 0;
+    int displayXPosition = 0;
+    juce::int64 lastTransportUpdateMs = 0;
 };
 
 } // namespace skeletonhive
