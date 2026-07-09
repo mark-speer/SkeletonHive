@@ -17,7 +17,7 @@ public:
     PluginHostCoordinator();
     ~PluginHostCoordinator() override;
 
-    bool launchAndConnect (const juce::File& executable);
+    bool launchAndConnect (const juce::File& executable, juce::String& errorMessage);
     bool sendMessage (PluginHostMessageType type, const juce::MemoryBlock& payload = {});
     bool sendMessageAndWaitForReply (PluginHostMessageType sendType,
                                      const juce::MemoryBlock& payload,

@@ -8,6 +8,51 @@
 namespace skeletonhive
 {
 
+class TimelineComponent::HeaderSplitterBar : public juce::Component
+{
+public:
+    HeaderSplitterBar (EditViewState& evs, std::function<void()> onDragFinished)
+        : editViewState (evs), dragFinished (std::move (onDragFinished))
+    {
+        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto theme = AppLookAndFeel::getCurrentTheme();
+        g.fillAll (AppColours::headerBackground (theme));
+        g.setColour (AppColours::trackSeparator (theme));
+        g.drawVerticalLine (getWidth() - 1, 0.0f, (float) getHeight());
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! e.mods.isLeftButtonDown())
+            return;
+
+        dragStartWidth = editViewState.getHeaderWidth();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        editViewState.setHeaderWidth (dragStartWidth + e.getDistanceFromDragStartX());
+
+        if (dragFinished)
+            dragFinished();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragFinished)
+            dragFinished();
+    }
+
+private:
+    EditViewState& editViewState;
+    std::function<void()> dragFinished;
+    int dragStartWidth = 260;
+};
+
 //==============================================================================
 // TimelineRulerComponent
 
@@ -438,6 +483,18 @@ TimelineComponent::TimelineComponent (te::Edit& e, te::SelectionManager& sm, te:
 
     addAndMakeVisible (gridDivisionBox);
     addAndMakeVisible (hScrollBarOverlay);
+
+    headerSplitter = std::make_unique<HeaderSplitterBar> (editViewState, [this]
+    {
+        resized();
+        relayoutTracks = true;
+        triggerAsyncUpdate();
+
+        for (auto* header : trackHeaders)
+            if (header != nullptr)
+                header->layoutModeChanged();
+    });
+    addAndMakeVisible (*headerSplitter);
 
     headerViewport.setViewedComponent (&headerContent, false);
     headerViewport.setScrollBarsShown (false, false);
@@ -972,8 +1029,15 @@ void TimelineComponent::clearClipDragOverlay()
 
 juce::Point<int> TimelineComponent::contentPointForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const
 {
-    const auto lanePoint = e.getEventRelativeTo (&lane).getPosition();
-    return { lanePoint.x, lane.getY() + lanePoint.y };
+    juce::ignoreUnused (lane);
+    return e.getEventRelativeTo (const_cast<juce::Component*> (&timelineContent)).getPosition();
+}
+
+juce::Rectangle<int> TimelineComponent::contentRectFromPoints (juce::Point<int> a, juce::Point<int> b)
+{
+    return juce::Rectangle<int>::leftTopRightBottom (
+        juce::jmin (a.x, b.x), juce::jmin (a.y, b.y),
+        juce::jmax (a.x, b.x), juce::jmax (a.y, b.y));
 }
 
 bool TimelineComponent::marqueeIntersectsClips (const juce::Rectangle<int>& rect) const
@@ -1018,15 +1082,14 @@ bool TimelineComponent::handleEmptyLaneDrag (TrackLaneComponent& lane, const juc
 
     clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
 
-    const auto rect = juce::Rectangle<int> (
-        juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-        juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
-        juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-        juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+    const auto rect = contentRectFromPoints (clipMarquee.startContent, clipMarquee.currentContent);
 
+    const int horizontalSpan = std::abs (clipMarquee.currentContent.x - clipMarquee.startContent.x);
     const int verticalSpan = std::abs (clipMarquee.currentContent.y - clipMarquee.startContent.y);
+    const bool isTimeRangeIntent = horizontalSpan >= 8 && horizontalSpan > verticalSpan && verticalSpan <= 8;
 
     if (! clipMarquee.clipSelectMode
+        && ! isTimeRangeIntent
         && (verticalSpan > 8 || marqueeIntersectsClips (rect)))
     {
         clipMarquee.clipSelectMode = true;
@@ -1058,11 +1121,7 @@ bool TimelineComponent::handleEmptyLaneDragEnd (TrackLaneComponent& lane, const 
     {
         clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
 
-        const auto rect = juce::Rectangle<int> (
-            juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-            juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
-            juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-            juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+        const auto rect = contentRectFromPoints (clipMarquee.startContent, clipMarquee.currentContent);
 
         ArrangementSelectionHelpers::selectClipsInRect (editViewState, rect, trackLanes);
 
@@ -1110,13 +1169,9 @@ void TimelineComponent::paintClipMarqueeOverlay (juce::Graphics& g)
     const int viewY = timelineViewport.getViewPositionY();
     const int viewX = timelineViewport.getViewPositionX();
 
-    auto rect = juce::Rectangle<int> (
-        juce::jmin (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-        juce::jmin (clipMarquee.startContent.y, clipMarquee.currentContent.y),
-        juce::jmax (clipMarquee.startContent.x, clipMarquee.currentContent.x),
-        juce::jmax (clipMarquee.startContent.y, clipMarquee.currentContent.y));
+    auto rect = contentRectFromPoints (clipMarquee.startContent, clipMarquee.currentContent);
 
-    rect = rect.translated (headerWidth + timelineViewport.getX() - viewX,
+    rect = rect.translated (timelineViewport.getX() - viewX,
                             timelineViewport.getY() - viewY);
 
     g.setColour (AppColours::marqueeFill (theme));
@@ -1134,7 +1189,7 @@ void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
     const int viewY = timelineViewport.getViewPositionY();
     const int viewX = timelineViewport.getViewPositionX();
 
-    const int snapX = headerWidth + timelineViewport.getX()
+    const int snapX = editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX()
                         + editViewState.timeToX (clipDragOverlay.snapTime) - viewX;
 
     g.setColour (AppColours::snapGuideLine (theme).withAlpha (0.85f));
@@ -1145,9 +1200,10 @@ void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
         return;
 
     const auto& row = trackRows.getReference (clipDragOverlay.sourceRowIndex);
-    const int x1 = headerWidth + timelineViewport.getX()
+    const int hw = editViewState.getHeaderWidth();
+    const int x1 = hw + headerSplitterWidth + timelineViewport.getX()
                      + editViewState.timeToX (clipDragOverlay.ghostStart) - viewX;
-    const int x2 = headerWidth + timelineViewport.getX()
+    const int x2 = hw + headerSplitterWidth + timelineViewport.getX()
                      + editViewState.timeToX (clipDragOverlay.ghostEnd) - viewX;
     const auto ghostBounds = juce::Rectangle<int> (x1, timelineViewport.getY() + row.y - viewY,
                                                  juce::jmax (4, x2 - x1), row.height).reduced (2, 4);
@@ -1176,7 +1232,7 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
 
     const auto& row = trackRows.getReference (crossTrackDrag.targetRowIndex);
     const int viewY = timelineViewport.getViewPositionY();
-    const auto laneBounds = juce::Rectangle<int> (headerWidth + timelineViewport.getX(),
+    const auto laneBounds = juce::Rectangle<int> (editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX(),
                                                   timelineViewport.getY() + row.y - viewY,
                                                   timelineViewport.getViewWidth(),
                                                   row.height);
@@ -1185,7 +1241,7 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
                                           : AppColours::accentInvalidDrop (AppLookAndFeel::getCurrentTheme()).withAlpha (0.25f));
     g.fillRect (laneBounds);
 
-    const int ghostX = headerWidth + timelineViewport.getX()
+    const int ghostX = editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX()
                        + editViewState.timeToX (crossTrackDrag.ghostStart)
                        - timelineViewport.getViewPositionX();
     g.setColour (crossTrackDrag.validDrop ? juce::Colours::white.withAlpha (0.8f)
@@ -1195,6 +1251,21 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
 
 void TimelineComponent::paintOverChildren (juce::Graphics& g)
 {
+    if (timelineViewport.getWidth() > 0 && hScrollBarGap > 0)
+    {
+        const auto theme = AppLookAndFeel::getCurrentTheme();
+        const auto gapArea = juce::Rectangle<int> (timelineViewport.getX(),
+                                                   timelineViewport.getBottom(),
+                                                   timelineViewport.getWidth(),
+                                                   hScrollBarGap);
+        g.setColour (AppColours::headerBackground (theme));
+        g.fillRect (gapArea);
+        g.setColour (AppColours::trackSeparator (theme));
+        g.drawHorizontalLine ((float) timelineViewport.getBottom(),
+                              (float) timelineViewport.getX(),
+                              (float) timelineViewport.getRight());
+    }
+
     paintClipMarqueeOverlay (g);
     paintClipDragOverlay (g);
     paintCrossTrackDropOverlay (g);
@@ -1431,7 +1502,7 @@ void TimelineComponent::rebuildTrackRowList()
     }
 
     timelineContent.setSize (width, y);
-    headerContent.setSize (headerWidth, y);
+    headerContent.setSize (editViewState.getHeaderWidth(), y);
     playhead.setBounds (0, 0, width, y);
     playhead.toFront (false);
 }
@@ -1516,7 +1587,8 @@ void TimelineComponent::refreshVisibleTracks()
         if (auto* header = trackHeaders[i])
         {
             const int headerH = TrackHeaderComponent::getPreferredHeight (*row->track);
-            header->setBounds (0, row->y, headerWidth, headerH);
+            const int hw = editViewState.getHeaderWidth();
+            header->setBounds (0, row->y, hw, headerH);
             headerContent.addAndMakeVisible (header);
         }
 
@@ -1524,7 +1596,7 @@ void TimelineComponent::refreshVisibleTracks()
         {
             if (auto* footer = trackFooters[i])
             {
-                footer->setBounds (0, row->y + row->height - footerHeight, headerWidth, footerHeight);
+                footer->setBounds (0, row->y + row->height - footerHeight, editViewState.getHeaderWidth(), footerHeight);
                 headerContent.addAndMakeVisible (footer);
             }
         }
@@ -1558,8 +1630,9 @@ void TimelineComponent::resized()
 {
     auto r = getLocalBounds();
     auto topRow = r.removeFromTop (rulerHeight);
+    const int hw = editViewState.getHeaderWidth();
 
-    auto gridControls = topRow.removeFromLeft (headerWidth).reduced (2);
+    auto gridControls = topRow.removeFromLeft (hw).reduced (2);
     gridButton.setBounds (gridControls.removeFromLeft (40));
     snapButton.setBounds (gridControls.removeFromLeft (40));
     rippleButton.setBounds (gridControls.removeFromLeft (48));
@@ -1567,11 +1640,20 @@ void TimelineComponent::resized()
 
     ruler.setBounds (topRow);
 
-    auto headerArea = r.removeFromLeft (headerWidth);
+    const auto scrollStrip = r.removeFromBottom (hScrollBarHeight + hScrollBarGap);
+
+    auto headerArea = r.removeFromLeft (hw);
     headerViewport.setBounds (headerArea);
+
+    if (headerSplitter != nullptr)
+        headerSplitter->setBounds (r.removeFromLeft (headerSplitterWidth));
+
     timelineViewport.setBounds (r);
 
-    hScrollBarOverlay.setBounds (timelineViewport.getBounds().withHeight (hScrollBarHeight));
+    hScrollBarOverlay.setBounds (timelineViewport.getX(),
+                                 scrollStrip.getY() + hScrollBarGap,
+                                 timelineViewport.getWidth(),
+                                 hScrollBarHeight);
     hScrollBarOverlay.toFront (false);
 
     updateTimelineWidth();
@@ -1621,7 +1703,8 @@ void TimelineComponent::applyWheelDelta (double scaledDelta, bool horizontal, bo
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
     const auto local = e.getEventRelativeTo (this);
-    const bool inTimeline = local.x >= headerWidth;
+    const int timelineStartX = editViewState.getHeaderWidth() + headerSplitterWidth;
+    const bool inTimeline = local.x >= timelineStartX;
 
     if (! inTimeline)
     {
@@ -1655,7 +1738,7 @@ void TimelineComponent::mouseWheelMove (const juce::MouseEvent& e, const juce::M
     }
     else
     {
-        const int anchorX = local.x - headerWidth;
+        const int anchorX = local.x - timelineStartX;
         const int scrollX = timelineViewport.getViewPositionX();
         const int newScroll = editViewState.zoomHorizontalAndGetScroll (wheel.deltaY > 0 ? 1.2 : 0.833,
                                                                         anchorX, scrollX);

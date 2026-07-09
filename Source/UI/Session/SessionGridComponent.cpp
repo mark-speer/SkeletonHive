@@ -77,7 +77,7 @@ void SessionGridComponent::buildSlotLayout()
     const int sceneCount = sessionManager.getSceneCount();
     const int launchColumnWidth = 56;
     const int contentHeight = juce::jmax (slotSize, trackRows.size() * slotSize);
-    setSize (trackHeaderWidth + sceneCount * slotSize + launchColumnWidth, 22 + contentHeight);
+    setSize (getTrackHeaderWidth() + sceneCount * slotSize + launchColumnWidth, 22 + contentHeight);
 }
 
 void SessionGridComponent::destroyVisibleUI()
@@ -228,12 +228,12 @@ void SessionGridComponent::layoutVisibleUI()
             label->setBounds (headerRow.removeFromLeft (slotSize));
     }
 
-    headerRow.removeFromLeft (trackHeaderWidth);
+    headerRow.removeFromLeft (getTrackHeaderWidth());
 
     for (const auto& row : trackRows)
     {
         auto rowBounds = juce::Rectangle<int> (bounds.getX(), row.y + 22, bounds.getWidth(), row.height);
-        auto headerArea = rowBounds.removeFromLeft (trackHeaderWidth);
+        auto headerArea = rowBounds.removeFromLeft (getTrackHeaderWidth());
 
         for (auto* header : visibleHeaders)
         {
@@ -268,7 +268,7 @@ void SessionGridComponent::paintEmptyCells (juce::Graphics& g, juce::Rectangle<i
 
     for (const auto& row : trackRows)
     {
-        auto rowArea = juce::Rectangle<int> (area.getX() + trackHeaderWidth, row.y + 22,
+        auto rowArea = juce::Rectangle<int> (area.getX() + getTrackHeaderWidth(), row.y + 22,
                                              sceneCount * slotSize, row.height);
 
         if (! rowArea.intersects (area))
@@ -295,7 +295,7 @@ void SessionGridComponent::paint (juce::Graphics& g)
 
     const int sceneCount = sessionManager.getSceneCount();
     auto headerRow = getLocalBounds().removeFromTop (22);
-    headerRow.removeFromLeft (trackHeaderWidth);
+    headerRow.removeFromLeft (getTrackHeaderWidth());
     const int sceneWidth = slotSize;
 
     for (int s = 0; s < sceneCount; ++s)

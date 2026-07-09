@@ -148,6 +148,7 @@ private:
     void clearCrossTrackDragState();
     void clearClipMarqueeState();
     juce::Point<int> contentPointForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const;
+    static juce::Rectangle<int> contentRectFromPoints (juce::Point<int> a, juce::Point<int> b);
     bool marqueeIntersectsClips (const juce::Rectangle<int>& rect) const;
     void applyWheelDelta (double scaledDelta, bool horizontal, bool vertical);
 
@@ -201,11 +202,16 @@ private:
     juce::ComboBox gridDivisionBox;
     juce::ScrollBar hScrollBarOverlay { false };
 
-    static constexpr int headerWidth = 190;
+    class HeaderSplitterBar;
+
+    std::unique_ptr<HeaderSplitterBar> headerSplitter;
+
+    static constexpr int headerSplitterWidth = 5;
     static constexpr int rulerHeight = 24;
     static constexpr int footerHeight = 28;
     static constexpr int hScrollBarHeight = 14;
-    static constexpr int minTrackHeight = 72;
+    static constexpr int hScrollBarGap = 6;
+    static constexpr int minTrackHeight = 96;
     static constexpr int maxTrackHeight = 240;
 
     juce::Viewport timelineViewport;

@@ -42,7 +42,6 @@ private:
     juce::MidiBuffer midiBuffer;
 
     std::unique_ptr<juce::DocumentWindow> editorWindow;
-    std::unique_ptr<juce::AudioProcessorEditor> pluginEditor;
 
     std::unique_ptr<juce::Thread> audioThread;
     std::atomic<bool> audioRunning { false };

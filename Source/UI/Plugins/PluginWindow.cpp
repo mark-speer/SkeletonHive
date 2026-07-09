@@ -19,6 +19,62 @@
 namespace skeletonhive
 {
 
+namespace
+{
+class SandboxPlaceholderPanel : public juce::Component
+{
+public:
+    SandboxPlaceholderPanel (te::ExternalPlugin& externalPlugin)
+        : external (externalPlugin)
+    {
+        addAndMakeVisible (messageLabel);
+        messageLabel.setJustificationType (juce::Justification::centred);
+        messageLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
+
+        addAndMakeVisible (openButton);
+        openButton.setButtonText ("Open Bridge Editor");
+        openButton.onClick = [this] { requestEditor(); };
+
+        requestEditor();
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (16);
+        openButton.setBounds (area.removeFromBottom (28).withSizeKeepingCentre (180, 28));
+        messageLabel.setBounds (area);
+    }
+
+private:
+    void requestEditor()
+    {
+        if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (external))
+        {
+            juce::String error;
+            if (sandboxed->requestBridgeEditor (error))
+            {
+                messageLabel.setText ("This plugin is running in a separate sandbox process.\n"
+                                      "Its editor should appear in a dedicated bridge window.\n"
+                                      "Check the taskbar for a second SkeletonHive window if you do not see it.",
+                                      juce::dontSendNotification);
+                return;
+            }
+
+            messageLabel.setText ("Sandbox editor failed to open:\n" + error,
+                                  juce::dontSendNotification);
+            return;
+        }
+
+        messageLabel.setText ("Sandbox plugin instance is unavailable.",
+                              juce::dontSendNotification);
+    }
+
+    te::ExternalPlugin& external;
+    juce::Label messageLabel;
+    juce::TextButton openButton;
+};
+} // namespace
+
 #if JUCE_LINUX
 constexpr bool shouldAddPluginWindowToDesktop = false;
 #else
@@ -77,11 +133,8 @@ std::unique_ptr<juce::Component> PluginWindow::create (te::Plugin& plugin, juce:
 
         if (EngineHelpers::isSandboxedExternalPlugin (plugin))
         {
-            if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*externalPlugin))
-                sandboxed->openEditorInBridge();
-
             auto w = std::make_unique<PluginWindow> (plugin);
-            w->setSandboxPlaceholder();
+            w->setSandboxPlaceholder (*externalPlugin);
             w->show();
             return w;
         }
@@ -209,17 +262,11 @@ void PluginWindow::recreateEditor()
     resizeToFitEditorContent();
 }
 
-void PluginWindow::setSandboxPlaceholder()
+void PluginWindow::setSandboxPlaceholder (te::ExternalPlugin& externalPlugin)
 {
-    auto* label = new juce::Label();
-    label->setText ("This plugin is running in a separate sandbox process.\n"
-                      "Its editor opens in a dedicated bridge window.",
-                      juce::dontSendNotification);
-    label->setJustificationType (juce::Justification::centred);
-    label->setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
-    setContentOwned (label, true);
+    setContentOwned (new SandboxPlaceholderPanel (externalPlugin), true);
     setResizable (true, false);
-    setSize (420, 160);
+    setSize (460, 190);
 }
 
 void PluginWindow::setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor)

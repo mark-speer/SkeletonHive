@@ -2,9 +2,12 @@
 
 #include "ClipComponents.h"
 #include "TakeLaneComponent.h"
+#include "TrackHeaderControls.h"
 #include "Engine/AudioToMidiTypes.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/TrackInputRouting.h"
+#include "Engine/TrackMonitorRouting.h"
+#include "Engine/TrackOutputRouting.h"
 #include "Engine/GroovePoolManager.h"
 #include "Engine/PluginDragManager.h"
 #include "Engine/ContentDragManager.h"
@@ -48,7 +51,6 @@ public:
 
 class TrackHeaderComponent : public juce::Component,
                              private te::ValueTreeAllEventListener,
-                             private juce::ComboBox::Listener,
                              public juce::DragAndDropTarget
 {
 public:
@@ -64,6 +66,7 @@ public:
     void resized() override;
 
     void updateFromModel();
+    void layoutModeChanged();
 
     std::function<void (te::Track&)> onArmChanged;
     std::function<void (te::Track&)> onMuteChanged;
@@ -87,35 +90,45 @@ private:
     void valueTreeChanged() override {}
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { updateKindBadge(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { updateKindBadge(); }
-
-    void comboBoxChanged (juce::ComboBox* box) override;
 
     void updateKindBadge();
-    void refreshSourceBoxes();
-    void populateSourceBox (juce::ComboBox& box, juce::Array<TrackInputOption>& storedOptions,
-                            TrackInputKind kind);
+    void refreshRoutingControls();
+    void updateRoutingLayout();
+    void setupInputSelector();
+    void setupOutputSelector();
+    juce::PopupMenu buildInputMenu (TrackInputKind kind, juce::Array<TrackInputOption>& storedOptions);
+    juce::PopupMenu buildOutputMenu (juce::Array<TrackOutputOption>& storedOptions);
     void showHeaderContextMenu (juce::Point<int> screenPosition);
     EngineHelpers::TrackDropZone dropZoneForPosition (juce::Point<int> localPos) const;
     void moveSelectedTracksToDropZone (EngineHelpers::TrackDropZone zone);
     void insertBrowserPlugin (const juce::PluginDescription& desc);
     void handleCrossTrackDrop (const PluginDragPayload& payload);
+    void bindMixControls();
+    bool isCompactLayout() const;
 
     EditViewState& editViewState;
     te::Track::Ptr track;
     juce::Label trackName;
     juce::Label kindBadge;
-    juce::Label audioSourceLabel;
-    juce::ComboBox audioSourceBox;
-    juce::Label midiSourceLabel;
-    juce::ComboBox midiSourceBox;
+    juce::Label inputLabel;
+    juce::Label outputLabel;
+    RoutingSelectorButton inputSelector;
+    RoutingSelectorButton outputSelector;
+    TrackColourSwatch colourSwatch;
+    MonitorModeButton monitorButton;
     juce::TextButton armButton { "R" }, muteButton { "M" }, soloButton { "S" };
+    HeaderGainSlider gainSlider;
+    HeaderPanSlider panSlider;
+    te::VolumeAndPanPlugin::Ptr volumePlugin;
     juce::Array<TrackInputOption> audioSourceOptions;
     juce::Array<TrackInputOption> midiSourceOptions;
-    bool refreshingSourceBoxes = false;
+    juce::Array<TrackOutputOption> outputOptions;
 
-    static constexpr int sourceRowHeight = 20;
-    static constexpr int mainRowHeight = 24;
+    static constexpr int nameRowHeight = 22;
+    static constexpr int routingRowHeight = 18;
+    static constexpr int buttonRowHeight = 22;
+    static constexpr int mixRowHeight = 20;
+    static constexpr int compactWidthThreshold = 200;
 
     EngineHelpers::TrackDropZone dropHighlightZone = EngineHelpers::TrackDropZone::below;
     bool dropHighlightActive = false;

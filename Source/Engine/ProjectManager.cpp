@@ -1,4 +1,5 @@
 #include "ProjectManager.h"
+#include "TrackMonitorRouting.h"
 
 #if JUCE_WINDOWS
  #include <windows.h>
@@ -293,6 +294,7 @@ void ProjectManager::setupEdit()
     edit->getTransport().ensureContextAllocated();
     EngineHelpers::setupDefaultTracks (*edit);
     EngineHelpers::ensureTrackKinds (*edit);
+    TrackMonitorRouting::ensureTrackMonitorDefaults (*edit);
 }
 
 void ProjectManager::recordFileModTime()

@@ -31,23 +31,41 @@ bool PluginHostSharedMemory::create (const juce::String& name)
     close();
     mappingName = name;
 
-    juce::File tempFile = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                              .getChildFile ("SkeletonHivePluginHost")
-                              .getChildFile (name + ".shmem");
-    tempFile.getParentDirectory().createDirectory();
-    tempFile.deleteFile();
+    const auto parentDir = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                               .getChildFile ("SkeletonHivePluginHost");
 
-    juce::FileOutputStream stream (tempFile);
-    if (! stream.openedOk())
+    parentDir.createDirectory();
+
+    if (! parentDir.isDirectory())
+    {
+        DBG ("PluginHostSharedMemory: temp directory unavailable " + parentDir.getFullPathName());
         return false;
+    }
+
+    juce::File tempFile = parentDir.getChildFile (name + ".shmem");
+
+    if (tempFile.existsAsFile())
+        tempFile.deleteFile();
 
     const size_t size = totalMappingSize();
-    stream.setPosition ((juce::int64) size - 1);
-    stream.writeByte (0);
+    juce::MemoryBlock blank (size);
+    blank.fillWith (0);
+
+    if (! tempFile.replaceWithData (blank.getData(), blank.getSize()))
+    {
+        DBG ("PluginHostSharedMemory: failed to write temp file " + tempFile.getFullPathName());
+        return false;
+    }
 
     mapping = std::make_unique<juce::MemoryMappedFile> (tempFile, juce::MemoryMappedFile::readWrite);
+
     if (mapping->getData() == nullptr)
+    {
+        DBG ("PluginHostSharedMemory: failed to map temp file " + tempFile.getFullPathName());
+        mapping.reset();
+        tempFile.deleteFile();
         return false;
+    }
 
     header = reinterpret_cast<Header*> (mapping->getData());
     std::memset (header, 0, headerSize);

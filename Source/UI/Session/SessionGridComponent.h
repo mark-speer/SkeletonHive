@@ -18,8 +18,9 @@ public:
                           ClipLibraryManager* clipLibrary);
 
     static constexpr int slotSize = 88;
-    static constexpr int trackHeaderWidth = 190;
     static constexpr int verticalVirtualizationMargin = 200;
+
+    int getTrackHeaderWidth() const { return editViewState.getHeaderWidth(); }
 
     std::function<void (te::EditItemID trackId)> onTrackSelected;
     std::function<void (te::EditItemID trackId, int sceneIndex)> onSlotFocused;

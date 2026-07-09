@@ -91,6 +91,13 @@ void PluginSlotComponent::refreshLoadState()
         stopTimer();
     }
 
+    if (loadState == EngineHelpers::PluginLoadState::failed)
+        setTooltip (plugin->getName() + " — " + loadStatusMessage);
+    else if (loadState == EngineHelpers::PluginLoadState::loading)
+        setTooltip (plugin->getName() + " — Loading...");
+    else
+        setTooltip (plugin->getName() + " (right-click for options, drag to reorder)");
+
     if (previous != loadState)
         repaint();
 }

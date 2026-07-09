@@ -77,6 +77,7 @@ namespace IDs
     DECLARE_ID (snapToGrid)
     DECLARE_ID (gridDivision)
     DECLARE_ID (pixelsPerBeat)
+    DECLARE_ID (headerWidth)
     DECLARE_ID (rippleMode)
     DECLARE_ID (expandedTakeClipId)
     DECLARE_ID (createTakesOnLoop)
@@ -130,6 +131,7 @@ public:
         viewX2.referTo (state, IDs::viewX2, um, 60s);
         viewY.referTo (state, IDs::viewY, um, 0);
         trackHeight.referTo (state, IDs::trackHeight, um, 80);
+        headerWidth.referTo (state, IDs::headerWidth, um, 260);
         expandedTakeClipId.referTo (state, IDs::expandedTakeClipId, um, (juce::int64) 0);
         createTakesOnLoop.referTo (state, IDs::createTakesOnLoop, um, true);
 
@@ -193,6 +195,16 @@ public:
     double getPixelsPerBeat() const
     {
         return juce::jmax (4.0, pixelsPerBeat.get());
+    }
+
+    int getHeaderWidth() const
+    {
+        return juce::jlimit (180, 400, headerWidth.get());
+    }
+
+    void setHeaderWidth (int width)
+    {
+        headerWidth = juce::jlimit (180, 400, width);
     }
 
     /** Absolute timeline X from song start (scrollable canvas). */
@@ -275,7 +287,7 @@ public:
     juce::CachedValue<int> gridDivision;
     juce::CachedValue<double> pixelsPerBeat;
     juce::CachedValue<te::TimePosition> viewX1, viewX2;
-    juce::CachedValue<int> viewY, trackHeight;
+    juce::CachedValue<int> viewY, trackHeight, headerWidth;
     juce::CachedValue<juce::int64> expandedTakeClipId;
     juce::CachedValue<bool> createTakesOnLoop;
     juce::ValueTree state;

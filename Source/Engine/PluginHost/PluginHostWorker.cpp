@@ -12,17 +12,75 @@ class BridgeEditorWindow : public juce::DocumentWindow
 public:
     BridgeEditorWindow (const juce::String& name, juce::Component* content)
         : DocumentWindow (name + " (Sandboxed)",
-                          juce::Colours::darkgrey,
+                          juce::Desktop::getInstance().getDefaultLookAndFeel()
+                              .findColour (juce::ResizableWindow::backgroundColourId),
                           DocumentWindow::closeButton)
     {
         setUsingNativeTitleBar (true);
         setContentOwned (content, true);
-        centreWithSize (800, 600);
+
+        const int editorW = juce::jmax (content->getWidth(), 400);
+        const int editorH = juce::jmax (content->getHeight(), 300);
+        centreWithSize (editorW, editorH);
+        setResizable (true, false);
         setVisible (true);
+        toFront (true);
     }
 
-    void closeButtonPressed() override { setVisible (false); }
+    void showEditor()
+    {
+        setVisible (true);
+        toFront (true);
+    }
+
+    void closeButtonPressed() override
+    {
+        setVisible (false);
+    }
 };
+
+struct EditorOpenResult
+{
+    bool success = false;
+    juce::String error;
+};
+
+void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
+                                std::unique_ptr<juce::DocumentWindow>& editorWindow,
+                                EditorOpenResult& result)
+{
+    if (pluginInstance == nullptr)
+    {
+        result.error = "Plugin instance is not available.";
+        return;
+    }
+
+    if (editorWindow != nullptr)
+    {
+        editorWindow->setVisible (true);
+        editorWindow->toFront (true);
+        result.success = true;
+        return;
+    }
+
+    if (! pluginInstance->hasEditor())
+    {
+        result.error = "Plugin reports no editor.";
+        return;
+    }
+
+    std::unique_ptr<juce::AudioProcessorEditor> editor (pluginInstance->createEditorAndMakeActive());
+
+    if (editor == nullptr)
+    {
+        result.error = "Failed to create plugin editor.";
+        DBG ("PluginHostWorker: editor creation failed for " + pluginInstance->getName());
+        return;
+    }
+
+    editorWindow = std::make_unique<BridgeEditorWindow> (pluginInstance->getName(), editor.release());
+    result.success = true;
+}
 
 class PluginHostAudioThread : public juce::Thread
 {
@@ -35,20 +93,53 @@ public:
             activeWorker->audioLoop();
     }
 };
+
+struct PluginLoadResult
+{
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+    juce::String error;
+};
+
+void loadPluginOnMessageThread (juce::AudioPluginFormatManager& formatManager,
+                                const juce::PluginDescription& desc,
+                                double sampleRate,
+                                int blockSize,
+                                PluginLoadResult& result)
+{
+    if (formatManager.getNumFormats() == 0)
+        formatManager.addFormat (std::make_unique<juce::VST3PluginFormat>());
+
+    juce::WaitableEvent done;
+
+    juce::MessageManager::callAsync ([&formatManager, &desc, sampleRate, blockSize, &result, &done]
+    {
+        result.instance = formatManager.createPluginInstance (desc, sampleRate, blockSize, result.error);
+        done.signal();
+    });
+
+    done.wait (60000);
+}
 } // namespace
 
 bool PluginHostWorker::tryInitialiseFromCommandLine (const juce::String& commandLine)
 {
+    const auto workerPrefix = juce::String ("--") + PluginHostConstants::workerUniqueId + ":";
+    const bool isWorkerCommand = commandLine.contains (workerPrefix);
+
     static PluginHostWorker worker;
     activeWorker = &worker;
 
-    if (worker.initialiseFromCommandLine (commandLine, PluginHostConstants::workerUniqueId, 10000))
+    if (worker.initialiseFromCommandLine (commandLine, PluginHostConstants::workerUniqueId, 30000))
     {
         juce::MessageManager::getInstance()->runDispatchLoop();
         return true;
     }
 
     activeWorker = nullptr;
+
+    if (isWorkerCommand)
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+
     return false;
 }
 
@@ -93,8 +184,10 @@ bool PluginHostWorker::handleLoadPlugin (const juce::MemoryBlock& payload)
 {
     juce::PluginDescription desc;
     juce::String sharedMemoryName;
+    double sampleRate = 44100.0;
+    int blockSize = 512;
 
-    if (! PluginHostMessage::decodeLoadPlugin (payload, desc, sharedMemoryName))
+    if (! PluginHostMessage::decodeLoadPlugin (payload, desc, sharedMemoryName, sampleRate, blockSize))
     {
         sendReply (PluginHostMessageType::pluginLoadFailed,
                    PluginHostMessage::encodeFailure ("Invalid load request."));
@@ -110,15 +203,18 @@ bool PluginHostWorker::handleLoadPlugin (const juce::MemoryBlock& payload)
         return false;
     }
 
-    formatManager.addFormat (std::make_unique<juce::VST3PluginFormat>());
-    juce::String error;
+    currentSampleRate = sampleRate;
+    currentBlockSize = juce::jmin (blockSize, PluginHostConstants::maxBlockSize);
 
-    pluginInstance = formatManager.createPluginInstance (desc, 44100.0, 512, error);
+    PluginLoadResult loadResult;
+    loadPluginOnMessageThread (formatManager, desc, currentSampleRate, currentBlockSize, loadResult);
+    pluginInstance = std::move (loadResult.instance);
 
     if (pluginInstance == nullptr)
     {
+        const auto error = loadResult.error.isNotEmpty() ? loadResult.error : juce::String ("Plugin load failed.");
         sendReply (PluginHostMessageType::pluginLoadFailed,
-                   PluginHostMessage::encodeFailure (error.isNotEmpty() ? error : "Plugin load failed."));
+                   PluginHostMessage::encodeFailure (error));
         return false;
     }
 
@@ -195,23 +291,38 @@ bool PluginHostWorker::handleSetState (const juce::MemoryBlock& payload)
 
 bool PluginHostWorker::handleOpenEditor()
 {
-    if (pluginInstance == nullptr || ! pluginInstance->hasEditor())
-        return false;
-
-    juce::MessageManager::callAsync ([this]
+    if (pluginInstance == nullptr)
     {
-        if (pluginInstance == nullptr)
-            return;
+        sendReply (PluginHostMessageType::editorOpenFailed,
+                   PluginHostMessage::encodeFailure ("Plugin is not loaded."));
+        return false;
+    }
 
-        pluginEditor.reset (pluginInstance->createEditorIfNeeded());
+    EditorOpenResult result;
+    juce::WaitableEvent done;
 
-        if (pluginEditor == nullptr)
-            return;
-
-        editorWindow = std::make_unique<BridgeEditorWindow> (pluginInstance->getName(), pluginEditor.release());
-        sendReply (PluginHostMessageType::editorOpened);
+    juce::MessageManager::callAsync ([this, &result, &done]
+    {
+        openEditorOnMessageThread (pluginInstance.get(), editorWindow, result);
+        done.signal();
     });
 
+    if (! done.wait (60000))
+    {
+        sendReply (PluginHostMessageType::editorOpenFailed,
+                   PluginHostMessage::encodeFailure ("Timed out opening plugin editor."));
+        return false;
+    }
+
+    if (! result.success)
+    {
+        sendReply (PluginHostMessageType::editorOpenFailed,
+                   PluginHostMessage::encodeFailure (result.error.isNotEmpty() ? result.error
+                                                                               : juce::String ("Failed to open editor.")));
+        return false;
+    }
+
+    sendReply (PluginHostMessageType::editorOpened);
     return true;
 }
 
@@ -220,7 +331,6 @@ bool PluginHostWorker::handleCloseEditor()
     juce::MessageManager::callAsync ([this]
     {
         editorWindow.reset();
-        pluginEditor.reset();
         sendReply (PluginHostMessageType::editorClosed);
     });
     return true;

@@ -7,6 +7,7 @@
 #include "NativePluginCatalog.h"
 #include "DrumRackHelpers.h"
 #include "TrackInputRouting.h"
+#include "TrackMonitorRouting.h"
 #include "TrackPluginChainModel.h"
 #include "UI/AppLookAndFeel.h"
 #include "UI/Arrangement/EditViewState.h"
@@ -1450,6 +1451,7 @@ void EngineHelpers::armTrackWithDefaultInput (te::AudioTrack& track, bool arm)
     }
 
     armTrack (track, arm);
+    TrackMonitorRouting::applyMonitorModeForTrack (track);
 }
 
 bool EngineHelpers::isInputAssignedToTrack (te::InputDeviceInstance& instance, te::AudioTrack& track)
@@ -1540,6 +1542,49 @@ void EngineHelpers::setupDefaultTracks (te::Edit& edit)
     }
 
     edit.getTransport().setLoopRange ({ 0s, te::TimeDuration::fromSeconds (30.0) });
+}
+
+juce::Colour EngineHelpers::getTrackDisplayColour (const te::Track& track)
+{
+    const auto c = track.getColour();
+
+    if (c.getAlpha() > 0 && c != juce::Colours::transparentBlack)
+        return c;
+
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+
+    if (track.isFolderTrack())
+        return AppColours::trackAccentFolder (theme);
+
+    if (isReturnTrack (track))
+        return AppColours::trackAccentReturn (theme);
+
+    if (isMidiKindTrack (track))
+        return AppColours::trackAccentMidi (theme);
+
+    return AppColours::trackAccentAudio (theme);
+}
+
+void EngineHelpers::setTrackDisplayColour (te::Track& track, juce::Colour colour)
+{
+    track.setColour (colour);
+}
+
+bool EngineHelpers::hasCustomTrackColour (const te::Track& track)
+{
+    const auto c = track.getColour();
+    return c.getAlpha() > 0 && c != juce::Colours::transparentBlack;
+}
+
+te::VolumeAndPanPlugin* EngineHelpers::getTrackVolumePlugin (te::Track& track)
+{
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track))
+        return audioTrack->getVolumePlugin();
+
+    if (auto* folderTrack = dynamic_cast<te::FolderTrack*> (&track))
+        return folderTrack->getVolumePlugin();
+
+    return nullptr;
 }
 
 juce::String EngineHelpers::timeToTimecodeString (double seconds)

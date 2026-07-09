@@ -14,7 +14,7 @@ public:
     static std::unique_ptr<juce::Component> create (te::Plugin& plugin, juce::Component* alertParent = nullptr);
     void show();
     void recreateEditorAsync();
-    void setSandboxPlaceholder();
+    void setSandboxPlaceholder (te::ExternalPlugin& externalPlugin);
 
 private:
     void moved() override;

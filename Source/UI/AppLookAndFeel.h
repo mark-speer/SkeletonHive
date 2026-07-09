@@ -52,6 +52,10 @@ struct AppColours
     static juce::Colour trackAccentMidi (ThemeChoice theme);
     static juce::Colour trackAccentFolder (ThemeChoice theme);
     static juce::Colour trackAccentReturn (ThemeChoice theme);
+    static juce::Colour monitorOff (ThemeChoice theme);
+    static juce::Colour monitorAuto (ThemeChoice theme);
+    static juce::Colour monitorIn (ThemeChoice theme);
+    static juce::Colour armActive (ThemeChoice theme);
     static juce::Colour marqueeFill (ThemeChoice theme);
     static juce::Colour marqueeBorder (ThemeChoice theme);
 };

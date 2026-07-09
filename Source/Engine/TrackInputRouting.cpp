@@ -1,5 +1,6 @@
 #include "TrackInputRouting.h"
 #include "EngineHelpers.h"
+#include "TrackMonitorRouting.h"
 #include "TrackPluginChainModel.h"
 
 namespace skeletonhive
@@ -149,10 +150,15 @@ bool TrackInputOption::operator== (const TrackInputOption& other) const noexcept
     if (type == Type::none)
         return true;
 
+    if (type == Type::allMidiInputs)
+        return midiChannel == other.midiChannel;
+
     if (type == Type::trackOutput)
         return trackId == other.trackId;
 
-    return device == other.device;
+    return device == other.device
+        && midiChannel == other.midiChannel
+        && waveChannelIndex == other.waveChannelIndex;
 }
 
 juce::Array<TrackInputOption> TrackInputRouting::getSourceOptions (te::Edit& edit, te::AudioTrack& dest,
@@ -165,6 +171,24 @@ juce::Array<TrackInputOption> TrackInputRouting::getSourceOptions (te::Edit& edi
         none.type = TrackInputOption::Type::none;
         none.displayName = "None";
         options.add (none);
+    }
+
+    if (kind == TrackInputKind::midi)
+    {
+        TrackInputOption allMidi;
+        allMidi.type = TrackInputOption::Type::allMidiInputs;
+        allMidi.displayName = "All MIDI Inputs";
+        allMidi.midiChannel = 0;
+        options.add (allMidi);
+
+        for (int ch = 1; ch <= 16; ++ch)
+        {
+            TrackInputOption chOpt;
+            chOpt.type = TrackInputOption::Type::externalDevice;
+            chOpt.displayName = "All Channels (filter Ch " + juce::String (ch) + ")";
+            chOpt.midiChannel = ch;
+            options.add (chOpt);
+        }
     }
 
     for (auto* instance : edit.getAllInputDevices())
@@ -182,8 +206,20 @@ juce::Array<TrackInputOption> TrackInputRouting::getSourceOptions (te::Edit& edi
         TrackInputOption opt;
         opt.type = TrackInputOption::Type::externalDevice;
         opt.device = &instance->getInputDevice();
-        opt.displayName = instance->getInputDevice().getName();
+        opt.displayName = instance->getInputDevice().getAlias();
+        opt.available = instance->getInputDevice().isEnabled();
         options.add (opt);
+
+        if (kind == TrackInputKind::midi)
+        {
+            for (int ch = 1; ch <= 16; ++ch)
+            {
+                TrackInputOption chOpt = opt;
+                chOpt.displayName = opt.displayName + " (Ch " + juce::String (ch) + ")";
+                chOpt.midiChannel = ch;
+                options.add (chOpt);
+            }
+        }
     }
 
     const auto trackCandidates = kind == TrackInputKind::audio
@@ -257,6 +293,17 @@ TrackInputOption TrackInputRouting::getActiveSource (te::AudioTrack& dest, Track
     return none;
 }
 
+void TrackInputRouting::applyMidiChannelFilter (te::InputDevice& device, int channel)
+{
+    if (auto* midiIn = dynamic_cast<te::MidiInputDevice*> (&device))
+    {
+        midiIn->setChannelToUse (channel);
+
+        for (int ch = 1; ch <= 16; ++ch)
+            midiIn->setChannelAllowed (ch, channel <= 0 || ch == channel);
+    }
+}
+
 void TrackInputRouting::setActiveSource (te::AudioTrack& dest, const TrackInputOption& option, TrackInputKind kind)
 {
     TRACKTION_ASSERT_MESSAGE_THREAD
@@ -269,9 +316,27 @@ void TrackInputRouting::setActiveSource (te::AudioTrack& dest, const TrackInputO
     if (option.type == TrackInputOption::Type::none)
         return;
 
+    if (option.type == TrackInputOption::Type::allMidiInputs && kind == TrackInputKind::midi)
+    {
+        EngineHelpers::assignDefaultInputToTrack (dest, true);
+        TrackMonitorRouting::applyMonitorModeForTrack (dest);
+        return;
+    }
+
     if (option.type == TrackInputOption::Type::externalDevice)
     {
         edit.getTransport().ensureContextAllocated();
+
+        if (option.device == nullptr && option.midiChannel > 0 && kind == TrackInputKind::midi)
+        {
+            if (auto first = getFirstExternalOption (edit, kind); first.device != nullptr)
+            {
+                TrackInputOption resolved = first;
+                resolved.midiChannel = option.midiChannel;
+                setActiveSource (dest, resolved, kind);
+            }
+            return;
+        }
 
         for (auto* instance : edit.getAllInputDevices())
         {
@@ -281,6 +346,10 @@ void TrackInputRouting::setActiveSource (te::AudioTrack& dest, const TrackInputO
             if (! instance->setTarget (dest.itemID, false, &um, 0))
                 [[maybe_unused]] const auto result = instance->setTarget (dest.itemID, true, &um, 0);
 
+            if (kind == TrackInputKind::midi)
+                applyMidiChannelFilter (instance->getInputDevice(), option.midiChannel);
+
+            TrackMonitorRouting::applyMonitorModeForTrack (dest);
             return;
         }
 
@@ -304,8 +373,46 @@ void TrackInputRouting::setActiveSource (te::AudioTrack& dest, const TrackInputO
             {
                 [[maybe_unused]] const auto destAssignment = te::assignTrackAsInput (dest, *sourceTrack, deviceType);
             }
+
+            TrackMonitorRouting::applyMonitorModeForTrack (dest);
         }
     }
+}
+
+juce::String TrackInputRouting::getInputTooltip (te::AudioTrack& dest, TrackInputKind kind)
+{
+    const auto active = getActiveSource (dest, kind);
+
+    if (active.type == TrackInputOption::Type::none)
+        return "No input assigned";
+
+    if (active.type == TrackInputOption::Type::allMidiInputs)
+        return "All MIDI Inputs";
+
+    juce::String tip = active.displayName;
+
+    if (active.midiChannel > 0)
+        tip << " (Channel " << active.midiChannel << ")";
+
+    if (! active.available)
+        tip = "[Missing] " + tip;
+
+    return tip;
+}
+
+juce::Array<TrackInputOption> TrackInputRouting::filterOptionsBySearch (const juce::Array<TrackInputOption>& options,
+                                                                        const juce::String& search)
+{
+    if (search.trim().isEmpty())
+        return options;
+
+    juce::Array<TrackInputOption> filtered;
+
+    for (const auto& opt : options)
+        if (opt.displayName.containsIgnoreCase (search))
+            filtered.add (opt);
+
+    return filtered;
 }
 
 bool TrackInputRouting::shouldShowMidiSource (const te::Track& track)

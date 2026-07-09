@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TracktionCommon.h"
+#include "Engine/PluginHost/PluginHostConstants.h"
 #include "Engine/ExtendedUIBehaviour.h"
 #include "Engine/ExtendedEngineBehaviour.h"
 #include "Engine/ProjectManager.h"
@@ -25,7 +26,8 @@ public:
     bool moreThanOneInstanceAllowed() override
     {
         const auto params = juce::JUCEApplicationBase::getCommandLineParameters();
-        return params.contains ("--PluginScan:") || params.contains ("SkeletonHivePluginHost");
+        return params.contains ("--PluginScan:")
+            || params.contains ("--" + juce::String (PluginHostConstants::workerUniqueId) + ":");
     }
 
     void initialise (const juce::String& commandLine) override;

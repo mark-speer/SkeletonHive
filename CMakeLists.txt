@@ -142,6 +142,10 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/SidechainRouting.cpp
     Source/Engine/TrackInputRouting.h
     Source/Engine/TrackInputRouting.cpp
+    Source/Engine/TrackMonitorRouting.h
+    Source/Engine/TrackMonitorRouting.cpp
+    Source/Engine/TrackOutputRouting.h
+    Source/Engine/TrackOutputRouting.cpp
     Source/Engine/WaveformCache.h
     Source/Engine/WaveformCache.cpp
     Source/Engine/PluginDragManager.h
@@ -178,6 +182,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Arrangement/ClipComponents.cpp
     Source/UI/Arrangement/TrackComponents.h
     Source/UI/Arrangement/TrackComponents.cpp
+    Source/UI/Arrangement/TrackHeaderControls.h
+    Source/UI/Arrangement/TrackHeaderControls.cpp
     Source/UI/Arrangement/TimelineComponent.h
     Source/UI/Arrangement/TimelineComponent.cpp
     Source/UI/Arrangement/TimelineGrid.h

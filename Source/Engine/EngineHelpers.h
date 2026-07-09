@@ -230,6 +230,13 @@ struct EngineHelpers
 
     static void setupDefaultTracks (te::Edit& edit);
 
+    /** Track colour for UI: TE colour when set, otherwise kind-based accent. */
+    static juce::Colour getTrackDisplayColour (const te::Track& track);
+    static void setTrackDisplayColour (te::Track& track, juce::Colour colour);
+    static bool hasCustomTrackColour (const te::Track& track);
+
+    static te::VolumeAndPanPlugin* getTrackVolumePlugin (te::Track& track);
+
     static juce::String timeToTimecodeString (double seconds);
 
     static juce::String getPositionString (te::Edit& edit);

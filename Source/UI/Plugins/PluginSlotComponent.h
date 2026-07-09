@@ -11,6 +11,7 @@ class PluginTrayComponent;
 
 /** Single device slot in the plugin tray (Ableton-style device block). */
 class PluginSlotComponent : public juce::Component,
+                            public juce::SettableTooltipClient,
                             private juce::Timer
 {
 public:

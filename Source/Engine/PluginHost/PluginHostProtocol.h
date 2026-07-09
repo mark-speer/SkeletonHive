@@ -22,6 +22,7 @@ enum class PluginHostMessageType : uint32_t
     openEditor,
     closeEditor,
     editorOpened,
+    editorOpenFailed,
     editorClosed,
     shutdown
 };
@@ -34,8 +35,15 @@ struct PluginHostMessage
     static juce::MemoryBlock encode (PluginHostMessageType messageType, const juce::MemoryBlock& payloadIn = {});
     static bool decode (const juce::MemoryBlock& block, PluginHostMessage& out);
 
-    static juce::MemoryBlock encodeLoadPlugin (const juce::PluginDescription& desc, const juce::String& sharedMemoryName);
-    static bool decodeLoadPlugin (const juce::MemoryBlock& payload, juce::PluginDescription& desc, juce::String& sharedMemoryName);
+    static juce::MemoryBlock encodeLoadPlugin (const juce::PluginDescription& desc,
+                                               const juce::String& sharedMemoryName,
+                                               double sampleRate,
+                                               int blockSize);
+    static bool decodeLoadPlugin (const juce::MemoryBlock& payload,
+                                  juce::PluginDescription& desc,
+                                  juce::String& sharedMemoryName,
+                                  double& sampleRate,
+                                  int& blockSize);
 
     static juce::MemoryBlock encodePrepare (double sampleRate, int blockSize);
     static bool decodePrepare (const juce::MemoryBlock& payload, double& sampleRate, int& blockSize);

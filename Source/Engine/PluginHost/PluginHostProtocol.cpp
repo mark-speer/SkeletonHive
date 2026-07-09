@@ -58,7 +58,10 @@ bool PluginHostMessage::decode (const juce::MemoryBlock& block, PluginHostMessag
     return true;
 }
 
-juce::MemoryBlock PluginHostMessage::encodeLoadPlugin (const juce::PluginDescription& desc, const juce::String& sharedMemoryName)
+juce::MemoryBlock PluginHostMessage::encodeLoadPlugin (const juce::PluginDescription& desc,
+                                                       const juce::String& sharedMemoryName,
+                                                       double sampleRate,
+                                                       int blockSize)
 {
     juce::MemoryBlock payload;
     juce::MemoryOutputStream stream (payload, false);
@@ -67,10 +70,16 @@ juce::MemoryBlock PluginHostMessage::encodeLoadPlugin (const juce::PluginDescrip
     else
         writeString (stream, {});
     writeString (stream, sharedMemoryName);
+    stream.writeDouble (sampleRate);
+    stream.writeInt (blockSize);
     return payload;
 }
 
-bool PluginHostMessage::decodeLoadPlugin (const juce::MemoryBlock& payload, juce::PluginDescription& desc, juce::String& sharedMemoryName)
+bool PluginHostMessage::decodeLoadPlugin (const juce::MemoryBlock& payload,
+                                          juce::PluginDescription& desc,
+                                          juce::String& sharedMemoryName,
+                                          double& sampleRate,
+                                          int& blockSize)
 {
     juce::MemoryInputStream stream (payload.getData(), payload.getSize(), false);
     juce::String xmlText;
@@ -78,6 +87,23 @@ bool PluginHostMessage::decodeLoadPlugin (const juce::MemoryBlock& payload, juce
         return false;
     if (! readString (stream, sharedMemoryName))
         return false;
+
+    if (stream.getNumBytesRemaining() >= (juce::int64) (sizeof (double) + sizeof (int)))
+    {
+        sampleRate = stream.readDouble();
+        blockSize = stream.readInt();
+    }
+    else
+    {
+        sampleRate = 44100.0;
+        blockSize = 512;
+    }
+
+    if (sampleRate <= 0.0)
+        sampleRate = 44100.0;
+
+    if (blockSize <= 0)
+        blockSize = 512;
 
     if (auto xml = juce::parseXML (xmlText))
         return desc.loadFromXml (*xml);

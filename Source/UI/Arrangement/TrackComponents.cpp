@@ -411,41 +411,44 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     trackName.setText (track->getName(), juce::dontSendNotification);
     trackName.setJustificationType (juce::Justification::centredLeft);
     trackName.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    trackName.setInterceptsMouseClicks (false, false);
 
     kindBadge.setJustificationType (juce::Justification::centred);
-    kindBadge.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    kindBadge.setFont (juce::FontOptions (8.0f, juce::Font::bold));
     kindBadge.setColour (juce::Label::textColourId, juce::Colours::white);
     kindBadge.setOpaque (true);
     kindBadge.setInterceptsMouseClicks (false, false);
     updateKindBadge();
 
-    audioSourceLabel.setText ("In", juce::dontSendNotification);
-    audioSourceLabel.setJustificationType (juce::Justification::centredLeft);
-    audioSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-    audioSourceLabel.setColour (juce::Label::textColourId, AppColours::trackAccentAudio (AppLookAndFeel::getCurrentTheme()));
-    audioSourceBox.setTextWhenNothingSelected ("None");
-    audioSourceBox.setTooltip ("Audio input source");
-    audioSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    audioSourceBox.setColour (juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha (0.3f));
-    audioSourceBox.setColour (juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha (0.7f));
+    inputLabel.setText ("Input:", juce::dontSendNotification);
+    inputLabel.setJustificationType (juce::Justification::centredLeft);
+    inputLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    inputLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
+    inputLabel.setInterceptsMouseClicks (false, false);
 
-    midiSourceLabel.setText ("In", juce::dontSendNotification);
-    midiSourceLabel.setJustificationType (juce::Justification::centredLeft);
-    midiSourceLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-    midiSourceLabel.setColour (juce::Label::textColourId, AppColours::trackAccentMidi (AppLookAndFeel::getCurrentTheme()));
-    midiSourceBox.setTextWhenNothingSelected ("None");
-    midiSourceBox.setTooltip ("MIDI input source");
-    midiSourceBox.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    midiSourceBox.setColour (juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha (0.3f));
-    midiSourceBox.setColour (juce::ComboBox::arrowColourId, juce::Colours::white.withAlpha (0.7f));
+    outputLabel.setText ("Output:", juce::dontSendNotification);
+    outputLabel.setJustificationType (juce::Justification::centredLeft);
+    outputLabel.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    outputLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.75f));
+    outputLabel.setInterceptsMouseClicks (false, false);
 
     armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
-                          && ! EngineHelpers::isReturnTrack (*track));
+                          && ! EngineHelpers::isReturnTrack (*track)
+                          && TrackMonitorRouting::shouldShowMonitorControl (*track));
     armButton.setTooltip ("Arm for recording");
+    monitorButton.setVisible (armButton.isVisible());
+    monitorButton.bindToTrack (track);
+
     muteButton.setClickingTogglesState (true);
     soloButton.setClickingTogglesState (true);
+    armButton.setClickingTogglesState (true);
     muteButton.setTooltip ("Mute");
     soloButton.setTooltip ("Solo");
+
+    gainSlider.setTooltip ("Volume");
+    panSlider.setTooltip ("Pan");
+    colourSwatch.bindToTrack (track);
+    colourSwatch.setDescription ("Track colour");
 
     armButton.onClick = [this]
     {
@@ -453,7 +456,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
         {
             const bool arm = ! EngineHelpers::isTrackArmed (*audioTrack);
             EngineHelpers::armTrackWithDefaultInput (*audioTrack, arm);
-            armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
+            updateFromModel();
             if (onArmChanged) onArmChanged (*track);
         }
     };
@@ -478,28 +481,32 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
         if (onSoloChanged) onSoloChanged (*track);
     };
 
+    setupInputSelector();
+    setupOutputSelector();
+    bindMixControls();
+
     addAndMakeVisible (trackName);
     addAndMakeVisible (kindBadge);
+    addAndMakeVisible (colourSwatch);
+    addAndMakeVisible (inputLabel);
+    addAndMakeVisible (inputSelector);
+    addAndMakeVisible (outputLabel);
+    addAndMakeVisible (outputSelector);
     addAndMakeVisible (armButton);
+    addAndMakeVisible (monitorButton);
     addAndMakeVisible (muteButton);
     addAndMakeVisible (soloButton);
-    addAndMakeVisible (audioSourceLabel);
-    addAndMakeVisible (audioSourceBox);
-    addAndMakeVisible (midiSourceLabel);
-    addAndMakeVisible (midiSourceBox);
-
-    audioSourceBox.addListener (this);
-    midiSourceBox.addListener (this);
+    addAndMakeVisible (gainSlider);
+    addAndMakeVisible (panSlider);
 
     track->state.addListener (this);
-    refreshSourceBoxes();
+    refreshRoutingControls();
     updateFromModel();
+    updateRoutingLayout();
 }
 
 TrackHeaderComponent::~TrackHeaderComponent()
 {
-    audioSourceBox.removeListener (this);
-    midiSourceBox.removeListener (this);
     track->state.removeListener (this);
 }
 
@@ -516,9 +523,7 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
 
     if (! track->isFolderTrack() && ! EngineHelpers::isReturnTrack (*track))
     {
-        auto accent = EngineHelpers::isMidiKindTrack (*track)
-                          ? AppColours::trackAccentMidi (theme)
-                          : AppColours::trackAccentAudio (theme);
+        auto accent = EngineHelpers::getTrackDisplayColour (*track);
 
         if (selected)
             accent = accent.brighter (0.2f);
@@ -592,19 +597,42 @@ void TrackHeaderComponent::updateFromModel()
     muteButton.setToggleState (track->isMuted (false), juce::dontSendNotification);
     soloButton.setToggleState (track->isSolo (false), juce::dontSendNotification);
 
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    bool armed = false;
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
-        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
+        armed = EngineHelpers::isTrackArmed (*audioTrack);
+
+    armButton.setToggleState (armed, juce::dontSendNotification);
+    armButton.setColour (juce::TextButton::buttonOnColourId, AppColours::armActive (theme));
+    armButton.setColour (juce::TextButton::buttonColourId,
+                         armed ? AppColours::armActive (theme) : AppColours::monitorOff (theme));
+
+    monitorButton.updateFromModel();
+    colourSwatch.updateFromModel();
+    gainSlider.updateFromModel();
+    panSlider.updateFromModel();
+}
+
+void TrackHeaderComponent::layoutModeChanged()
+{
+    resized();
+}
+
+bool TrackHeaderComponent::isCompactLayout() const
+{
+    return getWidth() < compactWidthThreshold;
 }
 
 int TrackHeaderComponent::getPreferredHeight (const te::Track& track)
 {
-    int height = mainRowHeight;
+    int height = nameRowHeight + buttonRowHeight + mixRowHeight;
 
-    if (TrackInputRouting::shouldShowAudioSource (track))
-        height += sourceRowHeight;
+    if (TrackInputRouting::shouldShowAudioSource (track)
+        || TrackInputRouting::shouldShowMidiSource (track))
+        height += routingRowHeight;
 
-    if (TrackInputRouting::shouldShowMidiSource (track))
-        height += sourceRowHeight;
+    if (TrackOutputRouting::shouldShowOutputSelector (track))
+        height += routingRowHeight;
 
     return height;
 }
@@ -612,40 +640,67 @@ int TrackHeaderComponent::getPreferredHeight (const te::Track& track)
 void TrackHeaderComponent::resized()
 {
     auto r = getLocalBounds().reduced (2);
-    const int btnW = 22;
+    const int btnW = 26;
+    const int indent = EngineHelpers::getTrackIndentLevel (*track) * 12;
+    const bool compact = isCompactLayout();
 
-    const bool showAudio = TrackInputRouting::shouldShowAudioSource (*track);
-    const bool showMidi = TrackInputRouting::shouldShowMidiSource (*track);
+    const bool showInput = TrackInputRouting::shouldShowAudioSource (*track)
+                           || TrackInputRouting::shouldShowMidiSource (*track);
+    const bool showOutput = TrackOutputRouting::shouldShowOutputSelector (*track);
 
-    audioSourceLabel.setVisible (showAudio);
-    audioSourceBox.setVisible (showAudio);
-    midiSourceLabel.setVisible (showMidi);
-    midiSourceBox.setVisible (showMidi);
+    inputLabel.setVisible (showInput);
+    inputSelector.setVisible (showInput);
+    outputLabel.setVisible (showOutput);
+    outputSelector.setVisible (showOutput);
 
-    auto mainRow = r.removeFromTop (mainRowHeight);
-    soloButton.setBounds (mainRow.removeFromRight (btnW));
-    muteButton.setBounds (mainRow.removeFromRight (btnW));
-    if (armButton.isVisible())
-        armButton.setBounds (mainRow.removeFromRight (btnW));
-    kindBadge.setBounds (mainRow.removeFromLeft (42).reduced (0, 3));
-    mainRow.removeFromLeft (4);
-    mainRow.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
-    trackName.setBounds (mainRow);
+    auto nameRow = r.removeFromTop (nameRowHeight);
+    nameRow.removeFromLeft (indent);
+    colourSwatch.setBounds (nameRow.removeFromRight (14).reduced (0, 4));
+    kindBadge.setBounds (nameRow.removeFromLeft (compact ? 0 : 36).reduced (0, 3));
+    if (compact)
+        kindBadge.setVisible (false);
+    else
+        kindBadge.setVisible (true);
+    nameRow.removeFromLeft (compact ? 0 : 4);
+    trackName.setBounds (nameRow);
 
-    if (showAudio)
+    if (showInput)
     {
-        auto row = r.removeFromTop (sourceRowHeight);
-        row.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
-        audioSourceLabel.setBounds (row.removeFromLeft (34));
-        audioSourceBox.setBounds (row);
+        auto row = r.removeFromTop (routingRowHeight);
+        row.removeFromLeft (indent);
+        inputLabel.setBounds (row.removeFromLeft (42));
+        inputSelector.setBounds (row);
     }
 
-    if (showMidi)
+    if (showOutput)
     {
-        auto row = r.removeFromTop (sourceRowHeight);
-        row.removeFromLeft (EngineHelpers::getTrackIndentLevel (*track) * 12);
-        midiSourceLabel.setBounds (row.removeFromLeft (34));
-        midiSourceBox.setBounds (row);
+        auto row = r.removeFromTop (routingRowHeight);
+        row.removeFromLeft (indent);
+        outputLabel.setBounds (row.removeFromLeft (42));
+        outputSelector.setBounds (row);
+    }
+
+    auto buttonRow = r.removeFromTop (buttonRowHeight);
+    buttonRow.removeFromLeft (indent);
+    soloButton.setBounds (buttonRow.removeFromRight (btnW));
+    muteButton.setBounds (buttonRow.removeFromRight (btnW));
+    if (monitorButton.isVisible())
+        monitorButton.setBounds (buttonRow.removeFromRight (btnW * 2));
+    if (armButton.isVisible())
+        armButton.setBounds (buttonRow.removeFromRight (btnW));
+
+    auto mixRow = r.removeFromTop (mixRowHeight);
+    mixRow.removeFromLeft (indent);
+
+    if (compact)
+    {
+        gainSlider.setBounds (mixRow.removeFromTop (mixRowHeight / 2).reduced (0, 1));
+        panSlider.setBounds (mixRow.reduced (0, 1));
+    }
+    else
+    {
+        panSlider.setBounds (mixRow.removeFromRight (56).reduced (2, 1));
+        gainSlider.setBounds (mixRow.reduced (0, 1));
     }
 }
 
@@ -666,8 +721,7 @@ void TrackHeaderComponent::mouseDown (const juce::MouseEvent& e)
         {
             if (target != this
                 && (dynamic_cast<juce::Button*> (target) != nullptr
-                    || dynamic_cast<juce::ComboBox*> (target) != nullptr
-                    || target->findParentComponentOfClass<juce::ComboBox>() != nullptr))
+                    || dynamic_cast<juce::Slider*> (target) != nullptr))
                 return;
         }
 
@@ -684,15 +738,7 @@ bool TrackHeaderComponent::hitTest (int x, int y)
     if (track == nullptr)
         return false;
 
-    int interactiveHeight = mainRowHeight + 4;
-
-    if (TrackInputRouting::shouldShowAudioSource (*track))
-        interactiveHeight += sourceRowHeight;
-
-    if (TrackInputRouting::shouldShowMidiSource (*track))
-        interactiveHeight += sourceRowHeight;
-
-    return y < interactiveHeight;
+    return y < getPreferredHeight (*track);
 }
 
 void TrackHeaderComponent::mouseDrag (const juce::MouseEvent& e)
@@ -747,90 +793,166 @@ void TrackHeaderComponent::moveSelectedTracksToDropZone (EngineHelpers::TrackDro
     }
 }
 
-void TrackHeaderComponent::populateSourceBox (juce::ComboBox& box, juce::Array<TrackInputOption>& storedOptions,
-                                              TrackInputKind kind)
+void TrackHeaderComponent::bindMixControls()
 {
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+        volumePlugin = audioTrack->getVolumePlugin();
+    else if (auto* folderTrack = dynamic_cast<te::FolderTrack*> (track.get()))
+        volumePlugin = folderTrack->getVolumePlugin();
+
+    gainSlider.bindToPlugin (volumePlugin);
+    panSlider.bindToPlugin (volumePlugin);
+}
+
+void TrackHeaderComponent::setupInputSelector()
+{
+    inputSelector.menuFactory = [this]
+    {
+        if (TrackInputRouting::shouldShowAudioSource (*track))
+            return buildInputMenu (TrackInputKind::audio, audioSourceOptions);
+
+        return buildInputMenu (TrackInputKind::midi, midiSourceOptions);
+    };
+
+    inputSelector.onItemSelected = [this] (int result)
+    {
+        auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
+        if (audioTrack == nullptr)
+            return;
+
+        const auto kind = TrackInputRouting::shouldShowAudioSource (*track)
+                              ? TrackInputKind::audio
+                              : TrackInputKind::midi;
+        const auto& options = kind == TrackInputKind::audio ? audioSourceOptions : midiSourceOptions;
+
+        if (! juce::isPositiveAndBelow (result - 1, options.size()))
+            return;
+
+        const auto& option = options[result - 1];
+        TrackInputRouting::setActiveSource (*audioTrack, option, kind);
+        refreshRoutingControls();
+        updateFromModel();
+    };
+}
+
+void TrackHeaderComponent::setupOutputSelector()
+{
+    outputSelector.menuFactory = [this]
+    {
+        return buildOutputMenu (outputOptions);
+    };
+
+    outputSelector.onItemSelected = [this] (int result)
+    {
+        auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
+        if (audioTrack == nullptr)
+            return;
+
+        if (! juce::isPositiveAndBelow (result - 1, outputOptions.size()))
+            return;
+
+        juce::String error;
+        if (! TrackOutputRouting::setActiveOutput (*audioTrack, outputOptions[result - 1], error))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                    "Output Routing",
+                                                    error.isNotEmpty() ? error : "Could not set output routing");
+            return;
+        }
+
+        refreshRoutingControls();
+    };
+}
+
+juce::PopupMenu TrackHeaderComponent::buildInputMenu (TrackInputKind kind,
+                                                      juce::Array<TrackInputOption>& storedOptions)
+{
+    juce::PopupMenu menu;
+
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
     {
         storedOptions = TrackInputRouting::getSourceOptions (editViewState.edit, *audioTrack, kind);
-        const auto active = TrackInputRouting::getActiveSource (*audioTrack, kind);
-
-        box.clear (juce::dontSendNotification);
-        int selectedId = 1;
 
         for (int i = 0; i < storedOptions.size(); ++i)
         {
-            const int itemId = i + 1;
-            box.addItem (storedOptions[i].displayName, itemId);
+            const auto& opt = storedOptions.getReference (i);
+            menu.addItem (i + 1, opt.displayName, opt.available);
+        }
+    }
 
-            if (storedOptions[i] == active)
-                selectedId = itemId;
+    return menu;
+}
+
+juce::PopupMenu TrackHeaderComponent::buildOutputMenu (juce::Array<TrackOutputOption>& storedOptions)
+{
+    juce::PopupMenu menu;
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        storedOptions = TrackOutputRouting::getOutputOptions (editViewState.edit, *audioTrack);
+
+        juce::PopupMenu hardwareMenu;
+        juce::PopupMenu trackMenu;
+
+        for (int i = 0; i < storedOptions.size(); ++i)
+        {
+            const auto& opt = storedOptions.getReference (i);
+
+            if (opt.type == TrackOutputOption::Type::master)
+            {
+                menu.addItem (i + 1, opt.displayName, opt.available);
+            }
+            else if (opt.type == TrackOutputOption::Type::hardware)
+            {
+                hardwareMenu.addItem (i + 1, opt.displayName, opt.available);
+            }
+            else
+            {
+                trackMenu.addItem (i + 1, opt.displayName, opt.available);
+            }
         }
 
-        box.setSelectedId (selectedId, juce::dontSendNotification);
+        if (hardwareMenu.getNumItems() > 0)
+            menu.addSubMenu ("Hardware", hardwareMenu);
+
+        if (trackMenu.getNumItems() > 0)
+            menu.addSubMenu ("Tracks", trackMenu);
     }
+
+    return menu;
 }
 
-void TrackHeaderComponent::refreshSourceBoxes()
+void TrackHeaderComponent::refreshRoutingControls()
 {
-    refreshingSourceBoxes = true;
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    {
+        if (TrackInputRouting::shouldShowAudioSource (*track))
+        {
+            const auto active = TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::audio);
+            inputSelector.setDisplayText (active.displayName, active.available);
+            inputSelector.setRouteTooltip (TrackInputRouting::getInputTooltip (*audioTrack, TrackInputKind::audio));
+        }
+        else if (TrackInputRouting::shouldShowMidiSource (*track))
+        {
+            const auto active = TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::midi);
+            inputSelector.setDisplayText (active.displayName, active.available);
+            inputSelector.setRouteTooltip (TrackInputRouting::getInputTooltip (*audioTrack, TrackInputKind::midi));
+        }
 
-    const bool showAudio = TrackInputRouting::shouldShowAudioSource (*track);
-    const bool showMidi = TrackInputRouting::shouldShowMidiSource (*track);
+        if (TrackOutputRouting::shouldShowOutputSelector (*track))
+        {
+            const auto active = TrackOutputRouting::getActiveOutput (*audioTrack);
+            outputSelector.setDisplayText (active.displayName, active.available);
+            outputSelector.setRouteTooltip (TrackOutputRouting::getOutputTooltip (*audioTrack));
+        }
+    }
 
-    if (showAudio)
-        populateSourceBox (audioSourceBox, audioSourceOptions, TrackInputKind::audio);
-    else
-        audioSourceBox.clear (juce::dontSendNotification);
+    repaint();
+}
 
-    if (showMidi)
-        populateSourceBox (midiSourceBox, midiSourceOptions, TrackInputKind::midi);
-    else
-        midiSourceBox.clear (juce::dontSendNotification);
-
+void TrackHeaderComponent::updateRoutingLayout()
+{
     resized();
-    refreshingSourceBoxes = false;
-}
-
-void TrackHeaderComponent::comboBoxChanged (juce::ComboBox* box)
-{
-    if (refreshingSourceBoxes)
-        return;
-
-    auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get());
-    if (audioTrack == nullptr)
-        return;
-
-    const int itemId = box->getSelectedId();
-    if (itemId <= 0)
-        return;
-
-    if (box == &audioSourceBox)
-    {
-        if (! juce::isPositiveAndBelow (itemId - 1, audioSourceOptions.size()))
-            return;
-
-        const auto& option = audioSourceOptions[itemId - 1];
-        if (TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::audio) == option)
-            return;
-
-        TrackInputRouting::setActiveSource (*audioTrack, option, TrackInputKind::audio);
-        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
-        return;
-    }
-
-    if (box == &midiSourceBox)
-    {
-        if (! juce::isPositiveAndBelow (itemId - 1, midiSourceOptions.size()))
-            return;
-
-        const auto& option = midiSourceOptions[itemId - 1];
-        if (TrackInputRouting::getActiveSource (*audioTrack, TrackInputKind::midi) == option)
-            return;
-
-        TrackInputRouting::setActiveSource (*audioTrack, option, TrackInputKind::midi);
-        armButton.setToggleState (EngineHelpers::isTrackArmed (*audioTrack), juce::dontSendNotification);
-    }
 }
 
 void TrackHeaderComponent::showHeaderContextMenu (juce::Point<int> screenPosition)
@@ -1056,7 +1178,7 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
     if (id == te::IDs::name)
     {
         trackName.setText (track->getName(), juce::dontSendNotification);
-        refreshSourceBoxes();
+        refreshRoutingControls();
     }
     else if (id == EngineHelpers::trackKindProperty)
         updateKindBadge();
@@ -1064,6 +1186,10 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
         repaint();
     else if (id == te::IDs::mute || id == te::IDs::solo)
         updateFromModel();
+    else if (id == TrackMonitorRouting::monitorModeProperty)
+        monitorButton.updateFromModel();
+    else if (id == te::IDs::colour)
+        colourSwatch.updateFromModel();
 }
 
 void TrackHeaderComponent::updateKindBadge()
@@ -1087,7 +1213,8 @@ void TrackHeaderComponent::updateKindBadge()
     kindBadge.setColour (juce::Label::backgroundColourId,
                          isMidi ? AppColours::trackAccentMidi (AppLookAndFeel::getCurrentTheme())
                                 : AppColours::trackAccentAudio (AppLookAndFeel::getCurrentTheme()));
-    refreshSourceBoxes();
+    refreshRoutingControls();
+    updateRoutingLayout();
 }
 
 PluginSlotButton::PluginSlotButton (EditViewState& evs, te::Plugin::Ptr p)
@@ -1883,10 +2010,10 @@ void TrackLaneComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
 void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! pendingTimelineInteraction)
+    if (onEmptyLaneDrag != nullptr && onEmptyLaneDrag (*this, e))
         return;
 
-    if (onEmptyLaneDrag != nullptr && onEmptyLaneDrag (*this, e))
+    if (! pendingTimelineInteraction)
         return;
 
     if (! dragCreateActive
@@ -1906,13 +2033,16 @@ void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 
 void TrackLaneComponent::mouseUp (const juce::MouseEvent& e)
 {
+    if (onEmptyLaneDragEnd != nullptr && onEmptyLaneDragEnd (*this, e))
+    {
+        pendingTimelineInteraction = false;
+        return;
+    }
+
     if (! pendingTimelineInteraction)
         return;
 
     pendingTimelineInteraction = false;
-
-    if (onEmptyLaneDragEnd != nullptr && onEmptyLaneDragEnd (*this, e))
-        return;
 
     if (dragCreateActive)
     {

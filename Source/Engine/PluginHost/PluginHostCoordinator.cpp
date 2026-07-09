@@ -20,13 +20,31 @@ PluginHostCoordinator::~PluginHostCoordinator()
     sharedMemory.close();
 }
 
-bool PluginHostCoordinator::launchAndConnect (const juce::File& executable)
+bool PluginHostCoordinator::launchAndConnect (const juce::File& executable, juce::String& errorMessage)
 {
     if (! sharedMemory.create (sessionId))
+    {
+        errorMessage = "Failed to create plugin sandbox shared memory.";
+        DBG ("PluginHostCoordinator: shared memory create failed for session " + sessionId);
         return false;
+    }
 
-    if (! launchWorkerProcess (executable, PluginHostConstants::workerUniqueId, 10000))
+    const auto workerExecutable = executable.existsAsFile() ? executable
+                                                            : juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+
+    if (! workerExecutable.existsAsFile())
+    {
+        errorMessage = "Plugin sandbox executable not found: " + workerExecutable.getFullPathName();
+        DBG ("PluginHostCoordinator: executable missing at " + workerExecutable.getFullPathName());
         return false;
+    }
+
+    if (! launchWorkerProcess (workerExecutable, PluginHostConstants::workerUniqueId, 30000))
+    {
+        errorMessage = "Failed to launch plugin sandbox process.";
+        DBG ("PluginHostCoordinator: launchWorkerProcess failed for " + workerExecutable.getFullPathName());
+        return false;
+    }
 
     connected = true;
     return true;

@@ -43,6 +43,7 @@ public:
 
     void notifyBridgeCrashed();
     void openEditorInBridge();
+    bool requestBridgeEditor (juce::String& errorMessage);
     void closeEditorInBridge();
 
     PluginHostCoordinator* getCoordinator() { return coordinator.get(); }

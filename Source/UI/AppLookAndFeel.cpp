@@ -250,6 +250,29 @@ juce::Colour AppColours::trackAccentReturn (ThemeChoice theme)
     return juce::Colour (0xffe63946);
 }
 
+juce::Colour AppColours::monitorOff (ThemeChoice theme)
+{
+    return darkOrLight (theme, juce::Colour (0xff3a3a4a), juce::Colour (0xffb0b5c0));
+}
+
+juce::Colour AppColours::monitorAuto (ThemeChoice theme)
+{
+    juce::ignoreUnused (theme);
+    return juce::Colour (0xffca6702);
+}
+
+juce::Colour AppColours::monitorIn (ThemeChoice theme)
+{
+    juce::ignoreUnused (theme);
+    return juce::Colour (0xff06d6a0);
+}
+
+juce::Colour AppColours::armActive (ThemeChoice theme)
+{
+    juce::ignoreUnused (theme);
+    return juce::Colour (0xffe63946);
+}
+
 juce::Colour AppColours::marqueeFill (ThemeChoice theme)
 {
     juce::ignoreUnused (theme);
