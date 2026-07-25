@@ -205,4 +205,30 @@ juce::String PluginHostMessage::decodeFailure (const juce::MemoryBlock& payload)
     return error;
 }
 
+juce::MemoryBlock PluginHostMessage::encodeEditorOpened (intptr_t nativeHandle, int width, int height)
+{
+    juce::MemoryBlock payload;
+    juce::MemoryOutputStream stream (payload, false);
+    stream.writeInt64 ((juce::int64) nativeHandle);
+    stream.writeInt (width);
+    stream.writeInt (height);
+    return payload;
+}
+
+bool PluginHostMessage::decodeEditorOpened (const juce::MemoryBlock& payload,
+                                            intptr_t& nativeHandle,
+                                            int& width,
+                                            int& height)
+{
+    juce::MemoryInputStream stream (payload.getData(), payload.getSize(), false);
+
+    if (stream.getNumBytesRemaining() < (juce::int64) (sizeof (juce::int64) + 2 * sizeof (int)))
+        return false;
+
+    nativeHandle = (intptr_t) stream.readInt64();
+    width = stream.readInt();
+    height = stream.readInt();
+    return width >= 0 && height >= 0;
+}
+
 } // namespace skeletonhive

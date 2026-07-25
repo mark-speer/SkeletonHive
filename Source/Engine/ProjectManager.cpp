@@ -108,7 +108,9 @@ ProjectManager::LoadResult ProjectManager::createNewProject (const juce::File& e
     currentProjectFile = editFile;
     setupEdit();
 
-    if (! te::EditFileOperations (*edit).save (true, true, false))
+    bool saved = false;
+    te::EditFileOperations (*edit).save (true, true, false, [&saved] (bool ok) { saved = ok; });
+    if (! saved)
         return LoadResult::failed;
 
     recordFileModTime();
@@ -198,7 +200,9 @@ ProjectManager::SaveResult ProjectManager::saveProject (bool forceSaveEvenIfNotM
 
     createRotatingSnapshot();
 
-    const bool saved = te::EditFileOperations (*edit).save (true, forceSaveEvenIfNotModified, collectExternalFiles);
+    bool saved = false;
+    te::EditFileOperations (*edit).save (true, forceSaveEvenIfNotModified, false,
+                                         [&saved] (bool ok) { saved = ok; });
 
     if (saved)
     {
@@ -224,7 +228,10 @@ bool ProjectManager::saveProjectAs (const juce::File& editFile,
 
     releaseProjectLock();
 
-    if (! te::EditFileOperations (*edit).saveAs (editFile, collectExternalFiles))
+    bool saved = false;
+    te::EditFileOperations (*edit).saveAs (editFile, collectExternalFiles,
+                                           [&saved] (bool ok) { saved = ok; });
+    if (! saved)
         return false;
 
     currentProjectFile = editFile;

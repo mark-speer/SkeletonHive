@@ -28,6 +28,8 @@ juce::String formatPanText (float pan)
 LevelMeter::LevelMeter (te::LevelMeasurer& m, UiTelemetryHub* hub)
     : levelMeasurer (m), telemetryHub (hub)
 {
+    levelMeasurer.addClient (levelClient);
+
     if (telemetryHub != nullptr)
         telemetryHub->registerMeter (this);
 }
@@ -36,6 +38,8 @@ LevelMeter::~LevelMeter()
 {
     if (telemetryHub != nullptr)
         telemetryHub->unregisterMeter (this);
+
+    levelMeasurer.removeClient (levelClient);
 }
 
 void LevelMeter::paint (juce::Graphics& g)
@@ -51,8 +55,12 @@ void LevelMeter::paint (juce::Graphics& g)
 
 void LevelMeter::updateFromMeasurer()
 {
-    const auto [left, right] = levelMeasurer.getLevelCache();
-    const float db = juce::jmax (left, right);
+    const int channels = juce::jmax (1, levelClient.getNumChannelsUsed());
+    float db = levelClient.getAndClearAudioLevel (0).dB;
+
+    if (channels > 1)
+        db = juce::jmax (db, levelClient.getAndClearAudioLevel (1).dB);
+
     const float newLevel = juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db));
 
     if (newLevel != level)

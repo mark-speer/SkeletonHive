@@ -33,7 +33,7 @@ private:
     void handleShutdown();
 
     void startAudioLoop();
-    void stopAudioLoop();
+    void stopAudioLoop (bool requestShutdownFlag = false);
 
     juce::AudioPluginFormatManager formatManager;
     std::unique_ptr<juce::AudioPluginInstance> pluginInstance;
@@ -42,9 +42,11 @@ private:
     juce::MidiBuffer midiBuffer;
 
     std::unique_ptr<juce::DocumentWindow> editorWindow;
+    std::unique_ptr<juce::AudioProcessorEditor> pluginEditor;
 
     std::unique_ptr<juce::Thread> audioThread;
     std::atomic<bool> audioRunning { false };
+    std::mutex pluginInstanceMutex;
     juce::String sessionId;
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;

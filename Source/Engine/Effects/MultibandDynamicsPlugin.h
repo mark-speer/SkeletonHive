@@ -23,6 +23,7 @@ public:
     juce::String getSelectableDescription() override;
 
     int getNumOutputChannelsGivenInputs (int numInputChannels) override;
+    BusLayout getBusses() const override { return BusLayout::singleStereoInOut(); }
     void initialise (const te::PluginInitialisationInfo&) override;
     void deinitialise() override;
     void applyToBuffer (const te::PluginRenderContext&) override;

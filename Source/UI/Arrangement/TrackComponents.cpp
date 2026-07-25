@@ -1261,11 +1261,12 @@ void PluginSlotButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHi
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
     }
 
-    if (EngineHelpers::isPluginSoloed (*te::getTrackContainingPlugin (plugin->edit, plugin.get()), *plugin))
-    {
-        g.setColour (juce::Colours::gold.withAlpha (0.35f));
-        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
-    }
+    if (auto* containingTrack = te::getTrackContainingPlugin (plugin->edit, plugin.get()))
+        if (EngineHelpers::isPluginSoloed (*containingTrack, *plugin))
+        {
+            g.setColour (juce::Colours::gold.withAlpha (0.35f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+        }
 
     if (plugin->canSidechain() && plugin->getSidechainSourceID().isValid())
     {

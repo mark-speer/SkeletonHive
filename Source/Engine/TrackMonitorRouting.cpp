@@ -146,7 +146,7 @@ juce::StringArray TrackMonitorRouting::reconcileSharedInputDevices (te::Edit& ed
             for (auto* t : tracks)
                 trackNames << (trackNames.isEmpty() ? "" : ", ") << t->getName();
 
-            conflicts.add ("Input \"" + device->getAlias() + "\" shared by " + trackNames
+            conflicts.add ("Input \"" + device->getAliasOrName() + "\" shared by " + trackNames
                            + " with conflicting monitor modes");
         }
 

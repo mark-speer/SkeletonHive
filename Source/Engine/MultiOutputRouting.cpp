@@ -35,6 +35,16 @@ juce::AudioPluginInstance* getInstance (te::Plugin& plugin)
     return nullptr;
 }
 
+int countExternalOutputChannels (const te::ExternalPlugin& ext)
+{
+    int total = 0;
+
+    for (const auto& bus : ext.getBusses().outputs)
+        total += bus.getNumChannels();
+
+    return total;
+}
+
 juce::String busDisplayName (juce::AudioProcessor& proc, int busIndex, int numChannels)
 {
     if (auto* bus = proc.getBus (false, busIndex))
@@ -117,7 +127,7 @@ bool MultiOutputRouting::isMultiOutputCapable (const te::Plugin& plugin)
             if (pi->getBusCount (false) > 1)
                 return true;
 
-            if (ext->getNumOutputs() > 2)
+            if (countExternalOutputChannels (*ext) > 2)
                 return true;
 
             for (int i = 0; i < pi->getBusCount (false); ++i)
@@ -173,7 +183,7 @@ juce::Array<OutputBusInfo> MultiOutputRouting::getOutputBuses (te::Plugin& plugi
         OutputBusInfo main;
         main.busIndex = 0;
         main.name = "Main";
-        main.numChannels = juce::jmax (2, ext->getNumOutputs());
+        main.numChannels = juce::jmax (2, countExternalOutputChannels (*ext));
         main.isActive = main.numChannels > 0;
         buses.add (main);
     }

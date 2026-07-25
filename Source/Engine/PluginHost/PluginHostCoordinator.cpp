@@ -12,6 +12,10 @@ PluginHostCoordinator::PluginHostCoordinator()
 
 PluginHostCoordinator::~PluginHostCoordinator()
 {
+    // Prevent callbacks into a SandboxedPluginInstance that may already be tearing down
+    // (member destruction order destroys atomics before this shared_ptr).
+    ownerInstance = nullptr;
+
     if (connected)
         sendMessage (PluginHostMessageType::shutdown);
 

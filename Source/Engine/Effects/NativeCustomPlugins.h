@@ -10,5 +10,6 @@ void registerNativeCustomPlugins (te::Engine& engine);
 
 bool isSaturationPlugin (const te::Plugin& plugin);
 bool isMultibandDynamicsPlugin (const te::Plugin& plugin);
+bool isNamPlugin (const te::Plugin& plugin);
 
 } // namespace skeletonhive

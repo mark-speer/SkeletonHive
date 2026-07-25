@@ -500,6 +500,49 @@ is built; horizontal scroll for long chains.
 - New persistent view state goes in `EditViewState` (per-Edit `ValueTree`
   child `EDITVIEWSTATE`), not in component members.
 
+### Dependency patching (Tracktion Engine)
+
+Tracktion Engine is fetched with `FetchContent` in [CMakeLists.txt](../CMakeLists.txt)
+and pinned to a specific commit via `GIT_TAG` (a floating branch would let the
+patched code move upstream and turn our patch into a silent no-op). If
+`external/tracktion_engine/CMakeLists.txt` exists it is used instead via
+`add_subdirectory` (vendored escape hatch).
+
+Local fixes to TE live as checked-in patches under
+[`cmake/patches/`](../cmake/patches/) and are applied by
+[`cmake/apply_tracktion_patches.cmake`](../cmake/apply_tracktion_patches.cmake):
+
+- The script is **idempotent** (safe to re-run on every configure) and
+  **fails the configure loudly** if a patch no longer applies — which only
+  happens when the pinned commit is bumped and the patched code changed
+  upstream. When that fires, regenerate the patch against the new commit or
+  update the `GIT_TAG` pin.
+- **Never hand-edit files under `build/_deps/`.** Those edits are silently
+  discarded whenever `FetchContent` re-populates the tree, so a "fix" made
+  there will appear to work until the next clean build and then vanish. Add or
+  update a `.patch` instead.
+- To regenerate a patch after bumping the pin: apply your change in the
+  populated `build/_deps/tracktion_engine-src` tree, run
+  `git diff -- <file>` there, and save the output into `cmake/patches/`.
+
+### When a fix "doesn't take" — verify the loop
+
+Before re-prompting or re-editing because a change "didn't work", confirm the
+change actually reached the running binary:
+
+1. Confirm you edited the real nested source under `Source/` (or a checked-in
+   `cmake/patches/` file) — not a copy under `build/` or `build/_deps/`.
+2. Confirm the target actually rebuilt: check the link step in the build log or
+   the mtime of `build/SkeletonHive_artefacts/<Config>/SkeletonHive.exe`.
+3. Confirm the binary you launched is the one you just built (same artefacts
+   path / configuration).
+4. Prefer runtime evidence — a repro, a crash site, a log line — over another
+   speculative edit.
+5. Never hand-patch `build/_deps`; change the checked-in CMake patch or the
+   `GIT_TAG` pin instead (see above).
+6. Keep changes small and scoped so they can land as one coherent commit rather
+   than mixing unrelated subsystems in a single pass.
+
 ---
 
 ## 12. Phase 6 — Editing Depth (implemented)
@@ -892,7 +935,7 @@ and harden the audio engine to Live's stability bar.
   clip inspector **Convert to MIDI** button. Analysis runs on a background thread
   behind a cancellable progress dialog; clip creation is undo-safe and opens the piano
   roll on success.
-- **Tier 4 — Plugin process isolation (MVP implemented).** VST3 **effects** (non-instruments) run in a separate bridge process launched from the same executable (`PluginHostWorker` via JUCE `ChildProcessCoordinator`/`ChildProcessWorker`). Audio I/O uses lock-free shared memory (`PluginHostSharedMemory`); control messages (load, prepare, state, editor open/close) use IPC (`PluginHostProtocol`). `SandboxedPluginInstance` is returned from `PluginManager::createPluginInstance` when the user pref is enabled (Preferences → Devices, default on). Bridge-owned floating editor window; host `PluginWindow` shows a placeholder. Bridge crash marks the slot failed without taking down the host. **Deferred:** VST3 instruments (MIDI over IPC), AU, embedded editor HWND/Cocoa forwarding, sidechain/multi-out through bridge, host-side parameter automation forwarding.
+- **Tier 4 — Plugin process isolation (MVP implemented).** VST3 **effects** (non-instruments) run in a separate bridge process launched from the same executable (`PluginHostWorker` via JUCE `ChildProcessCoordinator`/`ChildProcessWorker`). Audio I/O uses lock-free shared memory (`PluginHostSharedMemory`); control messages (load, prepare, state, editor open/close) use IPC (`PluginHostProtocol`). The audio round trip is a hybrid wait: a short wall-clock busy-spin (preserving the original zero-added-latency common case) falling back to a blocking wait on a named cross-process event with a deterministic per-chunk deadline (`PluginHostConstants`), instead of an iteration-count spin — this keeps CPU cost bounded and stall detection consistent across machines. A message-thread watchdog on `SandboxedPluginInstance` tracks consecutive stalls / time since the last successful round trip and, past a threshold, automatically kills and relaunches the bridge process, reloads the plugin and its last known state, and swaps the active connection in behind a lock-guarded snapshot the audio thread reads once per callback — bounded by `maxAutoRestartAttempts` before permanently marking the slot crashed. `SandboxedPluginInstance` is returned from `PluginManager::createPluginInstance` when the user pref is enabled (Preferences → Devices, default on). Bridge-owned floating editor window; host `PluginWindow` shows a placeholder. A hard bridge crash (connection lost) still marks the slot failed immediately without taking down the host. **Deferred:** VST3 instruments (MIDI over IPC), AU, embedded editor HWND/Cocoa forwarding, sidechain/multi-out through bridge, host-side parameter automation forwarding, non-Windows blocking wait (POSIX equivalent of the named event; falls back to spin-only there today).
 - **Tier 5 — Engine-scale testing (debug harness implemented).** `EngineBenchmarkHarness` populates audio stress tracks, times freeze/render, and logs results. Debug builds: **Ctrl+Shift+Alt+B** (complements the UI-only **Ctrl+Shift+Alt+T** 200-track stress test in §14 Tier 4).
 
 **Files:** `Source/Engine/WarpEngine.*`, `Source/UI/Arrangement/ClipWarpEditor.*`,

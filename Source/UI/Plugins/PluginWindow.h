@@ -8,13 +8,14 @@ namespace skeletonhive
 class PluginWindow : public juce::DocumentWindow
 {
 public:
-    explicit PluginWindow (te::Plugin& plugin);
+    explicit PluginWindow (te::Plugin& plugin, bool createEditorNow = true);
     ~PluginWindow() override;
 
     static std::unique_ptr<juce::Component> create (te::Plugin& plugin, juce::Component* alertParent = nullptr);
     void show();
     void recreateEditorAsync();
     void setSandboxPlaceholder (te::ExternalPlugin& externalPlugin);
+    void setSandboxEmbeddedEditor (te::ExternalPlugin& externalPlugin);
 
 private:
     void moved() override;
@@ -26,6 +27,7 @@ private:
     void recreateEditor();
     void setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor);
     void resizeToFitEditorContent();
+    void resizeToFitSandboxContent (int contentW, int contentH);
 
     te::Plugin& plugin;
     te::PluginWindowState& windowState;

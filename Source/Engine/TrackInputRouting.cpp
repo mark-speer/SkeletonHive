@@ -206,7 +206,7 @@ juce::Array<TrackInputOption> TrackInputRouting::getSourceOptions (te::Edit& edi
         TrackInputOption opt;
         opt.type = TrackInputOption::Type::externalDevice;
         opt.device = &instance->getInputDevice();
-        opt.displayName = instance->getInputDevice().getAlias();
+        opt.displayName = instance->getInputDevice().getAliasOrName();
         opt.available = instance->getInputDevice().isEnabled();
         options.add (opt);
 

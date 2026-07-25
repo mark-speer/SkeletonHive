@@ -4,6 +4,7 @@
 #include "Effects/NativeCustomPlugins.h"
 #include "Effects/SaturationPlugin.h"
 #include "Effects/MultibandDynamicsPlugin.h"
+#include "Effects/NamPlugin.h"
 
 namespace skeletonhive
 {
@@ -28,6 +29,7 @@ const juce::Array<NativePluginEntry>& builtInEntries()
         entries.add ({ "Phaser", te::PhaserPlugin::xmlTypeName, "Modulation", false });
         entries.add ({ "Saturation", SaturationPlugin::xmlTypeName, "Distortion", false });
         entries.add ({ "Multiband Dynamics", MultibandDynamicsPlugin::xmlTypeName, "Dynamics", false });
+        entries.add ({ "Neural Amp Modeler", NamPlugin::xmlTypeName, "Amp", false });
     }
 
     return entries;
@@ -80,6 +82,8 @@ juce::String pluginXmlTypeName (const te::Plugin& plugin)
         return SaturationPlugin::xmlTypeName;
     if (isMultibandDynamicsPlugin (plugin))
         return MultibandDynamicsPlugin::xmlTypeName;
+    if (isNamPlugin (plugin))
+        return NamPlugin::xmlTypeName;
 
     return {};
 }

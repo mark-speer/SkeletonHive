@@ -15,24 +15,71 @@ endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 option(JUCE_ENABLE_MODULE_SOURCE_GROUPS "Enable Module Source Groups" ON)
+set(SKELETONHIVE_ASIO_SDK_PATH "" CACHE PATH "Path to Steinberg ASIO SDK root (folder containing common/iasiodrv.h)")
 
 # Fetch Tracktion Engine (includes JUCE as submodule when using git submodule)
 set(TE_ADD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(JUCE_CPM_DEVELOP ON CACHE BOOL "" FORCE)
 
+# --- Tracktion Engine patch policy ---------------------------------------------
+# SkeletonHive carries checked-in patches against Tracktion Engine (see
+# cmake/patches/). They are applied by cmake/apply_tracktion_patches.cmake, which
+# is idempotent (safe on re-configure) and FAILS THE CONFIGURE LOUDLY if a patch
+# no longer applies - that only happens when the pinned commit below moves and the
+# patched code changed upstream. Never hand-edit files under build/_deps: those
+# edits are silently lost whenever FetchContent re-populates the tree.
+#
+# The EditSnapshot patch fixes an ACCESS_VIOLATION: EditSnapshot::refresh() called
+# ProjectItem::getLength() without a null check, but file-based hosts (SkeletonHive)
+# often have no TE ProjectItem for the edit file, so autosave via EditFileOperations
+# crashed.
+set(SKELETONHIVE_TE_EDITSNAPSHOT_REL
+    "modules/tracktion_engine/model/edit/tracktion_EditSnapshot.cpp")
+set(SKELETONHIVE_TE_EDITSNAPSHOT_PATCH
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/tracktion_EditSnapshot_null_ProjectItem.patch")
+set(SKELETONHIVE_TE_EDITSNAPSHOT_MARKER "pi != nullptr ? pi->getLength()")
+set(SKELETONHIVE_APPLY_TE_PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_tracktion_patches.cmake")
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/tracktion_engine/CMakeLists.txt")
     add_subdirectory(external/tracktion_engine)
+    set(SKELETONHIVE_TRACKTION_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/tracktion_engine")
+
+    # FetchContent's PATCH_COMMAND is not available for the vendored escape hatch,
+    # so apply the same patch here (idempotent + fail-loud) against the local tree.
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPATCH_FILE=${SKELETONHIVE_TE_EDITSNAPSHOT_PATCH}"
+            "-DTARGET_FILE=${SKELETONHIVE_TE_EDITSNAPSHOT_REL}"
+            "-DPATCH_MARKER=${SKELETONHIVE_TE_EDITSNAPSHOT_MARKER}"
+            "-DTE_SRC_DIR=${SKELETONHIVE_TRACKTION_SRC_DIR}"
+            -P "${SKELETONHIVE_APPLY_TE_PATCHES}"
+        RESULT_VARIABLE _sh_te_patch_rv)
+    if(NOT _sh_te_patch_rv EQUAL 0)
+        message(FATAL_ERROR "SkeletonHive: failed to patch vendored Tracktion Engine (see above).")
+    endif()
+    unset(_sh_te_patch_rv)
 else()
     include(FetchContent)
-    # Skip JUCE submodule (SSH); Tracktion fetches JUCE via CPM when JUCE_CPM_DEVELOP is ON
+    # Skip JUCE submodule (SSH); Tracktion fetches JUCE via CPM when JUCE_CPM_DEVELOP is ON.
+    # GIT_TAG is pinned to a specific commit so the checked-in patches have a stable
+    # target; a floating branch could move the patched code and make the patch a
+    # silent no-op. GIT_SHALLOW must be OFF to reliably fetch a pinned commit SHA.
     FetchContent_Declare(
         tracktion_engine
         GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
-        GIT_TAG        develop
-        GIT_SHALLOW    TRUE
+        GIT_TAG        53a32a4dcc2d73186b6cee4600b5dd51c65a0cae
+        GIT_SHALLOW    FALSE
         GIT_SUBMODULES ""
+        PATCH_COMMAND  "${CMAKE_COMMAND}"
+            "-DPATCH_FILE=${SKELETONHIVE_TE_EDITSNAPSHOT_PATCH}"
+            "-DTARGET_FILE=${SKELETONHIVE_TE_EDITSNAPSHOT_REL}"
+            "-DPATCH_MARKER=${SKELETONHIVE_TE_EDITSNAPSHOT_MARKER}"
+            -P "${SKELETONHIVE_APPLY_TE_PATCHES}"
     )
     FetchContent_MakeAvailable(tracktion_engine)
+    FetchContent_GetProperties(tracktion_engine)
+    set(SKELETONHIVE_TRACKTION_SRC_DIR "${tracktion_engine_SOURCE_DIR}")
 endif()
 
 include(FetchContent)
@@ -48,6 +95,67 @@ if(NOT aubio_POPULATED)
     file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/external/aubio/CMakeLists.txt"
          DESTINATION "${aubio_SOURCE_DIR}")
     add_subdirectory(${aubio_SOURCE_DIR} ${aubio_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
+
+# Neural Amp Modeler Core (MIT) + Eigen (header-only; pin to Core's submodule commit)
+FetchContent_Declare(
+    eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG        87300c93cae6a8afd9a4f8aa8d9d5c5324cf02e1
+)
+FetchContent_GetProperties(eigen)
+if(NOT eigen_POPULATED)
+    FetchContent_Populate(eigen)
+endif()
+
+FetchContent_Declare(
+    nam_core_src
+    GIT_REPOSITORY https://github.com/sdatkinson/NeuralAmpModelerCore.git
+    GIT_TAG        v0.5.2
+    GIT_SHALLOW    TRUE
+    GIT_SUBMODULES ""
+)
+FetchContent_GetProperties(nam_core_src)
+if(NOT nam_core_src_POPULATED)
+    FetchContent_Populate(nam_core_src)
+endif()
+
+# Always refresh overlays so NAM patches are not stuck on a stale FetchContent tree.
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/external/nam/CMakeLists.txt"
+     DESTINATION "${nam_core_src_SOURCE_DIR}")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/external/nam/nam_ensure_parsers.cpp"
+     DESTINATION "${nam_core_src_SOURCE_DIR}")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/external/nam/model_config.h"
+     DESTINATION "${nam_core_src_SOURCE_DIR}/NAM")
+set(EIGEN_INCLUDE_DIR "${eigen_SOURCE_DIR}" CACHE PATH "" FORCE)
+set(SKELETONHIVE_NAM_ENSURE_PARSERS_SRC "${nam_core_src_SOURCE_DIR}/nam_ensure_parsers.cpp" CACHE FILEPATH "" FORCE)
+
+# Ensure parsers are registered inside get_dsp() (same singleton as parse).
+set(_nam_get_dsp_cpp "${nam_core_src_SOURCE_DIR}/NAM/get_dsp.cpp")
+file(READ "${_nam_get_dsp_cpp}" _nam_get_dsp_src)
+if(NOT _nam_get_dsp_src MATCHES "nam_ensure_builtin_parsers_registered")
+    set(_nam_get_dsp_patched FALSE)
+    foreach(_nl "\r\n" "\n")
+        set(_old "std::unique_ptr<DSP> get_dsp(dspData& conf)${_nl}{")
+        set(_new "extern \"C\" void nam_ensure_builtin_parsers_registered();${_nl}${_nl}std::unique_ptr<DSP> get_dsp(dspData& conf)${_nl}{${_nl}  nam_ensure_builtin_parsers_registered();")
+        string(FIND "${_nam_get_dsp_src}" "${_old}" _nam_find_pos)
+        if(NOT _nam_find_pos EQUAL -1)
+            string(REPLACE "${_old}" "${_new}" _nam_get_dsp_src "${_nam_get_dsp_src}")
+            set(_nam_get_dsp_patched TRUE)
+            break()
+        endif()
+    endforeach()
+    if(NOT _nam_get_dsp_patched)
+        message(FATAL_ERROR "nam_core: failed to patch get_dsp(dspData&) for parser registration")
+    endif()
+    file(WRITE "${_nam_get_dsp_cpp}" "${_nam_get_dsp_src}")
+endif()
+unset(_nam_get_dsp_src)
+unset(_nam_get_dsp_cpp)
+unset(_nam_get_dsp_patched)
+
+if(NOT TARGET nam_core)
+    add_subdirectory(${nam_core_src_SOURCE_DIR} ${nam_core_src_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
 juce_add_gui_app(SkeletonHive
@@ -114,6 +222,10 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/Effects/SaturationPlugin.cpp
     Source/Engine/Effects/MultibandDynamicsPlugin.h
     Source/Engine/Effects/MultibandDynamicsPlugin.cpp
+    Source/Engine/Effects/NamPlugin.h
+    Source/Engine/Effects/NamPlugin.cpp
+    Source/Engine/Effects/NamCoreBootstrap.h
+    Source/Engine/Effects/NamCoreBootstrap.cpp
     Source/Engine/Effects/EqualiserHelpers.h
     Source/Engine/Effects/EqualiserHelpers.cpp
     Source/Engine/Effects/CompressorHelpers.h
@@ -247,6 +359,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Effects/SaturationEditor.cpp
     Source/UI/Effects/MultibandDynamicsEditor.h
     Source/UI/Effects/MultibandDynamicsEditor.cpp
+    Source/UI/Effects/NamEditor.h
+    Source/UI/Effects/NamEditor.cpp
     Source/UI/Plugins/PluginPickerDialog.h
     Source/UI/Plugins/PluginPickerDialog.cpp
     Source/UI/Plugins/PresetBrowserPanel.h
@@ -263,6 +377,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Routing/SidechainMatrixPanel.cpp
     Source/UI/Plugins/PluginWindow.h
     Source/UI/Plugins/PluginWindow.cpp
+    Source/UI/Plugins/SandboxEmbeddedEditor.h
+    Source/UI/Plugins/SandboxEmbeddedEditor.cpp
     Source/UI/Midi/PianoRollEditor.h
     Source/UI/Midi/PianoRollEditor.cpp
     Source/UI/Midi/MidiLaneViewport.h
@@ -306,9 +422,28 @@ target_compile_definitions(SkeletonHive PRIVATE
     JUCE_PLUGINHOST_AU=1
     JUCE_PLUGINHOST_LADSPA=1
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+    EIGEN_MAX_ALIGN_BYTES=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:SkeletonHive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
 )
+
+if(WIN32)
+    target_compile_definitions(SkeletonHive PRIVATE JUCE_ASIO=1)
+
+    if(SKELETONHIVE_ASIO_SDK_PATH)
+        set(asioSdkCommon "${SKELETONHIVE_ASIO_SDK_PATH}/common")
+
+        if(EXISTS "${asioSdkCommon}/iasiodrv.h")
+            message(STATUS "SkeletonHive: using external ASIO SDK at ${SKELETONHIVE_ASIO_SDK_PATH}")
+            target_compile_definitions(SkeletonHive PRIVATE JUCE_ASIO_USE_EXTERNAL_SDK=1)
+            target_include_directories(SkeletonHive PRIVATE "${asioSdkCommon}")
+        else()
+            message(WARNING "SkeletonHive: SKELETONHIVE_ASIO_SDK_PATH is set but ${asioSdkCommon}/iasiodrv.h was not found; using JUCE bundled ASIO headers.")
+        endif()
+    else()
+        message(STATUS "SkeletonHive: ASIO enabled (using JUCE bundled ASIO headers)")
+    endif()
+endif()
 
 target_link_libraries(SkeletonHive PRIVATE
     aubio
@@ -326,8 +461,40 @@ target_link_libraries(SkeletonHive PRIVATE
     juce::juce_recommended_warning_flags
 )
 
+# Pull every nam_core object so WaveNet/LSTM/etc. static registrars are not stripped.
+if(MSVC)
+    target_link_options(SkeletonHive PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
+    target_link_libraries(SkeletonHive PRIVATE nam_core)
+elseif(APPLE)
+    target_link_libraries(SkeletonHive PRIVATE
+        "-Wl,-force_load"
+        nam_core
+    )
+else()
+    target_link_libraries(SkeletonHive PRIVATE
+        "-Wl,--whole-archive"
+        nam_core
+        "-Wl,--no-whole-archive"
+    )
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(SkeletonHive PRIVATE "-latomic")
+endif()
+
+# Standalone NAM load smoke test (cmake --build --target nam_smoke_test)
+add_executable(nam_smoke_test "${CMAKE_CURRENT_SOURCE_DIR}/external/nam/nam_smoke_test.cpp")
+target_link_libraries(nam_smoke_test PRIVATE nam_core)
+target_compile_features(nam_smoke_test PRIVATE cxx_std_20)
+if(MSVC)
+    target_link_options(nam_smoke_test PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
+elseif(APPLE)
+    target_link_libraries(nam_smoke_test PRIVATE "-Wl,-force_load" nam_core)
+else()
+    target_link_libraries(nam_smoke_test PRIVATE "-Wl,--whole-archive" nam_core "-Wl,--no-whole-archive")
+endif()
+if(WIN32)
+    target_compile_definitions(nam_smoke_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")

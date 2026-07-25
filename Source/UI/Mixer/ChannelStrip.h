@@ -18,6 +18,7 @@ public:
 
 private:
     te::LevelMeasurer& levelMeasurer;
+    te::LevelMeasurer::Client levelClient;
     UiTelemetryHub* telemetryHub = nullptr;
     float level = 0.0f;
 };

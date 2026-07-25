@@ -1,5 +1,6 @@
 #include "PluginWindow.h"
 #include "NativePluginEditor.h"
+#include "SandboxEmbeddedEditor.h"
 #include "UI/Instruments/DrumRackEditor.h"
 #include "UI/Instruments/SamplerEditor.h"
 #include "UI/Instruments/SynthEditor.h"
@@ -8,10 +9,12 @@
 #include "UI/Effects/DelayReverbEditor.h"
 #include "UI/Effects/SaturationEditor.h"
 #include "UI/Effects/MultibandDynamicsEditor.h"
+#include "UI/Effects/NamEditor.h"
 #include "Engine/DrumRackHelpers.h"
 #include "Engine/Effects/NativeCustomPlugins.h"
 #include "Engine/Effects/SaturationPlugin.h"
 #include "Engine/Effects/MultibandDynamicsPlugin.h"
+#include "Engine/Effects/NamPlugin.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/PluginHost/SandboxedPluginInstance.h"
 #include "Engine/NativePluginCatalog.h"
@@ -21,10 +24,10 @@ namespace skeletonhive
 
 namespace
 {
-class SandboxPlaceholderPanel : public juce::Component
+class SandboxFallbackPanel : public juce::Component
 {
 public:
-    SandboxPlaceholderPanel (te::ExternalPlugin& externalPlugin)
+    SandboxFallbackPanel (te::ExternalPlugin& externalPlugin, const SandboxEditorResult& initialResult)
         : external (externalPlugin)
     {
         addAndMakeVisible (messageLabel);
@@ -32,10 +35,10 @@ public:
         messageLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
 
         addAndMakeVisible (openButton);
-        openButton.setButtonText ("Open Bridge Editor");
+        openButton.setButtonText ("Open Editor");
         openButton.onClick = [this] { requestEditor(); };
 
-        requestEditor();
+        showResult (initialResult);
     }
 
     void resized() override
@@ -50,22 +53,34 @@ private:
     {
         if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (external))
         {
-            juce::String error;
-            if (sandboxed->requestBridgeEditor (error))
+            SandboxEditorResult result;
+            if (sandboxed->requestBridgeEditor (result))
             {
-                messageLabel.setText ("This plugin is running in a separate sandbox process.\n"
-                                      "Its editor should appear in a dedicated bridge window.\n"
-                                      "Check the taskbar for a second SkeletonHive window if you do not see it.",
-                                      juce::dontSendNotification);
+                showResult (result);
                 return;
             }
 
-            messageLabel.setText ("Sandbox editor failed to open:\n" + error,
+            messageLabel.setText ("Sandbox editor failed to open:\n" + result.error,
                                   juce::dontSendNotification);
             return;
         }
 
         messageLabel.setText ("Sandbox plugin instance is unavailable.",
+                              juce::dontSendNotification);
+    }
+
+    void showResult (const SandboxEditorResult& result)
+    {
+        if (result.usesBridgeWindow())
+        {
+            messageLabel.setText ("This plugin is running in a separate sandbox process.\n"
+                                  "Its editor should appear in a dedicated bridge window.\n"
+                                  "Check the taskbar for a second SkeletonHive window if you do not see it.",
+                                  juce::dontSendNotification);
+            return;
+        }
+
+        messageLabel.setText ("Sandbox editor opened.",
                               juce::dontSendNotification);
     }
 
@@ -81,14 +96,20 @@ constexpr bool shouldAddPluginWindowToDesktop = false;
 constexpr bool shouldAddPluginWindowToDesktop = true;
 #endif
 
-PluginWindow::PluginWindow (te::Plugin& plug)
+PluginWindow::PluginWindow (te::Plugin& plug, bool createEditorNow)
     : DocumentWindow (plug.getName(), juce::Colours::black, DocumentWindow::closeButton, shouldAddPluginWindowToDesktop),
       plugin (plug),
       windowState (*plug.windowState)
 {
     getConstrainer()->setMinimumOnscreenAmounts (0x10000, 50, 30, 50);
     setResizeLimits (100, 50, 4000, 4000);
-    recreateEditor();
+
+    // Sandboxed plugins install their own content after construction — calling
+    // recreateEditor() first would hit ExternalPlugin::createEditor with a
+    // hasEditor/createEditor mismatch (Debug assert) for no benefit.
+    if (createEditorNow)
+        recreateEditor();
+
     setBoundsConstrained (getLocalBounds() + plugin.windowState->choosePositionForPluginWindow());
 
    #if JUCE_LINUX
@@ -133,8 +154,14 @@ std::unique_ptr<juce::Component> PluginWindow::create (te::Plugin& plugin, juce:
 
         if (EngineHelpers::isSandboxedExternalPlugin (plugin))
         {
-            auto w = std::make_unique<PluginWindow> (plugin);
+            auto w = std::make_unique<PluginWindow> (plugin, false);
+
+           #if JUCE_WINDOWS
+            w->setSandboxEmbeddedEditor (*externalPlugin);
+           #else
             w->setSandboxPlaceholder (*externalPlugin);
+           #endif
+
             w->show();
             return w;
         }
@@ -255,6 +282,10 @@ void PluginWindow::recreateEditor()
         if (auto* multiband = dynamic_cast<MultibandDynamicsPlugin*> (&plugin))
             newEditor = MultibandDynamicsEditor::create (*multiband);
 
+    if (newEditor == nullptr)
+        if (auto* nam = dynamic_cast<NamPlugin*> (&plugin))
+            newEditor = NamEditor::create (*nam);
+
     if (newEditor == nullptr && NativePluginCatalog::isNativePlugin (plugin))
         newEditor = NativePluginEditor::create (plugin);
 
@@ -262,9 +293,49 @@ void PluginWindow::recreateEditor()
     resizeToFitEditorContent();
 }
 
+void PluginWindow::resizeToFitSandboxContent (int contentW, int contentH)
+{
+    if (contentW <= 0 || contentH <= 0)
+        return;
+
+    const auto border = getBorderThickness();
+    const int titleBar = (int) getTitleBarHeight();
+    const int targetW = contentW + border.getLeftAndRight();
+    const int targetH = contentH + border.getTopAndBottom() + titleBar;
+
+    if (targetW != getWidth() || targetH != getHeight())
+        setSize (targetW, targetH);
+}
+
 void PluginWindow::setSandboxPlaceholder (te::ExternalPlugin& externalPlugin)
 {
-    setContentOwned (new SandboxPlaceholderPanel (externalPlugin), true);
+    SandboxEditorResult result;
+
+    if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (externalPlugin))
+        sandboxed->requestBridgeEditor (result);
+
+    setContentOwned (new SandboxFallbackPanel (externalPlugin, result), true);
+    setResizable (true, false);
+    setSize (460, 190);
+}
+
+void PluginWindow::setSandboxEmbeddedEditor (te::ExternalPlugin& externalPlugin)
+{
+    SandboxEditorResult result;
+
+    if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (externalPlugin))
+        sandboxed->requestBridgeEditor (result);
+
+    if (result.success && result.nativeHandle != nullptr)
+    {
+        auto* embedded = new SandboxEmbeddedEditor (result.nativeHandle, result.width, result.height);
+        setContentOwned (embedded, true);
+        setResizable (true, false);
+        resizeToFitSandboxContent (embedded->getPreferredWidth(), embedded->getPreferredHeight());
+        return;
+    }
+
+    setContentOwned (new SandboxFallbackPanel (externalPlugin, result), true);
     setResizable (true, false);
     setSize (460, 190);
 }

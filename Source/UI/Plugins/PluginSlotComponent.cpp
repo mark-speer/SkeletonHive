@@ -226,11 +226,12 @@ void PluginSlotComponent::paint (juce::Graphics& g)
         g.drawRoundedRectangle (bounds, 4.0f, 2.0f);
     }
 
-    if (EngineHelpers::isPluginSoloed (*te::getTrackContainingPlugin (plugin->edit, plugin.get()), *plugin))
-    {
-        g.setColour (juce::Colours::gold.withAlpha (0.35f));
-        g.fillRoundedRectangle (bounds, 4.0f);
-    }
+    if (auto* containingTrack = te::getTrackContainingPlugin (plugin->edit, plugin.get()))
+        if (EngineHelpers::isPluginSoloed (*containingTrack, *plugin))
+        {
+            g.setColour (juce::Colours::gold.withAlpha (0.35f));
+            g.fillRoundedRectangle (bounds, 4.0f);
+        }
 
     if (plugin->canSidechain() && plugin->getSidechainSourceID().isValid())
     {

@@ -1,0 +1,15 @@
+diff --git a/modules/tracktion_engine/model/edit/tracktion_EditSnapshot.cpp b/modules/tracktion_engine/model/edit/tracktion_EditSnapshot.cpp
+index e9f664d..2e1e6e7 100644
+--- a/modules/tracktion_engine/model/edit/tracktion_EditSnapshot.cpp
++++ b/modules/tracktion_engine/model/edit/tracktion_EditSnapshot.cpp
+@@ -224,7 +224,9 @@ void EditSnapshot::refresh()
+         return;
+ 
+     name = pi ? pi->getName() : sourceFile.getFileNameWithoutExtension();
+-    setState (newState, TimeDuration::fromSeconds (pi->getLength()));
++    // ProjectItem can be null for file-based edits that aren't registered in a TE Project
++    // (SkeletonHive and similar hosts). The name ternary already handled that; getLength must too.
++    setState (newState, TimeDuration::fromSeconds (pi != nullptr ? pi->getLength() : 0.0));
+     refreshFromState();
+ }
+ 

@@ -63,6 +63,12 @@ struct PluginHostMessage
 
     static juce::MemoryBlock encodeFailure (const juce::String& error);
     static juce::String decodeFailure (const juce::MemoryBlock& payload);
+
+    static juce::MemoryBlock encodeEditorOpened (intptr_t nativeHandle, int width, int height);
+    static bool decodeEditorOpened (const juce::MemoryBlock& payload,
+                                    intptr_t& nativeHandle,
+                                    int& width,
+                                    int& height);
 };
 
 } // namespace skeletonhive

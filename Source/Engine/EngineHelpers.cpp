@@ -621,8 +621,9 @@ bool EngineHelpers::movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destT
     auto& um = plugin.edit.getUndoManager();
     juce::ignoreUnused (um);
 
-    if (EngineHelpers::isPluginSoloed (*te::getTrackContainingPlugin (plugin.edit, &plugin), plugin))
-        clearSoloedPlugin (*te::getTrackContainingPlugin (plugin.edit, &plugin));
+    if (auto* srcForSolo = te::getTrackContainingPlugin (plugin.edit, &plugin))
+        if (EngineHelpers::isPluginSoloed (*srcForSolo, plugin))
+            clearSoloedPlugin (*srcForSolo);
 
     plugin.deleteFromParent();
 

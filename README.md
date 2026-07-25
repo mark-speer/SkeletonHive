@@ -50,7 +50,8 @@ Phases 1–10 and Phase 9 Tier 4 / Phase 11 Tier 1 are implemented. Phase 11 Tie
 
 ### Windows
 - Visual Studio 2022 with "Desktop development with C++"
-- Optional: ASIO driver for low-latency audio
+- ASIO is enabled in the build on Windows (uses JUCE's bundled Steinberg ASIO headers). Select **ASIO** as the audio device type under **Preferences → Audio**, then choose your interface driver and a low buffer size (e.g. 128 samples).
+- Optional: set `-DSKELETONHIVE_ASIO_SDK_PATH="C:/path/to/asiosdk"` at configure time to use an external Steinberg ASIO SDK instead of the bundled headers.
 
 ### macOS
 - Xcode 15+
@@ -96,3 +97,5 @@ Run:
 ## License
 
 This project uses Tracktion Engine (GPLv3 or commercial) and JUCE (separate license required for closed-source distribution). See [Tracktion Engine LICENCE.md](https://github.com/Tracktion/tracktion_engine/blob/develop/LICENCE.md) and [JUCE licensing](https://juce.com/licensing).
+
+The native Neural Amp Modeler device embeds [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (MIT) and Eigen. `.nam` model files you load are separate from the Core library and may carry their own capture licenses — do not redistribute third-party captures without rights.
