@@ -1,6 +1,7 @@
 #include "ClipComponents.h"
 #include "TimelineGrid.h"
 #include "TrackComponents.h"
+#include "TimelineComponent.h"
 #include "ArrangementSelectionHelpers.h"
 #include "ArrangementClipVisuals.h"
 #include "UI/AppLookAndFeel.h"
@@ -339,13 +340,22 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
         bool offerLoopSelection = false;
         std::function<void()> onLoopSelection;
 
-        if (auto* lane = findParentComponentOfClass<TrackLaneComponent>())
+        if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
         {
-            offerLoopSelection = lane->hasRangeSelection();
-            if (offerLoopSelection)
-                onLoopSelection = [lane] { lane->applyRangeSelectionToLoop(); };
+            if (timeline->hasTimeSelection())
+            {
+                const auto range = timeline->getTimeSelection();
+                offerLoopSelection = true;
+                onLoopSelection = [timeline, range]
+                {
+                    auto& transport = timeline->getEditViewState().edit.getTransport();
+                    transport.setLoopRange (range);
+                    transport.looping = true;
+                    timeline->repaintLoopBrace();
+                };
+            }
 
-            lane->clearRangeSelection();
+            timeline->clearTimeSelection();
         }
 
         if (editViewState.insertPoint != nullptr)
@@ -389,6 +399,9 @@ void ClipComponent::mouseDown (const juce::MouseEvent& e)
     }
 
     ArrangementSelectionHelpers::handleClipClick (editViewState, *clip, e.mods);
+
+    if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
+        timeline->clearTimeSelection();
 
     if (onSelectionChanged)
         onSelectionChanged();

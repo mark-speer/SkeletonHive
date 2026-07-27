@@ -88,7 +88,11 @@ public:
     void setGroovePool (GroovePoolManager* pool) { groovePool = pool; }
 
     void rebuildTracks();
-    void clearRangeSelectionsExcept (TrackLaneComponent* except);
+    bool hasTimeSelection() const;
+    te::TimeRange getTimeSelection() const;
+    juce::Range<int> getTimeSelectionRowSpan() const;
+    void clearTimeSelection();
+    void applyTimeSelectionToLoop();
     void repaintLoopBrace();
     bool performCommand (int commandID);
     bool handleKeyPress (const juce::KeyPress& key);
@@ -141,15 +145,18 @@ private:
     void cancelEmptyLaneDrag (TrackLaneComponent& lane);
 
     int trackRowIndexAtContentY (int contentY) const;
+    int clampTrackRowIndexAtContentY (int contentY) const;
     te::ClipTrack* clipTrackForRowIndex (int rowIndex) const;
     void paintCrossTrackDropOverlay (juce::Graphics& g);
     void paintClipMarqueeOverlay (juce::Graphics& g);
+    void paintTimeSelectionOverlay (juce::Graphics& g);
     void paintClipDragOverlay (juce::Graphics& g);
     void clearCrossTrackDragState();
     void clearClipMarqueeState();
+    void updateTimeSelectionFromContentPoints (juce::Point<int> startContent, juce::Point<int> currentContent);
     juce::Point<int> contentPointForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const;
+    juce::Point<int> contentMouseDownForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const;
     static juce::Rectangle<int> contentRectFromPoints (juce::Point<int> a, juce::Point<int> b);
-    bool marqueeIntersectsClips (const juce::Rectangle<int>& rect) const;
     void applyWheelDelta (double scaledDelta, bool horizontal, bool vertical);
 
     struct CrossTrackDragState
@@ -173,6 +180,16 @@ private:
         TrackLaneComponent* anchorLane = nullptr;
     };
 
+    struct TimeSelectionState
+    {
+        bool active = false;
+        bool dragging = false;
+        te::TimePosition start;
+        te::TimePosition end;
+        int startRow = -1;
+        int endRow = -1;
+    };
+
     struct ClipDragOverlayState
     {
         bool active = false;
@@ -186,6 +203,7 @@ private:
     };
 
     ClipMarqueeState clipMarquee;
+    TimeSelectionState timeSelection;
     ClipDragOverlayState clipDragOverlay;
 
     double horizontalScrollAccumulator = 0.0;

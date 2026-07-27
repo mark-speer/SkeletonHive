@@ -574,11 +574,54 @@ void TimelineComponent::rebuildTracks()
     buildTracks();
 }
 
-void TimelineComponent::clearRangeSelectionsExcept (TrackLaneComponent* except)
+bool TimelineComponent::hasTimeSelection() const
 {
-    for (auto* lane : trackLanes)
-        if (lane != except)
-            lane->clearRangeSelection();
+    return timeSelection.active || timeSelection.dragging;
+}
+
+te::TimeRange TimelineComponent::getTimeSelection() const
+{
+    auto start = timeSelection.start;
+    auto end = timeSelection.end;
+
+    if (end <= start)
+    {
+        const auto gridBeats = TimelineGrid::gridIntervalBeats (edit, editViewState);
+        const auto& ts = edit.tempoSequence;
+        const auto startBeat = ts.toBeats (start).inBeats();
+        end = ts.toTime (te::BeatPosition::fromBeats (startBeat + gridBeats));
+    }
+
+    return { start, end };
+}
+
+juce::Range<int> TimelineComponent::getTimeSelectionRowSpan() const
+{
+    if (! hasTimeSelection() || timeSelection.startRow < 0 || timeSelection.endRow < 0)
+        return {};
+
+    return { juce::jmin (timeSelection.startRow, timeSelection.endRow),
+             juce::jmax (timeSelection.startRow, timeSelection.endRow) + 1 };
+}
+
+void TimelineComponent::clearTimeSelection()
+{
+    if (! timeSelection.active && ! timeSelection.dragging)
+        return;
+
+    timeSelection = {};
+    repaint();
+}
+
+void TimelineComponent::applyTimeSelectionToLoop()
+{
+    if (! hasTimeSelection())
+        return;
+
+    auto& transport = edit.getTransport();
+    transport.setLoopRange (getTimeSelection());
+    transport.looping = true;
+    repaintLoopBrace();
 }
 
 void TimelineComponent::repaintLoopBrace()
@@ -949,6 +992,20 @@ int TimelineComponent::trackRowIndexAtContentY (int contentY) const
     return -1;
 }
 
+int TimelineComponent::clampTrackRowIndexAtContentY (int contentY) const
+{
+    if (trackRows.isEmpty())
+        return -1;
+
+    if (const int exact = trackRowIndexAtContentY (contentY); exact >= 0)
+        return exact;
+
+    if (contentY < trackRows.getReference (0).y)
+        return 0;
+
+    return trackRows.size() - 1;
+}
+
 te::ClipTrack* TimelineComponent::clipTrackForRowIndex (int rowIndex) const
 {
     if (! juce::isPositiveAndBelow (rowIndex, trackRows.size()))
@@ -1033,6 +1090,12 @@ juce::Point<int> TimelineComponent::contentPointForLaneEvent (TrackLaneComponent
     return e.getEventRelativeTo (const_cast<juce::Component*> (&timelineContent)).getPosition();
 }
 
+juce::Point<int> TimelineComponent::contentMouseDownForLaneEvent (TrackLaneComponent& lane, const juce::MouseEvent& e) const
+{
+    juce::ignoreUnused (lane);
+    return e.getEventRelativeTo (const_cast<juce::Component*> (&timelineContent)).getMouseDownPosition();
+}
+
 juce::Rectangle<int> TimelineComponent::contentRectFromPoints (juce::Point<int> a, juce::Point<int> b)
 {
     return juce::Rectangle<int>::leftTopRightBottom (
@@ -1040,69 +1103,61 @@ juce::Rectangle<int> TimelineComponent::contentRectFromPoints (juce::Point<int> 
         juce::jmax (a.x, b.x), juce::jmax (a.y, b.y));
 }
 
-bool TimelineComponent::marqueeIntersectsClips (const juce::Rectangle<int>& rect) const
+void TimelineComponent::updateTimeSelectionFromContentPoints (juce::Point<int> startContent, juce::Point<int> currentContent)
 {
-    for (auto* lane : trackLanes)
-    {
-        if (lane == nullptr || lane->getTrack().isFolderTrack())
-            continue;
+    const auto startTime = TimelineGrid::snapTime (edit, editViewState, editViewState.xToTime (startContent.x));
+    const auto currentTime = TimelineGrid::snapTime (edit, editViewState, editViewState.xToTime (currentContent.x));
 
-        const auto laneBounds = lane->getBounds();
-        if (! rect.intersects (laneBounds))
-            continue;
-
-        for (int i = 0; i < lane->getNumChildComponents(); ++i)
-        {
-            if (auto* clipComp = dynamic_cast<ClipComponent*> (lane->getChildComponent (i)))
-            {
-                auto clipBounds = clipComp->getBounds();
-                clipBounds = clipBounds.withPosition (clipBounds.getX(), clipBounds.getY() + laneBounds.getY());
-
-                if (clipBounds.intersects (rect))
-                    return true;
-            }
-        }
-    }
-
-    return false;
+    timeSelection.start = juce::jmin (startTime, currentTime);
+    timeSelection.end = juce::jmax (startTime, currentTime);
+    timeSelection.startRow = clampTrackRowIndexAtContentY (startContent.y);
+    timeSelection.endRow = clampTrackRowIndexAtContentY (currentContent.y);
 }
 
 bool TimelineComponent::handleEmptyLaneDrag (TrackLaneComponent& lane, const juce::MouseEvent& e)
 {
-    if (! clipMarquee.active)
+    if (! timeSelection.dragging && ! clipMarquee.active)
     {
         if (e.getDistanceFromDragStart() < 4)
             return false;
 
-        clipMarquee.active = true;
-        clipMarquee.anchorLane = &lane;
-        clipMarquee.startContent = contentPointForLaneEvent (lane, e);
-        clipMarquee.currentContent = clipMarquee.startContent;
-    }
+        const auto startContent = contentMouseDownForLaneEvent (lane, e);
+        const auto currentContent = contentPointForLaneEvent (lane, e);
 
-    clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
-
-    const auto rect = contentRectFromPoints (clipMarquee.startContent, clipMarquee.currentContent);
-
-    const int horizontalSpan = std::abs (clipMarquee.currentContent.x - clipMarquee.startContent.x);
-    const int verticalSpan = std::abs (clipMarquee.currentContent.y - clipMarquee.startContent.y);
-    const bool isTimeRangeIntent = horizontalSpan >= 8 && horizontalSpan > verticalSpan && verticalSpan <= 8;
-
-    if (! clipMarquee.clipSelectMode
-        && ! isTimeRangeIntent
-        && (verticalSpan > 8 || marqueeIntersectsClips (rect)))
-    {
-        clipMarquee.clipSelectMode = true;
-
-        for (auto* otherLane : trackLanes)
+        if (e.mods.isCommandDown())
         {
-            if (otherLane != nullptr)
-                otherLane->cancelTimelineInteraction();
+            clearTimeSelection();
+            clipMarquee.active = true;
+            clipMarquee.clipSelectMode = true;
+            clipMarquee.anchorLane = &lane;
+            clipMarquee.startContent = startContent;
+            clipMarquee.currentContent = currentContent;
+            repaint();
+            return true;
         }
+
+        if (lane.getTrack().isFolderTrack())
+            return false;
+
+        clearClipMarqueeState();
+        timeSelection.dragging = true;
+        timeSelection.active = false;
+        updateTimeSelectionFromContentPoints (startContent, currentContent);
+        repaint();
+        return true;
     }
 
-    if (clipMarquee.clipSelectMode)
+    if (clipMarquee.active && clipMarquee.clipSelectMode)
     {
+        clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
+        repaint();
+        return true;
+    }
+
+    if (timeSelection.dragging)
+    {
+        updateTimeSelectionFromContentPoints (contentMouseDownForLaneEvent (lane, e),
+                                              contentPointForLaneEvent (lane, e));
         repaint();
         return true;
     }
@@ -1112,12 +1167,7 @@ bool TimelineComponent::handleEmptyLaneDrag (TrackLaneComponent& lane, const juc
 
 bool TimelineComponent::handleEmptyLaneDragEnd (TrackLaneComponent& lane, const juce::MouseEvent& e)
 {
-    juce::ignoreUnused (lane);
-
-    if (! clipMarquee.active)
-        return false;
-
-    if (clipMarquee.clipSelectMode)
+    if (clipMarquee.active && clipMarquee.clipSelectMode)
     {
         clipMarquee.currentContent = contentPointForLaneEvent (lane, e);
 
@@ -1132,6 +1182,16 @@ bool TimelineComponent::handleEmptyLaneDragEnd (TrackLaneComponent& lane, const 
         return true;
     }
 
+    if (timeSelection.dragging)
+    {
+        updateTimeSelectionFromContentPoints (contentMouseDownForLaneEvent (lane, e),
+                                              contentPointForLaneEvent (lane, e));
+        timeSelection.dragging = false;
+        timeSelection.active = timeSelection.startRow >= 0 && timeSelection.endRow >= 0;
+        repaint();
+        return true;
+    }
+
     clearClipMarqueeState();
     return false;
 }
@@ -1140,6 +1200,12 @@ void TimelineComponent::cancelEmptyLaneDrag (TrackLaneComponent& lane)
 {
     juce::ignoreUnused (lane);
     clearClipMarqueeState();
+
+    if (timeSelection.dragging)
+    {
+        timeSelection = {};
+        repaint();
+    }
 }
 
 void TimelineComponent::handleClipDragOverlayUpdate (te::Clip& clip, ClipComponent::DragMode mode,
@@ -1178,6 +1244,44 @@ void TimelineComponent::paintClipMarqueeOverlay (juce::Graphics& g)
     g.fillRect (rect);
     g.setColour (AppColours::marqueeBorder (theme));
     g.drawRect (rect, 1);
+}
+
+void TimelineComponent::paintTimeSelectionOverlay (juce::Graphics& g)
+{
+    if (! hasTimeSelection())
+        return;
+
+    const auto rowSpan = getTimeSelectionRowSpan();
+    if (rowSpan.isEmpty() || ! juce::isPositiveAndBelow (rowSpan.getStart(), trackRows.size()))
+        return;
+
+    const int endRowInclusive = juce::jmin (rowSpan.getEnd() - 1, trackRows.size() - 1);
+    if (endRowInclusive < rowSpan.getStart())
+        return;
+
+    const auto range = getTimeSelection();
+    const auto theme = AppLookAndFeel::getCurrentTheme();
+    const int viewY = timelineViewport.getViewPositionY();
+    const int viewX = timelineViewport.getViewPositionX();
+    const int hw = editViewState.getHeaderWidth();
+
+    int x1 = hw + headerSplitterWidth + timelineViewport.getX()
+               + editViewState.timeToX (range.getStart()) - viewX;
+    int x2 = hw + headerSplitterWidth + timelineViewport.getX()
+               + editViewState.timeToX (range.getEnd()) - viewX;
+    if (x2 < x1)
+        std::swap (x1, x2);
+
+    const auto& topRow = trackRows.getReference (rowSpan.getStart());
+    const auto& bottomRow = trackRows.getReference (endRowInclusive);
+    const int y = timelineViewport.getY() + topRow.y - viewY;
+    const int height = (bottomRow.y + bottomRow.height) - topRow.y;
+
+    auto r = juce::Rectangle<int> (x1, y + 2, juce::jmax (2, x2 - x1), juce::jmax (2, height - 4));
+    g.setColour (AppColours::rangeSelectionFill (theme));
+    g.fillRoundedRectangle (r.toFloat(), 4.0f);
+    g.setColour (AppColours::rangeSelectionBorder (theme));
+    g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.5f);
 }
 
 void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
@@ -1266,6 +1370,7 @@ void TimelineComponent::paintOverChildren (juce::Graphics& g)
                               (float) timelineViewport.getRight());
     }
 
+    paintTimeSelectionOverlay (g);
     paintClipMarqueeOverlay (g);
     paintClipDragOverlay (g);
     paintCrossTrackDropOverlay (g);

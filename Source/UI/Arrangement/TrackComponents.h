@@ -249,7 +249,7 @@ public:
     void resized() override;
 
     void clearRangeSelection();
-    bool hasRangeSelection() const { return rangeSelectionActive; }
+    bool hasRangeSelection() const;
     void applyRangeSelectionToLoop();
     void cancelTimelineInteraction();
 
@@ -300,13 +300,11 @@ private:
     int getClipAreaHeight() const;
     bool canDragCreateClips() const;
     bool canDragSelectTimeRange() const;
-    te::TimeRange getRangeSelection() const;
     void createMidiClipFromRangeSelection();
     te::Clip* insertSampleAtX (const juce::File& file, int localX);
     te::Clip* insertClipPresetAtX (const juce::File& presetFile, int localX);
     bool isSupportedAudioFile (const juce::File& file) const;
     void showLaneContextMenu (const juce::MouseEvent& e);
-    void paintRangeSelection (juce::Graphics& g, te::TimePosition start, te::TimePosition end) const;
     te::Clip* findClipAtX (int x) const;
     bool isLaneLevelRendering() const;
     void placePlayheadAtX (int x);
@@ -316,18 +314,9 @@ private:
     juce::OwnedArray<ClipComponent> clips;
     bool updateClips = false, updatePositions = false;
 
-    bool dragCreateActive = false;
     bool pendingTimelineInteraction = false;
-    bool rangeSelectionActive = false;
-    juce::Point<int> pendingDragStartPos;
-    te::TimePosition dragCreateAnchor;
-    te::TimePosition dragCreateCurrent;
-    te::TimePosition rangeSelectionStart;
-    te::TimePosition rangeSelectionEnd;
 
     std::unique_ptr<TakeLaneStack> takeLaneStack;
-
-    static constexpr int timelineClickDragThresholdPx = 4;
 };
 
 class PlayheadOverlay : public juce::Component,

@@ -10,13 +10,13 @@
     - TimelineComponent::refreshVisibleTracks — vertical virtualization (visible rows ± margin)
     - TrackLaneComponent::updateClipBounds    — horizontal clip culling + thumbnail hold/release
     - PlayheadOverlay::updateFromTransport    — repaint only when X changes
-    - TimelineComponent::paintOverChildren    — transient drag/marquee overlays (single pass)
+    - TimelineComponent::paintOverChildren    — transient drag/marquee/time-selection overlays (single pass)
 
     Invalidation triggers:
     - Zoom/scroll/grid: invalidateLaneBackgrounds() → LaneBackgroundCache::invalidateAll()
     - Theme change: cache key includes theme; stale entries are not reused
     - Tempo map: repaintGrid() + refreshLaneLayouts()
 
-    Overlay policy: drag ghosts, snap guides, and clip marquee are painted once on
-    TimelineComponent::paintOverChildren — never as per-clip child components.
+    Overlay policy: drag ghosts, snap guides, clip marquee, and time×track selection are painted once on
+    TimelineComponent::paintOverChildren — never as per-clip or per-lane child paint.
 */

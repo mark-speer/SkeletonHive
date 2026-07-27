@@ -1900,37 +1900,6 @@ void TrackLaneComponent::paint (juce::Graphics& g)
         if (auto* clipTrack = dynamic_cast<te::ClipTrack*> (track.get()))
             paintLaneClipSummaries (g, editViewState, *clipTrack, getLocalBounds());
     }
-
-    if (dragCreateActive)
-        paintRangeSelection (g, dragCreateAnchor, dragCreateCurrent);
-    else if (rangeSelectionActive)
-        paintRangeSelection (g, rangeSelectionStart, rangeSelectionEnd);
-}
-
-void TrackLaneComponent::paintRangeSelection (juce::Graphics& g, te::TimePosition start, te::TimePosition end) const
-{
-    auto rangeStart = start;
-    auto rangeEnd = end;
-
-    if (rangeEnd <= rangeStart)
-    {
-        const auto gridBeats = TimelineGrid::gridIntervalBeats (editViewState.edit, editViewState);
-        const auto& ts = editViewState.edit.tempoSequence;
-        const auto startBeat = ts.toBeats (rangeStart).inBeats();
-        rangeEnd = ts.toTime (te::BeatPosition::fromBeats (startBeat + gridBeats));
-    }
-
-    int x1 = editViewState.timeToX (rangeStart);
-    int x2 = editViewState.timeToX (rangeEnd);
-    if (x2 < x1)
-        std::swap (x1, x2);
-
-    auto r = juce::Rectangle<int> (x1, 2, juce::jmax (2, x2 - x1), getHeight() - 4);
-    const auto theme = AppLookAndFeel::getCurrentTheme();
-    g.setColour (AppColours::rangeSelectionFill (theme));
-    g.fillRoundedRectangle (r.toFloat(), 4.0f);
-    g.setColour (AppColours::rangeSelectionBorder (theme));
-    g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.5f);
 }
 
 bool TrackLaneComponent::canDragCreateClips() const
@@ -1976,6 +1945,7 @@ void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
         if (auto* clip = findClipAtX (e.x))
         {
             ArrangementSelectionHelpers::handleClipClick (editViewState, *clip, e.mods);
+            clearRangeSelection();
             repaint();
             return;
         }
@@ -1988,13 +1958,7 @@ void TrackLaneComponent::mouseDown (const juce::MouseEvent& e)
         return;
 
     pendingTimelineInteraction = true;
-    pendingDragStartPos = e.getPosition();
-    dragCreateActive = false;
     clearRangeSelection();
-
-    const auto time = editViewState.xToTime (e.x);
-    dragCreateAnchor = TimelineGrid::snapTime (editViewState.edit, editViewState, time);
-    dragCreateCurrent = dragCreateAnchor;
 }
 
 void TrackLaneComponent::mouseDoubleClick (const juce::MouseEvent& e)
@@ -2011,120 +1975,74 @@ void TrackLaneComponent::mouseDoubleClick (const juce::MouseEvent& e)
 
 void TrackLaneComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    if (onEmptyLaneDrag != nullptr && onEmptyLaneDrag (*this, e))
-        return;
-
     if (! pendingTimelineInteraction)
         return;
 
-    if (! dragCreateActive
-        && e.getDistanceFromDragStart() >= timelineClickDragThresholdPx
-        && canDragSelectTimeRange())
-    {
-        dragCreateActive = true;
-    }
-
-    if (! dragCreateActive)
-        return;
-
-    const auto time = editViewState.xToTime (e.x);
-    dragCreateCurrent = TimelineGrid::snapTime (editViewState.edit, editViewState, time);
-    repaint();
+    if (onEmptyLaneDrag != nullptr)
+        onEmptyLaneDrag (*this, e);
 }
 
 void TrackLaneComponent::mouseUp (const juce::MouseEvent& e)
 {
-    if (onEmptyLaneDragEnd != nullptr && onEmptyLaneDragEnd (*this, e))
-    {
-        pendingTimelineInteraction = false;
-        return;
-    }
-
     if (! pendingTimelineInteraction)
         return;
 
     pendingTimelineInteraction = false;
 
-    if (dragCreateActive)
-    {
-        dragCreateActive = false;
+    if (onEmptyLaneDragEnd != nullptr && onEmptyLaneDragEnd (*this, e))
+        return;
 
-        rangeSelectionStart = juce::jmin (dragCreateAnchor, dragCreateCurrent);
-        rangeSelectionEnd = juce::jmax (dragCreateAnchor, dragCreateCurrent);
-        rangeSelectionActive = true;
-
-        if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
-            timeline->clearRangeSelectionsExcept (this);
-    }
-    else
-    {
-        placePlayheadAtX (e.x);
-    }
-
-    repaint();
+    placePlayheadAtX (e.x);
 }
 
 void TrackLaneComponent::cancelTimelineInteraction()
 {
     pendingTimelineInteraction = false;
-    dragCreateActive = false;
 }
 
-te::TimeRange TrackLaneComponent::getRangeSelection() const
+bool TrackLaneComponent::hasRangeSelection() const
 {
-    auto start = rangeSelectionStart;
-    auto end = rangeSelectionEnd;
+    if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
+        return timeline->hasTimeSelection();
 
-    if (end <= start)
-    {
-        const auto gridBeats = TimelineGrid::gridIntervalBeats (editViewState.edit, editViewState);
-        const auto& ts = editViewState.edit.tempoSequence;
-        const auto startBeat = ts.toBeats (start).inBeats();
-        end = ts.toTime (te::BeatPosition::fromBeats (startBeat + gridBeats));
-    }
-
-    return { start, end };
+    return false;
 }
 
 void TrackLaneComponent::clearRangeSelection()
 {
-    if (! rangeSelectionActive)
-        return;
-
-    rangeSelectionActive = false;
-    repaint();
+    if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
+        timeline->clearTimeSelection();
 }
 
 void TrackLaneComponent::applyRangeSelectionToLoop()
 {
-    auto& transport = editViewState.edit.getTransport();
-    transport.setLoopRange (getRangeSelection());
-    transport.looping = true;
-
     if (auto* timeline = findParentComponentOfClass<TimelineComponent>())
-        timeline->repaintLoopBrace();
+        timeline->applyTimeSelectionToLoop();
 }
 
 void TrackLaneComponent::createMidiClipFromRangeSelection()
 {
-    if (! rangeSelectionActive || ! canDragCreateClips())
+    auto* timeline = findParentComponentOfClass<TimelineComponent>();
+    if (timeline == nullptr || ! timeline->hasTimeSelection() || ! canDragCreateClips())
         return;
 
-    if (auto clip = EngineHelpers::createMidiClipOnTrack (*track, getRangeSelection()))
+    if (auto clip = EngineHelpers::createMidiClipOnTrack (*track, timeline->getTimeSelection()))
         editViewState.selectionManager.selectOnly (clip.get());
 
-    clearRangeSelection();
+    timeline->clearTimeSelection();
 }
 
 void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
 {
-    const auto insertTime = rangeSelectionActive ? rangeSelectionStart
-                                                 : TimelineGrid::snapTime (editViewState.edit, editViewState,
-                                                                           editViewState.xToTime (e.x));
+    auto* timeline = findParentComponentOfClass<TimelineComponent>();
+    const bool hasSelection = timeline != nullptr && timeline->hasTimeSelection();
+    const auto insertTime = hasSelection ? timeline->getTimeSelection().getStart()
+                                         : TimelineGrid::snapTime (editViewState.edit, editViewState,
+                                                                   editViewState.xToTime (e.x));
     setInsertPoint (editViewState, track.get(), insertTime);
 
     showTimelineContextMenu (*this, e.getScreenPosition(), editViewState, track.get(),
-                             canDragCreateClips() && rangeSelectionActive,
+                             canDragCreateClips() && hasSelection,
                              [this] { createMidiClipFromRangeSelection(); },
                              nullptr, onShowClipProperties, onEditWarpMarkers, onAudioToMidi, onTakeLanesChanged,
                              [this]
@@ -2136,7 +2054,7 @@ void TrackLaneComponent::showLaneContextMenu (const juce::MouseEvent& e)
                              },
                              onExportClipToLibrary,
                              groovePool,
-                             rangeSelectionActive,
+                             hasSelection,
                              [this] { applyRangeSelectionToLoop(); });
 }
 
