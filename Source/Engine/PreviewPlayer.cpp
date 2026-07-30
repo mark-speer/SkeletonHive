@@ -56,7 +56,7 @@ void PreviewPlayer::stop()
     transportSource.stop();
     transportSource.setSource (nullptr);
     readerSource.reset();
-    currentFile = {};
+    currentFile = juce::File();
 }
 
 bool PreviewPlayer::isPlaying() const

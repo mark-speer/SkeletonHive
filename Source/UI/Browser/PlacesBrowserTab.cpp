@@ -67,6 +67,8 @@ PlacesBrowserTab::PlacesBrowserTab (ContentLibraryManager& library)
     refreshPlaces();
 }
 
+PlacesBrowserTab::~PlacesBrowserTab() = default;
+
 void PlacesBrowserTab::refreshPlaces()
 {
     rootItem.reset (new RootTreeItem (*this, "Places", juce::File(), RootTreeItem::ItemKind::sectionHeader));

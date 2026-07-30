@@ -81,6 +81,8 @@ GroovesBrowserTab::GroovesBrowserTab (GroovePoolManager& pool, te::Edit& edit, t
     refreshList();
 }
 
+GroovesBrowserTab::~GroovesBrowserTab() = default;
+
 void GroovesBrowserTab::refreshList()
 {
     displayedTemplates = groovePool.getAllTemplates();

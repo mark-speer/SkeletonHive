@@ -155,6 +155,8 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
     updateNativeFilterUi();
 }
 
+PluginBrowser::~PluginBrowser() = default;
+
 void PluginBrowser::resized()
 {
     auto r = getLocalBounds().reduced (4);

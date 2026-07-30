@@ -13,6 +13,7 @@ class ClipsBrowserTab : public juce::Component,
 {
 public:
     ClipsBrowserTab (ClipLibraryManager& library, te::Edit& edit);
+    ~ClipsBrowserTab() override;
 
     void refreshList();
 

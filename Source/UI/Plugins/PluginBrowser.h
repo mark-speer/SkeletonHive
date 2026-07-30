@@ -23,6 +23,7 @@ class PluginBrowser : public juce::Component,
 {
 public:
     PluginBrowser (PluginScanner& scanner, te::Edit& edit, PluginStateManager& stateManager);
+    ~PluginBrowser() override;
 
     te::Track* selectedTrack = nullptr;
 

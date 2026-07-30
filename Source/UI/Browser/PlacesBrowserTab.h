@@ -9,6 +9,7 @@ class PlacesBrowserTab : public juce::Component
 {
 public:
     PlacesBrowserTab (ContentLibraryManager& library);
+    ~PlacesBrowserTab() override;
 
     std::function<void (const juce::File& root)> onPlaceSelected;
     std::function<void()> onShowFavorites;

@@ -45,7 +45,7 @@ public:
     juce::Array<ContentEntry> getEntries (ContentFilterMode filter = ContentFilterMode::all,
                                           ContentSortMode sort = ContentSortMode::name,
                                           const juce::String& searchQuery = {},
-                                          const juce::File& rootFilter = {}) const;
+                                          const juce::File& rootFilter = juce::File()) const;
 
     void addFavorite (const juce::File& file);
     void removeFavorite (const juce::File& file);

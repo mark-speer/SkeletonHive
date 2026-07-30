@@ -127,6 +127,8 @@ SampleBrowserTab::SampleBrowserTab (ContentLibraryManager& library,
     startTimerHz (15);
 }
 
+SampleBrowserTab::~SampleBrowserTab() = default;
+
 void SampleBrowserTab::setRootFilter (const juce::File& root)
 {
     rootFilter = root;
