@@ -639,8 +639,11 @@ void MainContentComponent::showPianoRoll (te::MidiClip& clip)
     auto window = std::make_unique<PianoRollWindow> ("Piano Roll - " + clip.getName(),
                                                      AppColours::panelBackground (appSettings.getTheme()),
                                                      [this] { pianoRollWindow = nullptr; pianoRollEditor = nullptr; });
+    window->setUsingNativeTitleBar (true);
+    editor->setSize (1000, 560);
     window->setContentOwned (editor, true);
-    window->setResizable (true, false);
+    window->setResizable (true, true);
+    window->setResizeLimits (400, 300, 8192, 8192);
     window->centreWithSize (1000, 560);
     window->setVisible (true);
     editor->grabKeyboardFocus();

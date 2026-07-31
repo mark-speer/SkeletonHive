@@ -1263,12 +1263,9 @@ void TimelineComponent::paintTimeSelectionOverlay (juce::Graphics& g)
     const auto theme = AppLookAndFeel::getCurrentTheme();
     const int viewY = timelineViewport.getViewPositionY();
     const int viewX = timelineViewport.getViewPositionX();
-    const int hw = editViewState.getHeaderWidth();
 
-    int x1 = hw + headerSplitterWidth + timelineViewport.getX()
-               + editViewState.timeToX (range.getStart()) - viewX;
-    int x2 = hw + headerSplitterWidth + timelineViewport.getX()
-               + editViewState.timeToX (range.getEnd()) - viewX;
+    int x1 = timelineViewport.getX() + editViewState.timeToX (range.getStart()) - viewX;
+    int x2 = timelineViewport.getX() + editViewState.timeToX (range.getEnd()) - viewX;
     if (x2 < x1)
         std::swap (x1, x2);
 
@@ -1293,7 +1290,7 @@ void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
     const int viewY = timelineViewport.getViewPositionY();
     const int viewX = timelineViewport.getViewPositionX();
 
-    const int snapX = editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX()
+    const int snapX = timelineViewport.getX()
                         + editViewState.timeToX (clipDragOverlay.snapTime) - viewX;
 
     g.setColour (AppColours::snapGuideLine (theme).withAlpha (0.85f));
@@ -1304,10 +1301,9 @@ void TimelineComponent::paintClipDragOverlay (juce::Graphics& g)
         return;
 
     const auto& row = trackRows.getReference (clipDragOverlay.sourceRowIndex);
-    const int hw = editViewState.getHeaderWidth();
-    const int x1 = hw + headerSplitterWidth + timelineViewport.getX()
+    const int x1 = timelineViewport.getX()
                      + editViewState.timeToX (clipDragOverlay.ghostStart) - viewX;
-    const int x2 = hw + headerSplitterWidth + timelineViewport.getX()
+    const int x2 = timelineViewport.getX()
                      + editViewState.timeToX (clipDragOverlay.ghostEnd) - viewX;
     const auto ghostBounds = juce::Rectangle<int> (x1, timelineViewport.getY() + row.y - viewY,
                                                  juce::jmax (4, x2 - x1), row.height).reduced (2, 4);
@@ -1336,7 +1332,7 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
 
     const auto& row = trackRows.getReference (crossTrackDrag.targetRowIndex);
     const int viewY = timelineViewport.getViewPositionY();
-    const auto laneBounds = juce::Rectangle<int> (editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX(),
+    const auto laneBounds = juce::Rectangle<int> (timelineViewport.getX(),
                                                   timelineViewport.getY() + row.y - viewY,
                                                   timelineViewport.getViewWidth(),
                                                   row.height);
@@ -1345,7 +1341,7 @@ void TimelineComponent::paintCrossTrackDropOverlay (juce::Graphics& g)
                                           : AppColours::accentInvalidDrop (AppLookAndFeel::getCurrentTheme()).withAlpha (0.25f));
     g.fillRect (laneBounds);
 
-    const int ghostX = editViewState.getHeaderWidth() + headerSplitterWidth + timelineViewport.getX()
+    const int ghostX = timelineViewport.getX()
                        + editViewState.timeToX (crossTrackDrag.ghostStart)
                        - timelineViewport.getViewPositionX();
     g.setColour (crossTrackDrag.validDrop ? juce::Colours::white.withAlpha (0.8f)
