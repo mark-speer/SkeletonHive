@@ -118,18 +118,20 @@ PluginBrowser::PluginBrowser (PluginScanner& scanner, te::Edit& e, PluginStateMa
             return;
         }
 
-        if (auto* at = dynamic_cast<te::AudioTrack*> (selectedTrack))
+        if (selectedTrack != nullptr && selectedTrack->canContainPlugins())
         {
             if (auto plugin = pluginScanner.createPlugin (selectedPlugin, edit))
             {
-                TrackPluginChainModel model (*at);
+                TrackPluginChainModel model (*selectedTrack);
                 const int index = model.resolveInsertIndex (model.getUserChainSize(),
                                                             EngineHelpers::isInstrumentDescription (selectedPlugin),
                                                             nullptr);
                 if (index >= 0)
                 {
-                    EngineHelpers::insertPluginOnTrack (*at, plugin, index);
-                    pluginStateManager.recordRecentUse (selectedPlugin.createIdentifierString());
+                    if (EngineHelpers::insertPluginOnTrack (*selectedTrack, plugin, index) != nullptr)
+                        pluginStateManager.recordRecentUse (selectedPlugin.createIdentifierString());
+                    else
+                        EngineHelpers::showPluginInsertFailureAlert (this, selectedPlugin);
                 }
             }
             else

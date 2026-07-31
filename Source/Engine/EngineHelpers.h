@@ -139,23 +139,23 @@ struct EngineHelpers
     static bool isFooterVisiblePlugin (const te::Plugin& plugin);
 
     /** Index in pluginList to insert before the volume plugin (end of user chain). */
-    static int getUserChainInsertIndex (te::AudioTrack& track);
+    static int getUserChainInsertIndex (te::Track& track);
 
-    static te::Plugin* insertPluginOnTrack (te::AudioTrack& track, te::Plugin::Ptr plugin, int index = -1);
+    static te::Plugin* insertPluginOnTrack (te::Track& track, te::Plugin::Ptr plugin, int index = -1);
 
     static juce::PluginDescription getPluginDescription (const te::Plugin& plugin);
     static te::Plugin::Ptr createPluginFromDescription (te::Edit& edit, const juce::PluginDescription& desc);
     static bool isInstrumentDescription (const juce::PluginDescription& desc);
     static bool isInstrumentPlugin (const te::Plugin& plugin);
-    static int findInstrumentSlot (te::AudioTrack& track);
+    static int findInstrumentSlot (te::Track& track);
     static bool trackHasInstrument (te::AudioTrack& track);
     /** Inserts the native Sampler when a MIDI-capable track has no instrument yet. */
     static te::Plugin* ensureSamplerOnMidiTrack (te::AudioTrack& track);
 
-    static bool movePluginToUserSlot (te::AudioTrack& track, te::Plugin& plugin, int userSlot);
-    static bool movePluginToTrack (te::Plugin& plugin, te::AudioTrack& destTrack, int userSlot);
-    static te::Plugin* duplicatePluginOnTrack (te::Plugin& source, te::AudioTrack& track, int userSlot = -1);
-    static te::Plugin* replacePluginOnTrack (te::AudioTrack& track, te::Plugin& oldPlugin,
+    static bool movePluginToUserSlot (te::Track& track, te::Plugin& plugin, int userSlot);
+    static bool movePluginToTrack (te::Plugin& plugin, te::Track& destTrack, int userSlot);
+    static te::Plugin* duplicatePluginOnTrack (te::Plugin& source, te::Track& track, int userSlot = -1);
+    static te::Plugin* replacePluginOnTrack (te::Track& track, te::Plugin& oldPlugin,
                                              const juce::PluginDescription& newDesc);
     static te::Plugin* replacePluginInRack (te::RackInstance& rack, te::Plugin& oldPlugin,
                                             const juce::PluginDescription& newDesc);
@@ -193,12 +193,12 @@ struct EngineHelpers
     static bool isPluginSoloed (const te::Track& track, const te::Plugin& plugin);
 
     static te::RackInstance* wrapPluginsInRack (te::SelectionManager& selection);
-    static te::RackInstance* insertEmptyRack (te::AudioTrack& track);
+    static te::RackInstance* insertEmptyRack (te::Track& track);
 
     static juce::Array<te::Plugin*> getRackInternalPlugins (te::RackInstance& rack);
     static int rackSlotForPlugin (te::RackInstance& rack, const te::Plugin& plugin);
     static bool movePluginInRack (te::RackInstance& rack, te::Plugin& plugin, int targetSlot);
-    static te::RackInstance* findRackOnTrack (te::AudioTrack& track, te::EditItemID rackInstanceId);
+    static te::RackInstance* findRackOnTrack (te::Track& track, te::EditItemID rackInstanceId);
 
     static void togglePlay (te::Edit& edit, bool returnToStart = false);
 

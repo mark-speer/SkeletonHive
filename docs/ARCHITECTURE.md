@@ -96,9 +96,12 @@ how they were resolved. They double as guidelines for future work.
    inserted just before the track's `VolumeAndPanPlugin`). No custom routing
    code; the engine builds the graph.
 
-5. **The master bus uses `edit.getMasterVolumePlugin()` /
-   `getMasterPluginList()`** — exposed as a dedicated `ChannelStrip` in the
-   mixer rather than omitted.
+5. **The master bus uses `edit.getMasterTrack()` / `getMasterVolumePlugin()` /
+   `getMasterPluginList()`** — exposed as a viewport-pinned Ableton-style
+   Master row at the bottom of the arrangement timeline (header click focuses
+   the plugin tray / automation panel like any other track) and as a dedicated
+   `ChannelStrip` in the mixer. Master stays out of the scrolling `trackRows`
+   list so it never scrolls away.
 
 6. **Plugin chain operations use TE APIs**: `te::Plugin::setEnabled()` for
    bypass, `PluginList` state `moveChild` (with undo manager) for reorder,
@@ -208,8 +211,15 @@ how they were resolved. They double as guidelines for future work.
   for **bypass** (`setEnabled`), **move earlier/later** (undoable
   `moveChild`), **remove**. Slots grey out when bypassed and rebuild on
   plugin list changes.
-- **Master bus strip** in the mixer (volume/pan from the master volume
-  plugin, meter from the master plugin list).
+- **Master bus**: mixer strip (volume/pan/meter) plus a **viewport-pinned
+  Master track** at the bottom of the arrangement (header + empty lane +
+  optional footer plugin strip). Selecting the Master header drives the
+  plugin tray and automation panel via the same `syncRoamingFocus()` path as
+  other tracks. `TrackPluginChainModel` / insert helpers work on any
+  plugin-capable `te::Track`, including `MasterTrack`.
+- **VU meters** (`LevelMeter`): stereo L/R bars, peak hold with click-to-reset,
+  clip LED from `LevelMeasurer::Client`, and dB-scaled green/yellow/red zones
+  (floor −60 dB). Polled at 30 Hz via `UiTelemetryHub`.
 - **Aux send/return**: "+Send" on a channel strip creates/finds "Return A"
   and inserts a pre-fader `AuxSendPlugin`; the strip then shows a send-level
   slider. Return tracks don't get sends on themselves.
@@ -231,7 +241,7 @@ Current state and the reasoning behind it:
   allocations, or `ValueTree` access on the audio thread.
 - **UI telemetry (lock-free audit)**: a single `UiTelemetryHub` timer (30 Hz)
   drives playhead position updates and level-meter repaints. Meters read
-  `LevelMeasurer::getLevelCache()` (dB → gain conversion in `LevelMeter`);
+  `LevelMeasurer::Client` levels (dB → normalised meter scale in `LevelMeter`);
   playhead reads `transport.getPosition()`. No custom queues or atomics —
   TE owns thread safety on the audio side.
 - **WaveformCache**: `AudioClipComponent` acquires shared `SmartThumbnail`
@@ -409,9 +419,11 @@ is built; horizontal scroll for long chains.
 
 ### Automation panel (resurrected)
 - **`AutomationPanel`** (`Source/UI/Automation/AutomationPanel.*`) — bottom
-  panel toggled by the transport **Auto** button; follows the selected track.
-  Lanes for volume/pan plus every parameter with automation; an "Add lane…"
-  combo exposes **all** of the track's automatable parameters.
+  panel toggled by the transport **Auto** button; follows the selected track
+  (including the pinned Master track). Lanes for volume/pan plus every
+  parameter with automation; an "Add lane…" combo exposes **all** of the
+  track's automatable parameters. Master volume/pan come from
+  `edit.getMasterVolumePlugin()`.
 - **`AutomationLaneComponent`** rewritten: maps the visible timeline range,
   normalised-value editing (click adds, drag moves with grid snapping,
   right-click deletes points), live value marker, repaints on

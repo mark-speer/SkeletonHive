@@ -4,7 +4,7 @@
 namespace skeletonhive
 {
 
-TrackPluginChainModel::TrackPluginChainModel (te::AudioTrack& t)
+TrackPluginChainModel::TrackPluginChainModel (te::Track& t)
     : track (t)
 {
 }
@@ -53,7 +53,13 @@ int TrackPluginChainModel::firstEffectSlot() const
 
 bool TrackPluginChainModel::expectsInstrumentFirst() const
 {
-    return EngineHelpers::canHostMidiClips (track) || EngineHelpers::isMidiTrack (track);
+    if (track.isMasterTrack())
+        return false;
+
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (&track))
+        return EngineHelpers::canHostMidiClips (*audioTrack) || EngineHelpers::isMidiTrack (*audioTrack);
+
+    return false;
 }
 
 int TrackPluginChainModel::resolveInsertIndex (int userSlot,
@@ -77,6 +83,12 @@ int TrackPluginChainModel::resolveInsertIndex (int userSlot,
             return -1;
 
         return EngineHelpers::getUserChainInsertIndex (track);
+    }
+
+    if (track.isMasterTrack() && movingExisting == nullptr)
+    {
+        // New plugins on master must be allowed by TE.
+        // Placement is still validated at insert time via canContainPlugin.
     }
 
     if (! expectsInstrumentFirst())

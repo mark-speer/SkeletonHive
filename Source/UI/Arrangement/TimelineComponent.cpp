@@ -53,6 +53,22 @@ private:
     int dragStartWidth = 260;
 };
 
+/** Non-clip lane for the viewport-pinned Master track. */
+class TimelineComponent::MasterLaneComponent : public juce::Component
+{
+public:
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff1a1a2e));
+        g.setColour (juce::Colour (0xff4a6fa5).withAlpha (0.35f));
+        g.drawHorizontalLine (0, 0.0f, (float) getWidth());
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.setFont (juce::FontOptions (11.0f));
+        g.drawText ("Master", getLocalBounds().reduced (8, 0),
+                    juce::Justification::centredLeft, false);
+    }
+};
+
 //==============================================================================
 // TimelineRulerComponent
 
@@ -1559,6 +1575,9 @@ void TimelineComponent::createVisibleTrackUI (const TrackRowInfo& row)
         for (auto* headerComp : trackHeaders)
             headerComp->repaint();
 
+        if (masterHeader != nullptr)
+            masterHeader->repaint();
+
         if (onTrackSelected)
             onTrackSelected (t);
     };
@@ -1714,10 +1733,12 @@ void TimelineComponent::buildTracks()
     destroyAllVisibleTracks();
     rebuildTrackRowList();
     refreshVisibleTracks();
+    syncMasterStrip();
 
     timelineViewport.setViewPosition (timelineViewport.getViewPositionX(), editViewState.viewY.get());
     headerViewport.setViewPosition (0, timelineViewport.getViewPositionY());
     updateHorizontalScrollBarOverlay();
+    resized();
 }
 
 void TimelineComponent::layoutTracks()
@@ -1725,6 +1746,81 @@ void TimelineComponent::layoutTracks()
     rebuildTrackRowList();
     invalidateLaneBackgrounds();
     refreshVisibleTracks();
+    syncMasterStrip();
+    resized();
+}
+
+int TimelineComponent::getMasterStripHeight() const
+{
+    if (masterTrack == nullptr)
+        return 0;
+
+    const int headerH = TrackHeaderComponent::getPreferredHeight (*masterTrack);
+    const int footerExtra = editViewState.showFooters ? footerHeight : 0;
+    return juce::jmax (headerH + footerExtra,
+                       juce::jlimit (minTrackHeight, maxTrackHeight, editViewState.trackHeight.get()));
+}
+
+void TimelineComponent::syncMasterStrip()
+{
+    edit.ensureMasterTrack();
+    masterTrack = edit.getMasterTrack();
+
+    if (masterTrack == nullptr)
+    {
+        masterHeader.reset();
+        masterFooter.reset();
+        masterLane.reset();
+        return;
+    }
+
+    if (masterHeader == nullptr || masterHeader->getTrackId() != masterTrack->itemID)
+    {
+        masterHeader = std::make_unique<TrackHeaderComponent> (editViewState, masterTrack);
+        masterHeader->onTrackSelected = [this] (te::Track& t)
+        {
+            for (auto* headerComp : trackHeaders)
+                if (headerComp != nullptr)
+                    headerComp->repaint();
+
+            if (masterHeader != nullptr)
+                masterHeader->repaint();
+
+            if (onTrackSelected)
+                onTrackSelected (t);
+        };
+        addAndMakeVisible (*masterHeader);
+    }
+
+    masterHeader->createPlugin = createPlugin;
+    masterHeader->onPluginInserted = onPluginInserted;
+
+    if (masterLane == nullptr)
+    {
+        masterLane = std::make_unique<MasterLaneComponent>();
+        addAndMakeVisible (*masterLane);
+    }
+
+    if (editViewState.showFooters)
+    {
+        if (masterFooter == nullptr)
+        {
+            masterFooter = std::make_unique<TrackFooterComponent> (editViewState, masterTrack);
+            masterFooter->onAddPlugin = [this] (te::Track& t)
+            {
+                if (onAddPlugin)
+                    onAddPlugin (t);
+            };
+            addAndMakeVisible (*masterFooter);
+        }
+
+        masterFooter->createPlugin = createPlugin;
+        masterFooter->onPluginInserted = onPluginInserted;
+    }
+    else
+    {
+        masterFooter.reset();
+    }
 }
 
 void TimelineComponent::resized()
@@ -1742,6 +1838,11 @@ void TimelineComponent::resized()
     ruler.setBounds (topRow);
 
     const auto scrollStrip = r.removeFromBottom (hScrollBarHeight + hScrollBarGap);
+    const int masterH = getMasterStripHeight();
+
+    juce::Rectangle<int> masterArea;
+    if (masterH > 0)
+        masterArea = r.removeFromBottom (masterH);
 
     auto headerArea = r.removeFromLeft (hw);
     headerViewport.setBounds (headerArea);
@@ -1750,6 +1851,47 @@ void TimelineComponent::resized()
         headerSplitter->setBounds (r.removeFromLeft (headerSplitterWidth));
 
     timelineViewport.setBounds (r);
+
+    if (masterArea.getHeight() > 0 && masterTrack != nullptr)
+    {
+        if (masterHeader != nullptr)
+        {
+            masterHeader->createPlugin = createPlugin;
+            masterHeader->onPluginInserted = onPluginInserted;
+        }
+
+        if (masterFooter != nullptr)
+        {
+            masterFooter->createPlugin = createPlugin;
+            masterFooter->onPluginInserted = onPluginInserted;
+        }
+
+        auto masterHeaderArea = masterArea.removeFromLeft (hw);
+        masterArea.removeFromLeft (headerSplitterWidth);
+
+        const int headerH = TrackHeaderComponent::getPreferredHeight (*masterTrack);
+
+        if (masterHeader != nullptr)
+        {
+            masterHeader->setBounds (masterHeaderArea.getX(), masterHeaderArea.getY(),
+                                     hw, headerH);
+            masterHeader->toFront (false);
+        }
+
+        if (masterFooter != nullptr && editViewState.showFooters)
+        {
+            masterFooter->setBounds (masterHeaderArea.getX(),
+                                     masterHeaderArea.getY() + headerH,
+                                     hw, footerHeight);
+            masterFooter->toFront (false);
+        }
+
+        if (masterLane != nullptr)
+        {
+            masterLane->setBounds (masterArea);
+            masterLane->toFront (false);
+        }
+    }
 
     hScrollBarOverlay.setBounds (timelineViewport.getX(),
                                  scrollStrip.getY() + hScrollBarGap,

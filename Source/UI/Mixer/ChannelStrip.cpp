@@ -29,6 +29,7 @@ LevelMeter::LevelMeter (te::LevelMeasurer& m, UiTelemetryHub* hub)
     : levelMeasurer (m), telemetryHub (hub)
 {
     levelMeasurer.addClient (levelClient);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
 
     if (telemetryHub != nullptr)
         telemetryHub->registerMeter (this);
@@ -42,32 +43,164 @@ LevelMeter::~LevelMeter()
     levelMeasurer.removeClient (levelClient);
 }
 
-void LevelMeter::paint (juce::Graphics& g)
+float LevelMeter::dbToMeterNorm (float db)
 {
-    auto bounds = getLocalBounds().toFloat();
+    if (db <= meterFloorDb)
+        return 0.0f;
+
+    return juce::jlimit (0.0f, 1.0f, (db - meterFloorDb) / -meterFloorDb);
+}
+
+void LevelMeter::resetPeaks()
+{
+    for (int i = 0; i < 2; ++i)
+    {
+        peakHolds[i] = levels[i];
+        peakHoldTicks[i] = 0;
+        clipped[i] = false;
+    }
+
+    levelClient.getAndClearOverload();
+    levelClient.getAndClearPeak();
+    repaint();
+}
+
+void LevelMeter::mouseDown (const juce::MouseEvent&)
+{
+    resetPeaks();
+}
+
+void LevelMeter::paintChannel (juce::Graphics& g, juce::Rectangle<float> bounds,
+                               float levelNorm, float peakNorm, bool isClipped) const
+{
     g.setColour (juce::Colours::black);
     g.fillRect (bounds);
 
-    g.setColour (juce::Colours::green);
-    const float h = bounds.getHeight() * level;
-    g.fillRect (bounds.getX(), bounds.getBottom() - h, bounds.getWidth(), h);
+    const float h = bounds.getHeight();
+    const float levelH = h * levelNorm;
+
+    if (levelH > 0.5f)
+    {
+        auto levelBounds = bounds.withTop (bounds.getBottom() - levelH);
+        const float yellowStart = bounds.getBottom() - h * dbToMeterNorm (-6.0f);
+        const float redStart = bounds.getBottom() - h * dbToMeterNorm (-0.5f);
+
+        // Green body
+        auto greenArea = levelBounds.withBottom (juce::jmin (levelBounds.getBottom(), yellowStart));
+        if (greenArea.getHeight() > 0.0f)
+        {
+            g.setColour (juce::Colour (0xff2ecc71));
+            g.fillRect (greenArea);
+        }
+
+        // Yellow near 0 dB
+        if (levelBounds.getY() < yellowStart)
+        {
+            auto yellowArea = levelBounds.withTop (juce::jmax (levelBounds.getY(), redStart))
+                                         .withBottom (yellowStart);
+            if (yellowArea.getHeight() > 0.0f)
+            {
+                g.setColour (juce::Colour (0xfff1c40f));
+                g.fillRect (yellowArea);
+            }
+        }
+
+        // Red near / above 0 dB
+        if (levelBounds.getY() < redStart)
+        {
+            auto redArea = levelBounds.withBottom (redStart);
+            if (redArea.getHeight() > 0.0f)
+            {
+                g.setColour (juce::Colour (0xffe74c3c));
+                g.fillRect (redArea);
+            }
+        }
+    }
+
+    if (peakNorm > 0.01f)
+    {
+        const float peakY = bounds.getBottom() - h * peakNorm;
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.fillRect (bounds.getX(), peakY - 1.0f, bounds.getWidth(), 2.0f);
+    }
+
+    if (isClipped)
+    {
+        g.setColour (juce::Colour (0xffff3333));
+        g.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 3.0f);
+    }
+}
+
+void LevelMeter::paint (juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+    const int channels = juce::jlimit (1, 2, numChannels);
+    const float gap = channels > 1 ? 1.0f : 0.0f;
+    const float barW = (bounds.getWidth() - gap) / (float) channels;
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        auto bar = bounds.removeFromLeft (barW);
+        paintChannel (g, bar, levels[ch], peakHolds[ch], clipped[ch]);
+        if (ch + 1 < channels)
+            bounds.removeFromLeft (gap);
+    }
 }
 
 void LevelMeter::updateFromMeasurer()
 {
-    const int channels = juce::jmax (1, levelClient.getNumChannelsUsed());
-    float db = levelClient.getAndClearAudioLevel (0).dB;
+    const int channels = juce::jlimit (1, 2, juce::jmax (1, levelClient.getNumChannelsUsed()));
+    numChannels = channels;
 
-    if (channels > 1)
-        db = juce::jmax (db, levelClient.getAndClearAudioLevel (1).dB);
+    bool anyOverload = levelClient.getAndClearOverload();
+    bool changed = false;
 
-    const float newLevel = juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db));
-
-    if (newLevel != level)
+    for (int ch = 0; ch < 2; ++ch)
     {
-        level = newLevel;
-        repaint();
+        float db = meterFloorDb;
+        if (ch < channels)
+            db = levelClient.getAndClearAudioLevel (ch).dB;
+
+        const float newLevel = dbToMeterNorm (db);
+        if (std::abs (newLevel - levels[ch]) > 0.0001f)
+        {
+            levels[ch] = newLevel;
+            changed = true;
+        }
+
+        if (newLevel >= peakHolds[ch])
+        {
+            if (std::abs (peakHolds[ch] - newLevel) > 0.0001f)
+                changed = true;
+            peakHolds[ch] = newLevel;
+            peakHoldTicks[ch] = 0;
+        }
+        else
+        {
+            ++peakHoldTicks[ch];
+            if (peakHoldTicks[ch] > peakHoldTicksBeforeDecay)
+            {
+                const float decayed = juce::jmax (newLevel, peakHolds[ch] - peakDecayPerTick);
+                if (std::abs (decayed - peakHolds[ch]) > 0.0001f)
+                {
+                    peakHolds[ch] = decayed;
+                    changed = true;
+                }
+            }
+        }
+
+        if (anyOverload || newLevel >= 0.999f)
+        {
+            if (! clipped[ch])
+            {
+                clipped[ch] = true;
+                changed = true;
+            }
+        }
     }
+
+    if (changed)
+        repaint();
 }
 
 //==============================================================================
@@ -411,7 +544,7 @@ void ChannelStrip::resized()
     volumeValueLabel.setBounds (r.removeFromBottom (14));
 
     if (meter != nullptr)
-        meter->setBounds (r.removeFromRight (8));
+        meter->setBounds (r.removeFromRight (LevelMeter::preferredWidth));
 
     fader.setBounds (r);
 }

@@ -482,8 +482,7 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
                 break;
             }
             case duplicate:
-                if (auto* at = dynamic_cast<te::AudioTrack*> (&track))
-                    EngineHelpers::duplicatePluginOnTrack (plugin, *at);
+                EngineHelpers::duplicatePluginOnTrack (plugin, track);
                 break;
             case replace:
                 if (onReplace)
@@ -497,18 +496,17 @@ void showPluginDeviceMenu (PluginSlotComponent& slot,
             case paste:
                 if (stateManager != nullptr && stateManager->hasClipboard())
                 {
-                    if (auto* at = dynamic_cast<te::AudioTrack*> (&track))
+                    const auto desc = stateManager->getClipboardDescription();
+                    if (auto newPlugin = EngineHelpers::createPluginFromDescription (plugin.edit, desc))
                     {
-                        const auto desc = stateManager->getClipboardDescription();
-                        if (auto newPlugin = EngineHelpers::createPluginFromDescription (plugin.edit, desc))
-                        {
-                            EngineHelpers::insertPluginOnTrack (*at, newPlugin);
+                        if (EngineHelpers::insertPluginOnTrack (track, newPlugin) != nullptr)
                             PluginPresetManager::applyPluginState (*newPlugin, stateManager->getClipboardState());
-                        }
                         else if (safeSlot != nullptr)
-                        {
                             EngineHelpers::showPluginInsertFailureAlert (safeSlot.getComponent(), desc);
-                        }
+                    }
+                    else if (safeSlot != nullptr)
+                    {
+                        EngineHelpers::showPluginInsertFailureAlert (safeSlot.getComponent(), desc);
                     }
                 }
                 break;

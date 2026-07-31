@@ -78,6 +78,14 @@ void AutomationPanel::rebuildLanes()
             toShow.addIfNotAlreadyThere (vol->panParam.get());
         }
     }
+    else if (track->isMasterTrack())
+    {
+        if (auto vol = edit.getMasterVolumePlugin())
+        {
+            toShow.addIfNotAlreadyThere (vol->volParam.get());
+            toShow.addIfNotAlreadyThere (vol->panParam.get());
+        }
+    }
 
     for (auto* param : track->getAllAutomatableParams())
         if (param != nullptr && param->hasAutomationPoints())
@@ -212,7 +220,7 @@ void AutomationPanel::paint (juce::Graphics& g)
     if (track == nullptr)
     {
         g.setColour (juce::Colours::white.withAlpha (0.4f));
-        g.drawText ("Select a track to edit its automation",
+        g.drawText ("Select a track (or Master) to edit its automation",
                     getLocalBounds(), juce::Justification::centred);
     }
 }

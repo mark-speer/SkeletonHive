@@ -61,14 +61,14 @@ void PluginTrayComponent::setTrack (te::Track* track)
     chainModel.reset();
     expandedRackIds.clear();
 
-    if (track != nullptr)
+    if (track != nullptr && track->canContainPlugins())
     {
-        if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
-        {
-            chainModel = std::make_unique<TrackPluginChainModel> (*audioTrack);
-            track->pluginList.state.addListener (this);
-        }
-
+        chainModel = std::make_unique<TrackPluginChainModel> (*track);
+        track->pluginList.state.addListener (this);
+        trackTitle.setText (track->getName(), juce::dontSendNotification);
+    }
+    else if (track != nullptr)
+    {
         trackTitle.setText (track->getName(), juce::dontSendNotification);
     }
     else
@@ -406,32 +406,32 @@ void PluginTrayComponent::itemDropped (const SourceDetails& details)
 
 void PluginTrayComponent::handleSlotDrop (const PluginDragPayload& payload, int flatSlotIndex)
 {
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
+    if (currentTrack == nullptr || chainModel == nullptr)
+        return;
+
+    if (payload.rackInstanceId.isValid())
     {
-        if (payload.rackInstanceId.isValid())
+        if (auto* rack = EngineHelpers::findRackOnTrack (*currentTrack, payload.rackInstanceId))
         {
-            if (auto* rack = EngineHelpers::findRackOnTrack (*audioTrack, payload.rackInstanceId))
-            {
-                for (auto* plugin : EngineHelpers::getRackInternalPlugins (*rack))
-                {
-                    if (plugin->itemID == payload.pluginId)
-                    {
-                        const int target = rackInternalSlotAtFlatIndex (flatSlotIndex, *rack);
-                        moveRackPluginToSlot (*rack, *plugin, target);
-                        return;
-                    }
-                }
-            }
-        }
-        else
-        {
-            for (auto* plugin : chainModel->getUserChainPlugins())
+            for (auto* plugin : EngineHelpers::getRackInternalPlugins (*rack))
             {
                 if (plugin->itemID == payload.pluginId)
                 {
-                    movePluginToSlot (*plugin, userSlotAtFlatIndex (flatSlotIndex));
+                    const int target = rackInternalSlotAtFlatIndex (flatSlotIndex, *rack);
+                    moveRackPluginToSlot (*rack, *plugin, target);
                     return;
                 }
+            }
+        }
+    }
+    else
+    {
+        for (auto* plugin : chainModel->getUserChainPlugins())
+        {
+            if (plugin->itemID == payload.pluginId)
+            {
+                movePluginToSlot (*plugin, userSlotAtFlatIndex (flatSlotIndex));
+                return;
             }
         }
     }
@@ -439,21 +439,21 @@ void PluginTrayComponent::handleSlotDrop (const PluginDragPayload& payload, int 
 
 void PluginTrayComponent::handleCrossTrackDrop (const PluginDragPayload& payload, int slotIndex)
 {
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
-    {
-        for (auto t : te::getAudioTracks (editViewState.edit))
-        {
-            if (t->itemID != payload.sourceTrackId)
-                continue;
+    if (currentTrack == nullptr)
+        return;
 
-            for (auto p : t->pluginList)
+    for (auto t : te::getAllTracks (editViewState.edit))
+    {
+        if (t == nullptr || t->itemID != payload.sourceTrackId || ! t->canContainPlugins())
+            continue;
+
+        for (auto p : t->pluginList)
+        {
+            if (p->itemID == payload.pluginId)
             {
-                if (p->itemID == payload.pluginId)
-                {
-                    EngineHelpers::movePluginToTrack (*p, *audioTrack, slotIndex);
-                    markDirty();
-                    return;
-                }
+                EngineHelpers::movePluginToTrack (*p, *currentTrack, slotIndex);
+                markDirty();
+                return;
             }
         }
     }
@@ -461,26 +461,25 @@ void PluginTrayComponent::handleCrossTrackDrop (const PluginDragPayload& payload
 
 void PluginTrayComponent::insertBrowserPlugin (const juce::PluginDescription& desc, int slotIndex)
 {
-    if (createPlugin == nullptr || desc.name.isEmpty() || chainModel == nullptr)
+    if (createPlugin == nullptr || desc.name.isEmpty() || chainModel == nullptr || currentTrack == nullptr)
         return;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
+    if (auto plugin = createPlugin (desc))
     {
-        if (auto plugin = createPlugin (desc))
+        const int insertIndex = chainModel->resolveInsertIndex (slotIndex,
+                                                                EngineHelpers::isInstrumentDescription (desc),
+                                                                nullptr);
+        if (insertIndex >= 0)
         {
-            const int insertIndex = chainModel->resolveInsertIndex (slotIndex,
-                                                                    EngineHelpers::isInstrumentDescription (desc),
-                                                                    nullptr);
-            if (insertIndex >= 0)
-            {
-                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
+            if (EngineHelpers::insertPluginOnTrack (*currentTrack, plugin, insertIndex) != nullptr)
                 pluginStateManager.recordRecentUse (desc.createIdentifierString());
-            }
+            else
+                EngineHelpers::showPluginInsertFailureAlert (this, desc);
         }
-        else
-        {
-            EngineHelpers::showPluginInsertFailureAlert (this, desc);
-        }
+    }
+    else
+    {
+        EngineHelpers::showPluginInsertFailureAlert (this, desc);
     }
 }
 
@@ -500,11 +499,10 @@ void PluginTrayComponent::movePlugin (te::Plugin& plugin, int direction)
 
 void PluginTrayComponent::movePluginToSlot (te::Plugin& plugin, int targetSlotIndex)
 {
-    if (chainModel == nullptr)
+    if (chainModel == nullptr || currentTrack == nullptr)
         return;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
-        EngineHelpers::movePluginToUserSlot (*audioTrack, plugin, targetSlotIndex);
+    EngineHelpers::movePluginToUserSlot (*currentTrack, plugin, targetSlotIndex);
 }
 
 void PluginTrayComponent::moveRackPluginToSlot (te::RackInstance& rack, te::Plugin& plugin, int targetSlotIndex)
@@ -541,15 +539,15 @@ void PluginTrayComponent::showReplacePicker (te::Plugin& plugin, te::RackInstanc
         if (safeThis == nullptr)
             return;
 
-        auto* audioTrack = dynamic_cast<te::AudioTrack*> (safeThis->currentTrack.get());
-        if (audioTrack == nullptr)
+        auto* track = safeThis->currentTrack.get();
+        if (track == nullptr || ! track->canContainPlugins())
             return;
 
         te::Plugin* targetPlugin = nullptr;
 
         if (rackId.isValid())
         {
-            if (auto* rack = EngineHelpers::findRackOnTrack (*audioTrack, rackId))
+            if (auto* rack = EngineHelpers::findRackOnTrack (*track, rackId))
             {
                 for (auto* inner : EngineHelpers::getRackInternalPlugins (*rack))
                 {
@@ -582,7 +580,7 @@ void PluginTrayComponent::showReplacePicker (te::Plugin& plugin, te::RackInstanc
 
             if (targetPlugin != nullptr)
             {
-                if (EngineHelpers::replacePluginOnTrack (*audioTrack, *targetPlugin, desc) == nullptr)
+                if (EngineHelpers::replacePluginOnTrack (*track, *targetPlugin, desc) == nullptr)
                     EngineHelpers::showPluginInsertFailureAlert (safeThis.getComponent(), desc);
                 else
                     safeThis->pluginStateManager.recordRecentUse (desc.createIdentifierString());
@@ -631,9 +629,9 @@ bool PluginTrayComponent::performCommand (int commandID)
             return true;
 
         case pluginDuplicate:
-            if (auto* at = dynamic_cast<te::AudioTrack*> (currentTrack.get()))
+            if (currentTrack != nullptr)
                 for (auto* p : selected)
-                    EngineHelpers::duplicatePluginOnTrack (*p, *at);
+                    EngineHelpers::duplicatePluginOnTrack (*p, *currentTrack);
             return true;
 
         case pluginCopy:
