@@ -1263,12 +1263,10 @@ void TimelineComponent::paintTimeSelectionOverlay (juce::Graphics& g)
     const auto theme = AppLookAndFeel::getCurrentTheme();
     const int viewY = timelineViewport.getViewPositionY();
     const int viewX = timelineViewport.getViewPositionX();
-    const int hw = editViewState.getHeaderWidth();
 
-    int x1 = hw + headerSplitterWidth + timelineViewport.getX()
-               + editViewState.timeToX (range.getStart()) - viewX;
-    int x2 = hw + headerSplitterWidth + timelineViewport.getX()
-               + editViewState.timeToX (range.getEnd()) - viewX;
+    // Content X is absolute canvas timeToX; viewport is already past the header/splitter.
+    int x1 = timelineViewport.getX() + editViewState.timeToX (range.getStart()) - viewX;
+    int x2 = timelineViewport.getX() + editViewState.timeToX (range.getEnd()) - viewX;
     if (x2 < x1)
         std::swap (x1, x2);
 
