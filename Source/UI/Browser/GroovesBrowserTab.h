@@ -11,6 +11,7 @@ class GroovesBrowserTab : public juce::Component,
 {
 public:
     GroovesBrowserTab (GroovePoolManager& pool, te::Edit& edit, te::SelectionManager& selection);
+    ~GroovesBrowserTab() override;
 
     void refreshList();
 

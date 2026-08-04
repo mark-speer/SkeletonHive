@@ -123,6 +123,8 @@ private:
     void repaintGrid();
     void toggleShowGrid();
     void syncGridControls();
+    void syncMasterStrip();
+    int getMasterStripHeight() const;
 
     void duplicateSelectedClips();
     bool consolidateSelectedClips();
@@ -242,6 +244,13 @@ private:
     juce::OwnedArray<TrackLaneComponent> trackLanes;
     juce::OwnedArray<TrackHeaderComponent> trackHeaders;
     juce::OwnedArray<TrackFooterComponent> trackFooters;
+
+    /** Viewport-pinned Ableton-style master row (outside scrolling trackRows). */
+    class MasterLaneComponent;
+    std::unique_ptr<TrackHeaderComponent> masterHeader;
+    std::unique_ptr<TrackFooterComponent> masterFooter;
+    std::unique_ptr<MasterLaneComponent> masterLane;
+    te::Track::Ptr masterTrack;
 
     bool updateTracks = false;
     bool relayoutTracks = false;

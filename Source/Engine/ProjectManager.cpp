@@ -499,7 +499,7 @@ void ProjectManager::releaseProjectLock()
     if (activeLockFile != juce::File())
     {
         activeLockFile.deleteFile();
-        activeLockFile = {};
+        activeLockFile = juce::File();
     }
 }
 

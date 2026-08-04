@@ -7,6 +7,7 @@ namespace skeletonhive
 
 class UiTelemetryHub;
 
+/** Stereo VU meter with peak hold, clip LED, and dB-scaled colour zones. */
 class LevelMeter : public juce::Component
 {
 public:
@@ -14,13 +15,30 @@ public:
     ~LevelMeter() override;
 
     void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
     void updateFromMeasurer();
 
+    static constexpr int preferredWidth = 16;
+
 private:
+    static float dbToMeterNorm (float db);
+    void paintChannel (juce::Graphics& g, juce::Rectangle<float> bounds,
+                       float levelNorm, float peakNorm, bool clipped) const;
+    void resetPeaks();
+
     te::LevelMeasurer& levelMeasurer;
     te::LevelMeasurer::Client levelClient;
     UiTelemetryHub* telemetryHub = nullptr;
-    float level = 0.0f;
+
+    float levels[2] { 0.0f, 0.0f };
+    float peakHolds[2] { 0.0f, 0.0f };
+    int peakHoldTicks[2] { 0, 0 };
+    bool clipped[2] { false, false };
+    int numChannels = 1;
+
+    static constexpr float meterFloorDb = -60.0f;
+    static constexpr int peakHoldTicksBeforeDecay = 30; // ~1s at 30 Hz
+    static constexpr float peakDecayPerTick = 0.02f;
 };
 
 /** A mixer channel strip with two-way model binding: fader/pan follow parameter

@@ -103,7 +103,7 @@ void TakeLaneComponent::releaseThumbnail()
 
     thumbnail.reset();
     thumbnailHeld = false;
-    cachedThumbnailFile = {};
+    cachedThumbnailFile = juce::File();
 }
 
 void TakeLaneComponent::paintWaveform (juce::Graphics& g, juce::Rectangle<int> area)

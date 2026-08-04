@@ -19,6 +19,7 @@ public:
                       PreviewPlayer& preview,
                       WaveformCache& waveforms,
                       te::Engine& engine);
+    ~SampleBrowserTab() override;
 
     void setRootFilter (const juce::File& root);
     void showFavoritesFilter();

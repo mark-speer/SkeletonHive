@@ -433,6 +433,7 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     outputLabel.setInterceptsMouseClicks (false, false);
 
     armButton.setVisible (dynamic_cast<te::AudioTrack*> (track.get()) != nullptr
+                          && ! track->isMasterTrack()
                           && ! EngineHelpers::isReturnTrack (*track)
                           && TrackMonitorRouting::shouldShowMonitorControl (*track));
     armButton.setTooltip ("Arm for recording");
@@ -444,6 +445,9 @@ TrackHeaderComponent::TrackHeaderComponent (EditViewState& evs, te::Track::Ptr t
     armButton.setClickingTogglesState (true);
     muteButton.setTooltip ("Mute");
     soloButton.setTooltip ("Solo");
+    muteButton.setVisible (! track->isMasterTrack());
+    soloButton.setVisible (! track->isMasterTrack());
+    colourSwatch.setVisible (! track->isMasterTrack());
 
     gainSlider.setTooltip ("Volume");
     panSlider.setTooltip ("Pan");
@@ -514,14 +518,21 @@ void TrackHeaderComponent::paint (juce::Graphics& g)
 {
     const auto theme = AppLookAndFeel::getCurrentTheme();
     const bool selected = editViewState.selectionManager.isSelected (track.get());
-    auto bg = AppColours::headerBackground (theme);
+    auto bg = track->isMasterTrack()
+                  ? juce::Colour (0xff222240)
+                  : AppColours::headerBackground (theme);
 
     if (hovered)
         bg = bg.brighter (0.05f);
 
     g.fillAll (bg);
 
-    if (! track->isFolderTrack() && ! EngineHelpers::isReturnTrack (*track))
+    if (track->isMasterTrack())
+    {
+        g.setColour (juce::Colour (0xff4a6fa5));
+        g.fillRect (0, 0, 4, getHeight());
+    }
+    else if (! track->isFolderTrack() && ! EngineHelpers::isReturnTrack (*track))
     {
         auto accent = EngineHelpers::getTrackDisplayColour (*track);
 
@@ -795,7 +806,9 @@ void TrackHeaderComponent::moveSelectedTracksToDropZone (EngineHelpers::TrackDro
 
 void TrackHeaderComponent::bindMixControls()
 {
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (track->isMasterTrack())
+        volumePlugin = track->edit.getMasterVolumePlugin();
+    else if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
         volumePlugin = audioTrack->getVolumePlugin();
     else if (auto* folderTrack = dynamic_cast<te::FolderTrack*> (track.get()))
         volumePlugin = folderTrack->getVolumePlugin();
@@ -1062,7 +1075,10 @@ bool TrackHeaderComponent::isInterestedInDragSource (const SourceDetails& detail
 
     if (desc.startsWith (PluginDragTypes::browserInsert)
         || desc.startsWith (PluginDragTypes::crossTrack))
-        return true;
+        return track != nullptr && track->canContainPlugins();
+
+    if (track != nullptr && track->isMasterTrack())
+        return false;
 
     const auto draggedId = EngineHelpers::parseTrackDrag (details.description);
     return draggedId.isValid() && draggedId != track->itemID;
@@ -1123,51 +1139,53 @@ void TrackHeaderComponent::itemDropped (const SourceDetails& details)
 
 void TrackHeaderComponent::insertBrowserPlugin (const juce::PluginDescription& desc)
 {
-    if (createPlugin == nullptr || desc.name.isEmpty())
+    if (createPlugin == nullptr || desc.name.isEmpty() || track == nullptr || ! track->canContainPlugins())
         return;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (auto plugin = createPlugin (desc))
     {
-        if (auto plugin = createPlugin (desc))
+        TrackPluginChainModel model (*track);
+        const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
+                                                          EngineHelpers::isInstrumentDescription (desc),
+                                                          nullptr);
+        if (insertIndex >= 0)
         {
-            TrackPluginChainModel model (*audioTrack);
-            const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
-                                                              EngineHelpers::isInstrumentDescription (desc),
-                                                              nullptr);
-            if (insertIndex >= 0)
+            if (EngineHelpers::insertPluginOnTrack (*track, plugin, insertIndex) != nullptr)
             {
-                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
-
                 if (onPluginInserted)
                     onPluginInserted (desc);
             }
+            else
+            {
+                EngineHelpers::showPluginInsertFailureAlert (this, desc);
+            }
         }
-        else
-        {
-            EngineHelpers::showPluginInsertFailureAlert (this, desc);
-        }
+    }
+    else
+    {
+        EngineHelpers::showPluginInsertFailureAlert (this, desc);
     }
 }
 
 void TrackHeaderComponent::handleCrossTrackDrop (const PluginDragPayload& payload)
 {
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (track == nullptr || ! track->canContainPlugins())
+        return;
+
+    TrackPluginChainModel model (*track);
+    const int userSlot = model.getUserChainSize();
+
+    for (auto t : te::getAllTracks (editViewState.edit))
     {
-        TrackPluginChainModel model (*audioTrack);
-        const int userSlot = model.getUserChainSize();
+        if (t == nullptr || t->itemID != payload.sourceTrackId || ! t->canContainPlugins())
+            continue;
 
-        for (auto t : te::getAudioTracks (editViewState.edit))
+        for (auto p : t->pluginList)
         {
-            if (t->itemID != payload.sourceTrackId)
-                continue;
-
-            for (auto p : t->pluginList)
+            if (p->itemID == payload.pluginId)
             {
-                if (p->itemID == payload.pluginId)
-                {
-                    EngineHelpers::movePluginToTrack (*p, *audioTrack, userSlot);
-                    return;
-                }
+                EngineHelpers::movePluginToTrack (*p, *track, userSlot);
+                return;
             }
         }
     }
@@ -1194,6 +1212,13 @@ void TrackHeaderComponent::valueTreePropertyChanged (juce::ValueTree&, const juc
 
 void TrackHeaderComponent::updateKindBadge()
 {
+    if (track->isMasterTrack())
+    {
+        kindBadge.setText ("MASTER", juce::dontSendNotification);
+        kindBadge.setColour (juce::Label::backgroundColourId, juce::Colour (0xff4a6fa5));
+        return;
+    }
+
     if (track->isFolderTrack())
     {
         kindBadge.setText ("FOLDER", juce::dontSendNotification);
@@ -1622,17 +1647,17 @@ void TrackFooterComponent::showFooterContextMenu (const juce::MouseEvent& e)
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                         [this] (int result)
     {
-        if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+        if (track == nullptr || ! track->canContainPlugins())
+            return;
+
+        if (result == insertRack)
         {
-            if (result == insertRack)
-            {
-                if (auto* rack = EngineHelpers::insertEmptyRack (*audioTrack))
-                    setExpandedRack (rack);
-            }
-            else if (result == groupRack)
-            {
-                groupSelectedIntoRack();
-            }
+            if (auto* rack = EngineHelpers::insertEmptyRack (*track))
+                setExpandedRack (rack);
+        }
+        else if (result == groupRack)
+        {
+            groupSelectedIntoRack();
         }
     });
 }
@@ -1715,52 +1740,54 @@ void TrackFooterComponent::itemDropped (const SourceDetails& details)
 
 void TrackFooterComponent::insertBrowserPlugin (const juce::PluginDescription& desc, int slotIndex)
 {
-    if (createPlugin == nullptr || desc.name.isEmpty())
+    if (createPlugin == nullptr || desc.name.isEmpty() || track == nullptr || ! track->canContainPlugins())
         return;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (auto plugin = createPlugin (desc))
     {
-        if (auto plugin = createPlugin (desc))
+        TrackPluginChainModel model (*track);
+        const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
+        const int insertIndex = model.resolveInsertIndex (userSlot,
+                                                          EngineHelpers::isInstrumentDescription (desc),
+                                                          nullptr);
+        if (insertIndex >= 0)
         {
-            TrackPluginChainModel model (*audioTrack);
-            const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
-            const int insertIndex = model.resolveInsertIndex (userSlot,
-                                                              EngineHelpers::isInstrumentDescription (desc),
-                                                              nullptr);
-            if (insertIndex >= 0)
+            if (EngineHelpers::insertPluginOnTrack (*track, plugin, insertIndex) != nullptr)
             {
-                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
-
                 if (onPluginInserted)
                     onPluginInserted (desc);
             }
+            else
+            {
+                EngineHelpers::showPluginInsertFailureAlert (this, desc);
+            }
         }
-        else
-        {
-            EngineHelpers::showPluginInsertFailureAlert (this, desc);
-        }
+    }
+    else
+    {
+        EngineHelpers::showPluginInsertFailureAlert (this, desc);
     }
 }
 
 void TrackFooterComponent::handleCrossTrackDrop (const PluginDragPayload& payload, int slotIndex)
 {
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (track == nullptr || ! track->canContainPlugins())
+        return;
+
+    TrackPluginChainModel model (*track);
+    const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
+
+    for (auto t : te::getAllTracks (editViewState.edit))
     {
-        TrackPluginChainModel model (*audioTrack);
-        const int userSlot = juce::jlimit (0, model.getUserChainSize(), slotIndex);
+        if (t == nullptr || t->itemID != payload.sourceTrackId || ! t->canContainPlugins())
+            continue;
 
-        for (auto t : te::getAudioTracks (editViewState.edit))
+        for (auto p : t->pluginList)
         {
-            if (t->itemID != payload.sourceTrackId)
-                continue;
-
-            for (auto p : t->pluginList)
+            if (p->itemID == payload.pluginId)
             {
-                if (p->itemID == payload.pluginId)
-                {
-                    EngineHelpers::movePluginToTrack (*p, *audioTrack, userSlot);
-                    return;
-                }
+                EngineHelpers::movePluginToTrack (*p, *track, userSlot);
+                return;
             }
         }
     }
@@ -2324,20 +2351,23 @@ void TrackLaneComponent::itemDropped (const SourceDetails& details)
     if (pd.name.isEmpty())
         return;
 
-    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track.get()))
+    if (track != nullptr && track->canContainPlugins())
     {
         if (auto plugin = createPlugin (pd))
         {
-            TrackPluginChainModel model (*audioTrack);
+            TrackPluginChainModel model (*track);
             const int insertIndex = model.resolveInsertIndex (model.getUserChainSize(),
                                                               EngineHelpers::isInstrumentDescription (pd),
                                                               nullptr);
             if (insertIndex >= 0)
             {
-                EngineHelpers::insertPluginOnTrack (*audioTrack, plugin, insertIndex);
-
-                if (onPluginInserted)
-                    onPluginInserted (pd);
+                if (EngineHelpers::insertPluginOnTrack (*track, plugin, insertIndex) != nullptr)
+                {
+                    if (onPluginInserted)
+                        onPluginInserted (pd);
+                }
+                else
+                    EngineHelpers::showPluginInsertFailureAlert (this, pd);
             }
         }
         else

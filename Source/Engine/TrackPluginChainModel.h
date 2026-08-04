@@ -5,13 +5,16 @@
 namespace skeletonhive
 {
 
-/** Read-only view of a track's user-visible plugin chain (TE PluginList wrapper). */
+/** Read-only view of a track's user-visible plugin chain (TE PluginList wrapper).
+
+    Works for AudioTrack and MasterTrack (and any other plugin-capable Track).
+*/
 class TrackPluginChainModel
 {
 public:
-    explicit TrackPluginChainModel (te::AudioTrack& track);
+    explicit TrackPluginChainModel (te::Track& track);
 
-    te::AudioTrack& getTrack() { return track; }
+    te::Track& getTrack() { return track; }
 
     juce::Array<te::Plugin*> getUserChainPlugins() const;
     int getUserChainSize() const;
@@ -34,7 +37,7 @@ public:
                             const te::Plugin* movingExisting = nullptr) const;
 
 private:
-    te::AudioTrack& track;
+    te::Track& track;
 };
 
 } // namespace skeletonhive
