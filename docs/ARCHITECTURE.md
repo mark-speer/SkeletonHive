@@ -1,5 +1,12 @@
 # SkeletonHive — Architecture and Modernization Roadmap
 
+> **Documentation status:** This is the accumulated architecture and historical
+> implementation inventory. Its "implemented" labels establish code presence,
+> not automated, manual, cross-platform, or release validation. Use
+> [ROADMAP.md](ROADMAP.md) for current priority and
+> [validation/VALIDATED_BASELINE.md](validation/VALIDATED_BASELINE.md) for
+> demonstrated behavior.
+
 This document captures the findings of the full-codebase architecture review
 (July 2026), the decisions made during the Phase 1 modernization pass, the
 Tracktion Engine (TE) alignment guidelines the code now follows, the

@@ -36,7 +36,15 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 
 ## Roadmap
 
-Phases 1–10 and Phase 9 Tier 4 / Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§16).
+The repository contains broad implementation work across the historical phase
+plan. Code presence is tracked separately from build, automated-test, manual,
+cross-platform, and release evidence.
+
+- [Documentation index](docs/INDEX.md)
+- [Current roadmap and acceptance criteria](docs/ROADMAP.md)
+- [Validated baseline](docs/validation/VALIDATED_BASELINE.md)
+- [Compatibility matrix](docs/validation/COMPATIBILITY_MATRIX.md)
+- [Architecture and historical implementation inventory](docs/ARCHITECTURE.md)
 
 **Debug stress tests (debug builds only):**
 - **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing and live slot component count.
@@ -104,6 +112,11 @@ cmake --build build --config Release
 ```
 
 Output lands in `dist/` (e.g. `SkeletonHive-0.1.0-windows-x64-<date>-<sha>.zip`). CI uploads the same zip as a workflow artifact on Windows builds.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Agent-assisted contributions must also
+follow [AGENTS.md](AGENTS.md).
 
 ## License
 
