@@ -34,9 +34,15 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Per-note probability and iteration lanes in the piano roll; session clips re-roll on each loop cycle
 - Session grid virtualization for large track counts (visible-row slot pooling)
 
+## Docs
+
+- [Architecture](docs/ARCHITECTURE.md) — ownership, threading, data flows, TE deviations
+- [Roadmap](docs/ROADMAP.md) — phase status and remaining backlog
+- [Contributing](docs/CONTRIBUTING.md) — invariants and placement rules
+
 ## Roadmap
 
-Phases 1–10 and Phase 9 Tier 4 / Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (§14–§16).
+Phases 1–10 and Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 **Debug stress tests (debug builds only):**
 - **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing and live slot component count.
