@@ -18,6 +18,9 @@ public:
     void parentHierarchyChanged() override;
     void mouseDown (const juce::MouseEvent& event) override;
 
+    /** Detach and forget the worker HWND so later resize/focus cannot touch a dead window. */
+    void detach();
+
 private:
     void attachIfNeeded();
     void updateChildBounds();

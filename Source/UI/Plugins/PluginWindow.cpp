@@ -27,8 +27,11 @@ namespace
 class SandboxFallbackPanel : public juce::Component
 {
 public:
-    SandboxFallbackPanel (te::ExternalPlugin& externalPlugin, const SandboxEditorResult& initialResult)
-        : external (externalPlugin)
+    SandboxFallbackPanel (PluginWindow& windowIn,
+                          te::ExternalPlugin& externalPlugin,
+                          const SandboxEditorResult& initialResult)
+        : ownerWindow (windowIn),
+          external (externalPlugin)
     {
         addAndMakeVisible (messageLabel);
         messageLabel.setJustificationType (juce::Justification::centred);
@@ -56,6 +59,12 @@ private:
             SandboxEditorResult result;
             if (sandboxed->requestBridgeEditor (result))
             {
+                if (result.nativeHandle != nullptr)
+                {
+                    ownerWindow.setSandboxEmbeddedEditor (external);
+                    return;
+                }
+
                 showResult (result);
                 return;
             }
@@ -80,10 +89,25 @@ private:
             return;
         }
 
-        messageLabel.setText ("Sandbox editor opened.",
+        if (result.success && result.nativeHandle != nullptr)
+        {
+            messageLabel.setText ("Sandbox editor opened.",
+                                  juce::dontSendNotification);
+            return;
+        }
+
+        if (result.error.isNotEmpty())
+        {
+            messageLabel.setText (result.error, juce::dontSendNotification);
+            return;
+        }
+
+        messageLabel.setText ("Plugin sandbox editor is not embedded.\n"
+                              "Click Open Editor to reconnect.",
                               juce::dontSendNotification);
     }
 
+    PluginWindow& ownerWindow;
     te::ExternalPlugin& external;
     juce::Label messageLabel;
     juce::TextButton openButton;
@@ -123,6 +147,7 @@ PluginWindow::PluginWindow (te::Plugin& plug, bool createEditorNow)
 PluginWindow::~PluginWindow()
 {
     updateStoredBounds = false;
+    clearBridgeEditorInvalidationHandler();
 
     if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
         if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*external))
@@ -314,16 +339,16 @@ void PluginWindow::setSandboxPlaceholder (te::ExternalPlugin& externalPlugin)
     if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (externalPlugin))
         sandboxed->requestBridgeEditor (result);
 
-    setContentOwned (new SandboxFallbackPanel (externalPlugin, result), true);
-    setResizable (true, false);
-    setSize (460, 190);
+    replaceSandboxContentWithFallback (externalPlugin, result);
 }
 
 void PluginWindow::setSandboxEmbeddedEditor (te::ExternalPlugin& externalPlugin)
 {
     SandboxEditorResult result;
 
-    if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (externalPlugin))
+    auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (externalPlugin);
+
+    if (sandboxed != nullptr)
         sandboxed->requestBridgeEditor (result);
 
     if (result.success && result.nativeHandle != nullptr)
@@ -332,12 +357,48 @@ void PluginWindow::setSandboxEmbeddedEditor (te::ExternalPlugin& externalPlugin)
         setContentOwned (embedded, true);
         setResizable (true, false);
         resizeToFitSandboxContent (embedded->getPreferredWidth(), embedded->getPreferredHeight());
+
+        if (sandboxed != nullptr)
+        {
+            sandboxed->setBridgeEditorInvalidationHandler (
+                [safeWindow = juce::Component::SafePointer<PluginWindow> (this)]
+                {
+                    if (safeWindow == nullptr)
+                        return;
+
+                    if (auto* external = dynamic_cast<te::ExternalPlugin*> (&safeWindow->plugin))
+                        safeWindow->replaceSandboxContentWithFallback (*external);
+                });
+        }
+
         return;
     }
 
-    setContentOwned (new SandboxFallbackPanel (externalPlugin, result), true);
+    replaceSandboxContentWithFallback (externalPlugin, result);
+}
+
+void PluginWindow::replaceSandboxContentWithFallback (te::ExternalPlugin& externalPlugin,
+                                                      const SandboxEditorResult& result)
+{
+    if (auto* embedded = dynamic_cast<SandboxEmbeddedEditor*> (getContentComponent()))
+        embedded->detach();
+
+    clearBridgeEditorInvalidationHandler();
+
+    SandboxEditorResult panelResult = result;
+    if (! panelResult.success && panelResult.error.isEmpty())
+        panelResult.error = "Plugin sandbox editor was reset. Click Open Editor to reconnect.";
+
+    setContentOwned (new SandboxFallbackPanel (*this, externalPlugin, panelResult), true);
     setResizable (true, false);
     setSize (460, 190);
+}
+
+void PluginWindow::clearBridgeEditorInvalidationHandler()
+{
+    if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        if (auto* sandboxed = SandboxedPluginInstance::fromExternalPlugin (*external))
+            sandboxed->setBridgeEditorInvalidationHandler ({});
 }
 
 void PluginWindow::setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEditor)

@@ -1,0 +1,43 @@
+SkeletonHive
+Copyright (C) 2026 SkeletonHive contributors
+
+This product is licensed under the GNU Affero General Public License v3.0.
+See the LICENSE file in this distribution and the project source repository:
+https://github.com/mark-speer/SkeletonHive
+
+Third-party components (see their upstream licenses for full terms):
+
+-------------------------------------------------------------------------------
+JUCE
+Copyright (C) Raw Material Software Limited and contributors
+License: AGPLv3 (or commercial JUCE licence)
+https://juce.com/ / https://github.com/juce-framework/JUCE
+-------------------------------------------------------------------------------
+Tracktion Engine
+Copyright (C) Tracktion Corporation and contributors
+License: GPLv3 (or commercial Tracktion licence)
+https://github.com/Tracktion/tracktion_engine
+-------------------------------------------------------------------------------
+aubio
+Copyright (C) Paul Brossier and contributors
+License: GPLv3
+https://aubio.org/ / https://github.com/aubio/aubio
+-------------------------------------------------------------------------------
+NeuralAmpModelerCore
+Copyright (C) Steven Atkinson and contributors
+License: MIT
+https://github.com/sdatkinson/NeuralAmpModelerCore
+-------------------------------------------------------------------------------
+Eigen
+Copyright (C) Eigen developers
+License: MPL2
+https://eigen.tuxfamily.org/
+-------------------------------------------------------------------------------
+SoundTouch (via Tracktion Engine timestretch support)
+Copyright (C) Olli Parviainen
+License: LGPL
+https://www.surina.net/soundtouch/
+-------------------------------------------------------------------------------
+
+.nam model files loaded by the user are not part of this distribution and may
+carry their own licenses. Do not redistribute third-party captures without rights.

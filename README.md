@@ -94,8 +94,29 @@ Run:
 | macOS | `~/Library/Audio/Plug-Ins/VST3`, `/Library/Audio/Plug-Ins/VST3` |
 | Linux | `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3` |
 
+## Windows portable package
+
+After a Release build, pack a redistributable zip (exe + `LICENSE` + `NOTICE` + short README):
+
+```powershell
+cmake --build build --config Release
+.\scripts\pack-windows.ps1
+```
+
+Output lands in `dist/` (e.g. `SkeletonHive-0.1.0-windows-x64-<date>-<sha>.zip`). CI uploads the same zip as a workflow artifact on Windows builds.
+
 ## License
 
-This project uses Tracktion Engine (GPLv3 or commercial) and JUCE (separate license required for closed-source distribution). See [Tracktion Engine LICENCE.md](https://github.com/Tracktion/tracktion_engine/blob/develop/LICENCE.md) and [JUCE licensing](https://juce.com/licensing).
+SkeletonHive is free software licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
-The native Neural Amp Modeler device embeds [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (MIT) and Eigen. `.nam` model files you load are separate from the Core library and may carry their own capture licenses — do not redistribute third-party captures without rights.
+Source: https://github.com/mark-speer/SkeletonHive
+
+Third-party components (see [NOTICE](NOTICE) for attributions):
+
+- [JUCE](https://juce.com/) — AGPLv3 (or commercial)
+- [Tracktion Engine](https://github.com/Tracktion/tracktion_engine) — GPLv3 (or commercial)
+- [aubio](https://aubio.org/) — GPLv3
+- [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) — MIT
+- [Eigen](https://eigen.tuxfamily.org/) — MPL2
+
+`.nam` model files you load are separate from the Core library and may carry their own capture licenses — do not redistribute third-party captures without rights.

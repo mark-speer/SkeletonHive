@@ -35,6 +35,28 @@ private:
     void startAudioLoop();
     void stopAudioLoop (bool requestShutdownFlag = false);
 
+    /** Pause processBlock so message-thread ops (editor/prepare/state) can touch the
+        plugin without starving the shared-memory handshake. Audio keeps answering
+        with dry passthrough while suspended.
+    */
+    void suspendProcessing();
+    void resumeProcessing();
+
+    struct ScopedProcessingSuspend
+    {
+        explicit ScopedProcessingSuspend (PluginHostWorker& ownerIn) : owner (ownerIn)
+        {
+            owner.suspendProcessing();
+        }
+
+        ~ScopedProcessingSuspend()
+        {
+            owner.resumeProcessing();
+        }
+
+        PluginHostWorker& owner;
+    };
+
     juce::AudioPluginFormatManager formatManager;
     std::unique_ptr<juce::AudioPluginInstance> pluginInstance;
     PluginHostSharedMemory sharedMemory;
@@ -46,6 +68,8 @@ private:
 
     std::unique_ptr<juce::Thread> audioThread;
     std::atomic<bool> audioRunning { false };
+    std::atomic<bool> processingSuspended { false };
+    std::atomic<bool> processBlockActive { false };
     std::mutex pluginInstanceMutex;
     juce::String sessionId;
     double currentSampleRate = 44100.0;

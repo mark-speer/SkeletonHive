@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/PluginHost/SandboxedPluginInstance.h"
 #include "TracktionCommon.h"
 
 namespace skeletonhive
@@ -16,8 +17,11 @@ public:
     void recreateEditorAsync();
     void setSandboxPlaceholder (te::ExternalPlugin& externalPlugin);
     void setSandboxEmbeddedEditor (te::ExternalPlugin& externalPlugin);
+    void replaceSandboxContentWithFallback (te::ExternalPlugin& externalPlugin,
+                                            const SandboxEditorResult& result = {});
 
 private:
+    void clearBridgeEditorInvalidationHandler();
     void moved() override;
     void resized() override;
     void childBoundsChanged (juce::Component* child) override;

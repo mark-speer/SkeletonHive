@@ -53,12 +53,19 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ matrix.config }} --parallel
 
+      - name: Pack Windows portable zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\pack-windows.ps1 -Config Release -OutDir dist
+
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: SkeletonHive-${{ matrix.os }}
-          path: build/SkeletonHive_artefacts/Release/SkeletonHive.exe
+          name: SkeletonHive-windows-x64
+          path: |
+            dist/*.zip
+            build/SkeletonHive_artefacts/Release/SkeletonHive.exe
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'

@@ -52,6 +52,27 @@ struct EditorOpenResult
     int height = 0;
 };
 
+struct AsyncEditorOpenState
+{
+    std::atomic<bool> cancelled { false };
+    juce::WaitableEvent done;
+    EditorOpenResult result;
+};
+
+struct AsyncLoadState
+{
+    std::atomic<bool> cancelled { false };
+    juce::WaitableEvent done;
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+    juce::String error;
+};
+
+struct AsyncCloseState
+{
+    std::atomic<bool> cancelled { false };
+    juce::WaitableEvent done;
+};
+
 #if JUCE_WINDOWS
 HWND findEmbeddableHwnd (HWND root)
 {
@@ -93,24 +114,17 @@ intptr_t getEditorNativeHandle (juce::AudioProcessorEditor& editor)
 }
 #endif
 
-void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
-                                std::unique_ptr<juce::AudioProcessorEditor>& pluginEditor,
-                                std::unique_ptr<juce::DocumentWindow>& editorWindow,
-                                EditorOpenResult& result)
+void fillExistingEditorResult (juce::AudioProcessorEditor* pluginEditor,
+                               juce::DocumentWindow* editorWindow,
+                               EditorOpenResult& result)
 {
-    if (pluginInstance == nullptr)
-    {
-        result.error = "Plugin instance is not available.";
-        return;
-    }
-
     if (pluginEditor != nullptr)
     {
-   #if JUCE_WINDOWS
+       #if JUCE_WINDOWS
         result.nativeHandle = getEditorNativeHandle (*pluginEditor);
         result.width = pluginEditor->getWidth();
         result.height = pluginEditor->getHeight();
-   #endif
+       #endif
         result.success = true;
         return;
     }
@@ -120,7 +134,31 @@ void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
         editorWindow->setVisible (true);
         editorWindow->toFront (true);
         result.success = true;
+    }
+}
+
+/** Create the editor while DSP is suspended. Only the unique_ptr ownership swap
+    is guarded by pluginInstanceMutex — never hold that mutex across createEditor.
+*/
+void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
+                                std::unique_ptr<juce::AudioProcessorEditor>& pluginEditor,
+                                std::unique_ptr<juce::DocumentWindow>& editorWindow,
+                                std::mutex& pluginInstanceMutex,
+                                EditorOpenResult& result)
+{
+    if (pluginInstance == nullptr)
+    {
+        result.error = "Plugin instance is not available.";
         return;
+    }
+
+    {
+        const std::scoped_lock lock (pluginInstanceMutex);
+        if (pluginEditor != nullptr || editorWindow != nullptr)
+        {
+            fillExistingEditorResult (pluginEditor.get(), editorWindow.get(), result);
+            return;
+        }
     }
 
     if (! pluginInstance->hasEditor())
@@ -129,6 +167,7 @@ void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
         return;
     }
 
+    // Long / plugin-owned work: DSP is already suspended so processBlock will not run.
     std::unique_ptr<juce::AudioProcessorEditor> editor (pluginInstance->createEditorAndMakeActive());
 
     if (editor == nullptr)
@@ -151,13 +190,18 @@ void openEditorOnMessageThread (juce::AudioPluginInstance* pluginInstance,
         result.width = juce::jmax (editor->getWidth(), 400);
         result.height = juce::jmax (editor->getHeight(), 300);
         result.nativeHandle = nativeHandle;
+
+        const std::scoped_lock lock (pluginInstanceMutex);
         pluginEditor = std::move (editor);
         result.success = true;
         return;
     }
    #endif
 
-    editorWindow = std::make_unique<BridgeEditorWindow> (pluginInstance->getName(), editor.release());
+    auto window = std::make_unique<BridgeEditorWindow> (pluginInstance->getName(), editor.release());
+
+    const std::scoped_lock lock (pluginInstanceMutex);
+    editorWindow = std::move (window);
     result.success = true;
 }
 
@@ -173,30 +217,45 @@ public:
     }
 };
 
-struct PluginLoadResult
-{
-    std::unique_ptr<juce::AudioPluginInstance> instance;
-    juce::String error;
-};
-
 void loadPluginOnMessageThread (juce::AudioPluginFormatManager& formatManager,
                                 const juce::PluginDescription& desc,
                                 double sampleRate,
                                 int blockSize,
-                                PluginLoadResult& result)
+                                std::unique_ptr<juce::AudioPluginInstance>& instanceOut,
+                                juce::String& errorOut)
 {
     if (formatManager.getNumFormats() == 0)
         formatManager.addFormat (std::make_unique<juce::VST3PluginFormat>());
 
-    juce::WaitableEvent done;
+    // Heap-backed state so a wait timeout cannot UAF stack locals from the async lambda.
+    auto state = std::make_shared<AsyncLoadState>();
+    const auto descCopy = desc;
 
-    juce::MessageManager::callAsync ([&formatManager, &desc, sampleRate, blockSize, &result, &done]
+    juce::MessageManager::callAsync ([&formatManager, descCopy, sampleRate, blockSize, state]
     {
-        result.instance = formatManager.createPluginInstance (desc, sampleRate, blockSize, result.error);
-        done.signal();
+        if (! state->cancelled.load (std::memory_order_acquire))
+            state->instance = formatManager.createPluginInstance (descCopy, sampleRate, blockSize, state->error);
+
+        state->done.signal();
     });
 
-    done.wait (60000);
+    if (! state->done.wait (60000))
+    {
+        state->cancelled.store (true, std::memory_order_release);
+        // Wait for the lambda to exit so we never move instance concurrently.
+        state->done.wait (-1);
+    }
+
+    instanceOut = std::move (state->instance);
+    errorOut = state->error;
+}
+
+void clearProcessBufferRegion (juce::AudioBuffer<float>& buffer, int numSamples)
+{
+    const int samples = juce::jmin (numSamples, buffer.getNumSamples());
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        buffer.clear (ch, 0, samples);
 }
 } // namespace
 
@@ -253,6 +312,22 @@ void PluginHostWorker::sendReply (PluginHostMessageType type, const juce::Memory
     sendMessageToCoordinator (PluginHostMessage::encode (type, payload));
 }
 
+void PluginHostWorker::suspendProcessing()
+{
+    processingSuspended.store (true, std::memory_order_release);
+
+    const auto deadline = juce::Time::getMillisecondCounter() + 100;
+
+    while (processBlockActive.load (std::memory_order_acquire)
+           && juce::Time::getMillisecondCounter() < deadline)
+        juce::Thread::sleep (1);
+}
+
+void PluginHostWorker::resumeProcessing()
+{
+    processingSuspended.store (false, std::memory_order_release);
+}
+
 bool PluginHostWorker::handlePing()
 {
     sendReply (PluginHostMessageType::pong);
@@ -285,13 +360,13 @@ bool PluginHostWorker::handleLoadPlugin (const juce::MemoryBlock& payload)
     currentSampleRate = sampleRate;
     currentBlockSize = juce::jmin (blockSize, PluginHostConstants::maxBlockSize);
 
-    PluginLoadResult loadResult;
-    loadPluginOnMessageThread (formatManager, desc, currentSampleRate, currentBlockSize, loadResult);
-    pluginInstance = std::move (loadResult.instance);
+    juce::String loadError;
+    loadPluginOnMessageThread (formatManager, desc, currentSampleRate, currentBlockSize,
+                               pluginInstance, loadError);
 
     if (pluginInstance == nullptr)
     {
-        const auto error = loadResult.error.isNotEmpty() ? loadResult.error : juce::String ("Plugin load failed.");
+        const auto error = loadError.isNotEmpty() ? loadError : juce::String ("Plugin load failed.");
         sendReply (PluginHostMessageType::pluginLoadFailed,
                    PluginHostMessage::encodeFailure (error));
         return false;
@@ -301,6 +376,7 @@ bool PluginHostWorker::handleLoadPlugin (const juce::MemoryBlock& payload)
                                    PluginHostConstants::maxChannels);
     numOutputChannels = juce::jmin (juce::jmax (1, pluginInstance->getTotalNumOutputChannels()),
                                     PluginHostConstants::maxChannels);
+    // Pre-size once to the transport maximum so the audio loop never reallocates.
     processBuffer.setSize (juce::jmax (1, juce::jmax (numInputChannels, numOutputChannels)),
                            PluginHostConstants::maxBlockSize);
     pluginInstance->enableAllBuses();
@@ -331,11 +407,20 @@ bool PluginHostWorker::handlePrepare (const juce::MemoryBlock& payload)
         return false;
 
     currentBlockSize = juce::jmin (currentBlockSize, PluginHostConstants::maxBlockSize);
-    processBuffer.setSize (juce::jmax (1, juce::jmax (numInputChannels, numOutputChannels)), currentBlockSize);
 
-    const std::scoped_lock lock (pluginInstanceMutex);
-    pluginInstance->prepareToPlay (currentSampleRate, currentBlockSize);
-    prepared = true;
+    ScopedProcessingSuspend suspend (*this);
+
+    // Keep capacity at maxBlockSize; never shrink under a live audio thread.
+    processBuffer.setSize (juce::jmax (1, juce::jmax (numInputChannels, numOutputChannels)),
+                           PluginHostConstants::maxBlockSize,
+                           false, false, true);
+
+    {
+        const std::scoped_lock lock (pluginInstanceMutex);
+        pluginInstance->prepareToPlay (currentSampleRate, currentBlockSize);
+        prepared = true;
+    }
+
     sendReply (PluginHostMessageType::prepared);
     return true;
 }
@@ -362,6 +447,7 @@ bool PluginHostWorker::handleGetState()
 
     juce::MemoryBlock state;
     {
+        ScopedProcessingSuspend suspend (*this);
         const std::scoped_lock lock (pluginInstanceMutex);
         pluginInstance->getStateInformation (state);
     }
@@ -374,6 +460,7 @@ bool PluginHostWorker::handleSetState (const juce::MemoryBlock& payload)
     if (pluginInstance == nullptr)
         return false;
 
+    ScopedProcessingSuspend suspend (*this);
     const std::scoped_lock lock (pluginInstanceMutex);
     pluginInstance->setStateInformation (payload.getData(), (int) payload.getSize());
     return true;
@@ -388,49 +475,85 @@ bool PluginHostWorker::handleOpenEditor()
         return false;
     }
 
-    EditorOpenResult result;
-    juce::WaitableEvent done;
+    auto state = std::make_shared<AsyncEditorOpenState>();
 
-    juce::MessageManager::callAsync ([this, &result, &done]
+    juce::MessageManager::callAsync ([this, state]
     {
-        const std::scoped_lock lock (pluginInstanceMutex);
-        openEditorOnMessageThread (pluginInstance.get(), pluginEditor, editorWindow, result);
-        done.signal();
+        if (state->cancelled.load (std::memory_order_acquire))
+        {
+            state->done.signal();
+            return;
+        }
+
+        ScopedProcessingSuspend suspend (*this);
+
+        juce::AudioPluginInstance* instance = nullptr;
+        {
+            const std::scoped_lock lock (pluginInstanceMutex);
+            instance = pluginInstance.get();
+        }
+
+        openEditorOnMessageThread (instance,
+                                   pluginEditor,
+                                   editorWindow,
+                                   pluginInstanceMutex,
+                                   state->result);
+        state->done.signal();
     });
 
-    if (! done.wait (60000))
+    if (! state->done.wait (60000))
     {
+        state->cancelled.store (true, std::memory_order_release);
+        state->done.wait (-1);
         sendReply (PluginHostMessageType::editorOpenFailed,
                    PluginHostMessage::encodeFailure ("Timed out opening plugin editor."));
         return false;
     }
 
-    if (! result.success)
+    if (! state->result.success)
     {
         sendReply (PluginHostMessageType::editorOpenFailed,
-                   PluginHostMessage::encodeFailure (result.error.isNotEmpty() ? result.error
-                                                                               : juce::String ("Failed to open editor.")));
+                   PluginHostMessage::encodeFailure (state->result.error.isNotEmpty() ? state->result.error
+                                                                                       : juce::String ("Failed to open editor.")));
         return false;
     }
 
     sendReply (PluginHostMessageType::editorOpened,
-               PluginHostMessage::encodeEditorOpened (result.nativeHandle, result.width, result.height));
+               PluginHostMessage::encodeEditorOpened (state->result.nativeHandle,
+                                                      state->result.width,
+                                                      state->result.height));
     return true;
 }
 
 bool PluginHostWorker::handleCloseEditor()
 {
-    juce::WaitableEvent done;
+    auto state = std::make_shared<AsyncCloseState>();
 
-    juce::MessageManager::callAsync ([this, &done]
+    juce::MessageManager::callAsync ([this, state]
     {
-        const std::scoped_lock lock (pluginInstanceMutex);
-        pluginEditor.reset();
-        editorWindow.reset();
-        done.signal();
+        if (state->cancelled.load (std::memory_order_acquire))
+        {
+            state->done.signal();
+            return;
+        }
+
+        ScopedProcessingSuspend suspend (*this);
+
+        {
+            const std::scoped_lock lock (pluginInstanceMutex);
+            pluginEditor.reset();
+            editorWindow.reset();
+        }
+
+        state->done.signal();
     });
 
-    done.wait (5000);
+    if (! state->done.wait (5000))
+    {
+        state->cancelled.store (true, std::memory_order_release);
+        state->done.wait (-1);
+    }
+
     sendReply (PluginHostMessageType::editorClosed);
     return true;
 }
@@ -487,28 +610,31 @@ void PluginHostWorker::audioLoop()
         const int inChannels = juce::jmin ((int) sharedMemory.getHeader()->numInputChannels.load (std::memory_order_acquire),
                                            numInputChannels);
 
-        if (numSamples <= 0)
+        if (numSamples <= 0 || numSamples > PluginHostConstants::maxBlockSize)
             continue;
 
-        processBuffer.setSize (juce::jmax (1, juce::jmax (numInputChannels, numOutputChannels)),
-                               numSamples, false, false, true);
-        processBuffer.clear();
+        // processBuffer is pre-sized to maxBlockSize at load — never realloc here.
+        clearProcessBufferRegion (processBuffer, numSamples);
         sharedMemory.readInput (processBuffer, inChannels, numSamples);
 
         if (inChannels == 1 && numInputChannels > 1)
             processBuffer.copyFrom (1, 0, processBuffer, 0, 0, numSamples);
 
-        if (! prepared || pluginInstance == nullptr)
-        {
-            sharedMemory.writeOutput (processBuffer, numOutputChannels, numSamples, hostSequenceToProcess);
-            continue;
-        }
+        const bool suspended = processingSuspended.load (std::memory_order_acquire);
 
-        midiBuffer.clear();
-
+        if (! suspended && prepared && pluginInstance != nullptr)
         {
-            const std::scoped_lock lock (pluginInstanceMutex);
-            pluginInstance->processBlock (processBuffer, midiBuffer);
+            midiBuffer.clear();
+
+            // try_lock so a stuck message-thread op can never starve the SHM handshake;
+            // on contention we keep the dry input already in processBuffer.
+            if (pluginInstanceMutex.try_lock())
+            {
+                processBlockActive.store (true, std::memory_order_release);
+                pluginInstance->processBlock (processBuffer, midiBuffer);
+                processBlockActive.store (false, std::memory_order_release);
+                pluginInstanceMutex.unlock();
+            }
         }
 
         sharedMemory.writeOutput (processBuffer, numOutputChannels, numSamples, hostSequenceToProcess);

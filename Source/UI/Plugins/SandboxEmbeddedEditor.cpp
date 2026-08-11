@@ -17,14 +17,25 @@ SandboxEmbeddedEditor::SandboxEmbeddedEditor (void* nativeHandle, int editorWidt
 
 SandboxEmbeddedEditor::~SandboxEmbeddedEditor()
 {
-#if JUCE_WINDOWS
-    if (pluginHwnd != nullptr)
-    {
-        const auto hwnd = (HWND) pluginHwnd;
+    detach();
+}
 
-        if (IsWindow (hwnd))
-            SetParent (hwnd, nullptr);
-    }
+void SandboxEmbeddedEditor::detach()
+{
+#if JUCE_WINDOWS
+    if (pluginHwnd == nullptr)
+        return;
+
+    const auto hwnd = (HWND) pluginHwnd;
+
+    if (IsWindow (hwnd))
+        SetParent (hwnd, nullptr);
+
+    pluginHwnd = nullptr;
+    attached = false;
+#else
+    pluginHwnd = nullptr;
+    attached = false;
 #endif
 }
 

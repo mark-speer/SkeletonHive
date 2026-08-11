@@ -3,6 +3,8 @@
 #include "PluginHostCoordinator.h"
 #include "TracktionCommon.h"
 
+#include <functional>
+
 namespace skeletonhive
 {
 
@@ -60,6 +62,12 @@ public:
     bool requestBridgeEditor (SandboxEditorResult& result);
     void closeEditorInBridge();
 
+    /** Host UI registers a message-thread callback to drop a stale embedded HWND
+        when the worker is killed or auto-recovered.
+    */
+    void setBridgeEditorInvalidationHandler (std::function<void()> handler);
+    void invalidateBridgeEditor();
+
     PluginHostCoordinator* getCoordinator() { return getActiveCoordinator().get(); }
 
     static SandboxedPluginInstance* fromExternalPlugin (te::ExternalPlugin& plugin);
@@ -107,6 +115,9 @@ private:
     std::atomic<bool> recoveryRequested { false };
     std::atomic<bool> recovering { false };
     int restartAttempts = 0;
+
+    juce::SpinLock invalidationHandlerLock;
+    std::function<void()> bridgeEditorInvalidationHandler;
 };
 
 } // namespace skeletonhive

@@ -316,6 +316,9 @@ void SandboxedPluginInstance::attemptWatchdogRecovery()
 {
     recovering.store (true, std::memory_order_relaxed);
 
+    // Drop any host-embedded HWND before the old worker is killed/relaunched.
+    invalidateBridgeEditor();
+
     auto oldCoordinator = getActiveCoordinator();
 
     juce::MemoryBlock savedState;
@@ -446,6 +449,39 @@ void SandboxedPluginInstance::notifyBridgeCrashed()
     // timeout path) and from the IPC pipe thread (handleConnectionLost). JUCE Timers are
     // message-thread-only; stopping from another thread corrupts the timer list and
     // crashes the host. timerCallback() stops itself once it sees crashed==true.
+    invalidateBridgeEditor();
+}
+
+void SandboxedPluginInstance::setBridgeEditorInvalidationHandler (std::function<void()> handler)
+{
+    const juce::SpinLock::ScopedLockType sl (invalidationHandlerLock);
+    bridgeEditorInvalidationHandler = std::move (handler);
+}
+
+void SandboxedPluginInstance::invalidateBridgeEditor()
+{
+    std::function<void()> handler;
+
+    {
+        const juce::SpinLock::ScopedLockType sl (invalidationHandlerLock);
+        handler = bridgeEditorInvalidationHandler;
+    }
+
+    if (handler == nullptr)
+        return;
+
+    if (auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+        mm != nullptr && mm->isThisTheMessageThread())
+    {
+        handler();
+        return;
+    }
+
+    juce::MessageManager::callAsync ([handler = std::move (handler)]
+    {
+        if (handler != nullptr)
+            handler();
+    });
 }
 
 void SandboxedPluginInstance::openEditorInBridge()
