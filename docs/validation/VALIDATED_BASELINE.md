@@ -3,11 +3,7 @@
 Evidence date: 2026-08-12
 
 Baseline commit:
-pending — SH-001 branch `agent/SH-001-green-build-matrix` (update to the
-merge commit SHA and CI run once the three-OS matrix is green on that commit)
-
-Prior framework baseline (PR #1 documentation only):
-3aa4228f3a802bb66697790c36af533a70bee96c
+8db7a68409a97d3ddd9dec16db1f61971c2c621f
 
 This document records demonstrated behavior only. It does not infer runtime
 correctness from source files, controls, feature lists, or successful
@@ -15,38 +11,45 @@ compilation on another platform.
 
 ## Automated build evidence
 
-### SH-001 local Windows evidence (NamPlugin publish fix)
+GitHub Actions run (SH-001):
+[CI run 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990)
 
-| Environment | Configure | Build | Package | Evidence result |
-|---|---:|---:|---:|---|
-| Windows 10/11, Visual Studio 18 2026, Release (`build/`) | Pass (existing tree) | Pass | Not run | Incremental Release build of `SkeletonHive` after replacing `std::atomic<std::shared_ptr<nam::DSP>>` with `std::atomic_*` shared_ptr publish |
-| Windows 10/11, Visual Studio 18 2026 (`build-sh001/`) | Pass | Not run | Not run | Fresh configure with pinned JUCE FetchContent (`37c894f8…`) and `JUCE_CPM_DEVELOP=OFF` |
-
-### Pre-SH-001 CI (master after Linux/Ninja fixes; macOS still red)
-
-GitHub Actions run on `30dd538` (pre-framework tip that fixed Ubuntu; macOS Build failed):
-[CI run 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072)
+Pull request: [#2](https://github.com/mark-speer/SkeletonHive/pull/2)
 
 | Environment | Configure | Build | Package | Evidence result |
 |---|---:|---:|---:|---|
 | Windows latest, Visual Studio 18 2026, Release | Pass | Pass | Pass | Build and artifact upload verified |
-| Ubuntu latest, Ninja, Release | Pass | Pass | Pass | Artifact uploaded |
-| macOS latest, Ninja, Release | Pass | Fail | Not run | Build failure; artifact `build-log-macos-latest` |
+| Ubuntu latest, Ninja, Release | Pass | Pass | Pass | Build and artifact upload verified |
+| macOS latest, Ninja, Release | Pass | Pass | Pass | Build and artifact upload verified |
 
-Older baseline at `3b65796` (Ubuntu configure fail, macOS compile fail under Xcode generator) is superseded for Ubuntu by the Ninja/deps fixes above. macOS remains Fail until SH-001 CI is green.
+Dependency pins on this commit (ADR 0001):
 
-### Observed build blockers (historical → SH-001)
+- Tracktion Engine: `53a32a4dcc2d73186b6cee4600b5dd51c65a0cae`
+- JUCE: `37c894f83d379179b2070d437ccd0f1cd9af9576`
+- `JUCE_CPM_DEVELOP` forced OFF
 
-- Ubuntu dependency discovery previously failed during JUCE configuration; fixed
-  on master by completing Linux apt deps and switching CI to Ninja (`8f000ba`).
-- macOS previously failed on `std::atomic<std::shared_ptr<nam::DSP>>` (Apple
-  libc++). SH-001 replaces that with portable `std::atomic_load` /
-  `std::atomic_store` / `std::atomic_exchange` /
-  `std::atomic_compare_exchange_strong` on a plain `shared_ptr` in
-  `NamPlugin`. Cross-platform CI confirmation is still required before marking
-  macOS Pass.
-- JUCE previously floated on CPM `#develop`; SH-001 pins JUCE to the Tracktion
-  `modules/juce` submodule SHA (ADR 0001).
+Local corroboration:
+
+- Windows Release incremental build after NamPlugin publish fix (`build/`)
+- Fresh Windows configure + Release build against the pinned JUCE FetchContent
+  tree (`build-sh001/`)
+
+This establishes a three-OS CI build/package result for the SH-001 commit. It
+does not establish that the application launches, produces correct audio,
+preserves projects, or works with a particular device or plugin.
+
+### Superseded failures
+
+| Commit / run | Observation | Superseded by |
+|---|---|---|
+| `3b65796` / [31539254267](https://github.com/mark-speer/SkeletonHive/actions/runs/31539254267) | Ubuntu configure Fail; macOS Build Fail (Xcode generator; `std::atomic<std::shared_ptr>`) | SH-001 matrix above |
+| `30dd538` / [31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072) | Ubuntu Pass; macOS Build Fail | SH-001 macOS Pass |
+
+SH-001 code changes that unblocked macOS:
+
+- Portable NAM model publish via `std::atomic_*` on a plain `shared_ptr`
+  (`NamPlugin`) instead of `std::atomic<std::shared_ptr<nam::DSP>>`
+- JUCE FetchContent pin (no floating `#develop`)
 
 ## Automated test evidence
 

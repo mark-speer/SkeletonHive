@@ -14,7 +14,7 @@ view).
 
 | Phase | Status | Focus | Live 12 analogy |
 |-------|--------|-------|-----------------|
-| 0 | In progress | Stabilization, evidence, build matrix, RT triage | Dependable core before breadth |
+| 0 | SH-001 done; SH-002…SH-006 queued | Stabilization, evidence, build matrix, RT triage | Dependable core before breadth |
 | 1 | Implemented | Foundation, arrangement, piano roll, routing | Core edit workflows |
 | 2 | Implemented | Workflow polish, performance infra | Groups, ripple, racks |
 | 3 | Implemented | LOD, multi-out, sidechain, plugin hardening | Device chain depth |
@@ -42,7 +42,7 @@ reproducible green matrix; triage real-time and lifetime risks from PR #1.
 | ID | Status | Acceptance |
 |---|---|---|
 | **SH-000** | Done | Agent operating framework, validated baseline, contribution controls (PR #1) |
-| **SH-001** | In progress | Windows, macOS, and Ubuntu configure/build on pinned deps; CI protects merges; README matches FetchContent pins; release tags immutable and cut only from green commits; baseline + compatibility matrix link passing runs |
+| **SH-001** | Done | Windows, macOS, and Ubuntu configure/build on pinned deps; CI protects merges; README matches FetchContent pins; release tags immutable and cut only from green commits; baseline + compatibility matrix link passing runs ([CI 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990), commit `8db7a68`, [PR #2](https://github.com/mark-speer/SkeletonHive/pull/2)) |
 | **SH-002** | Queued | PluginScanner lifetime-safe async callbacks (`WeakReference` / cancel); shutdown-during-scan coverage |
 | **SH-003** | Queued | Sandbox coordinator published without audio-thread `SpinLock`; bridge swap/timeout/restart under load |
 | **SH-004** | Queued | Sandbox default/policy + explicit support matrix; prefer experimental/off until validated |

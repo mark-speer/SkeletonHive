@@ -13,28 +13,19 @@ Status terms:
 
 ## Automated build matrix
 
-### Latest CI on master tip before SH-001 code fix
+Baseline:
+8db7a68409a97d3ddd9dec16db1f61971c2c621f
 
-Commit: `30dd538de33031a5a719b7bbf09ea171cc9b0513`  
-Run: [CI 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072)
-
-| OS / runner | Toolchain | Configure | Build | Package | Evidence |
-|---|---|---:|---:|---:|---|
-| Windows latest | Visual Studio 18 2026, Release | Pass | Pass | Pass | [CI 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072) |
-| Ubuntu latest | Ninja, Release | Pass | Pass | Pass | Artifact `SkeletonHive-ubuntu-latest` |
-| macOS latest | Ninja, Release | Pass | Fail | Not applicable | Artifact `build-log-macos-latest` |
-
-### SH-001 local / pending CI
-
-Branch: `agent/SH-001-green-build-matrix`  
-Dependency pins: Tracktion `53a32a4d…`, JUCE `37c894f8…` (ADR 0001)
+Run: [CI 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990)  
+PR: [#2](https://github.com/mark-speer/SkeletonHive/pull/2)
 
 | OS / runner | Toolchain | Configure | Build | Package | Evidence |
 |---|---|---:|---:|---:|---|
-| Windows local | Visual Studio 18 2026, Release | Pass | Pass | Not recorded | Incremental `SkeletonHive` Release build after NamPlugin atomic shared_ptr fix |
-| Windows local | Visual Studio 18 2026 (`build-sh001`) | Pass | Not recorded | Not recorded | Fresh configure with pinned JUCE FetchContent |
-| macOS CI | Ninja, Release | Pending | Pending | Pending | Requires CI run on this branch after push |
-| Ubuntu CI | Ninja, Release | Pending | Pending | Pending | Requires CI run on this branch after push |
+| Windows latest | Visual Studio 18 2026, Release | Pass | Pass | Pass | [CI 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990) |
+| Ubuntu latest | Ninja, Release | Pass | Pass | Pass | [CI 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990) |
+| macOS latest | Ninja, Release | Pass | Pass | Pass | [CI 31555627990](https://github.com/mark-speer/SkeletonHive/actions/runs/31555627990) |
+
+Pins: Tracktion `53a32a4d…`, JUCE `37c894f8…` (ADR 0001).
 
 ### Release packaging policy
 
