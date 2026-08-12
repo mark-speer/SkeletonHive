@@ -8,7 +8,7 @@ namespace TransportIcons
 
 namespace
 {
-constexpr juce::uint32 kSvgSourceBlack = 0xff000000;
+constexpr juce::Colour kSvgSourceBlack { 0xff000000 };
 
 juce::Colour buttonIconColour (juce::Component& source)
 {
