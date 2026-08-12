@@ -130,6 +130,11 @@ cmake --build build --config Release
 
 Output lands in `dist/` (e.g. `SkeletonHive-0.1.0-windows-x64-<date>-<sha>.zip`). CI uploads the same zip as a workflow artifact on Windows builds.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Agent-assisted contributions must also
+follow [AGENTS.md](AGENTS.md).
+
 ## License
 
 SkeletonHive is free software licensed under the [GNU Affero General Public License v3.0](LICENSE).
