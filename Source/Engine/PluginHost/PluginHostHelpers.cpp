@@ -12,6 +12,11 @@ bool PluginHostHelpers::shouldSandboxDescription (const juce::PluginDescription&
     if (desc.isInstrument)
         return false;
 
+    // ARA needs Edit document / musical-context binding; the VST3 effect sandbox
+    // cannot host that IPC. Always load ARA-capable plugins in-process.
+    if (desc.hasARAExtension)
+        return false;
+
     return desc.pluginFormatName == "VST3";
 }
 

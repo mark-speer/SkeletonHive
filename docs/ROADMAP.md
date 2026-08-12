@@ -1,140 +1,134 @@
-# SkeletonHive roadmap
+# SkeletonHive Roadmap
 
-This roadmap controls priority. The accumulated implementation inventory and
-historical phase plan remain in ARCHITECTURE.md.
+Product delivery log and backlog. This is **not** the architecture document —
+see [ARCHITECTURE.md](ARCHITECTURE.md) for system shape, ownership, threading,
+and invariants.
 
-## Evidence model
+UX benchmark: Ableton Live 12–class workflows. Implementation benchmark:
+idiomatic JUCE + Tracktion Engine (engine owns model/undo/graph; UI is a thin
+view).
 
-Every capability tracks evidence independently:
+---
 
-| Evidence | Meaning |
-|---|---|
-| Proposed | Desired behavior and acceptance criteria exist |
-| Code present | Relevant implementation exists in the repository |
-| Build verified | The affected target builds in a named environment |
-| Automated | Relevant automated checks pass |
-| Human validated | The workflow was observed in a real build |
-| Cross-platform | Required environments passed |
-| Released | A validated commit was published immutably |
+## Status summary
 
-An implemented label in the historical architecture document maps only to
-Code present unless stronger evidence appears in the validated baseline.
+| Phase | Status | Focus | Live 12 analogy |
+|-------|--------|-------|-----------------|
+| 1 | Implemented | Foundation, arrangement, piano roll, routing | Core edit workflows |
+| 2 | Implemented | Workflow polish, performance infra | Groups, ripple, racks |
+| 3 | Implemented | LOD, multi-out, sidechain, plugin hardening | Device chain depth |
+| 4 | Implemented | Export, record, automation, markers, freeze | Production loop |
+| 5 | Implemented | Shortcuts, prefs, theme, MIDI learn | Control surface |
+| 6 | Implemented | MIDI CC lanes, clip inspector, comping, consolidate/flatten | Detail View, Take Lanes |
+| 7 | Implemented | Unified browser, hot-swap, presets, clip library, groove pool, detail stack | Browser, Hot-Swap |
+| 8 | Tier 1–4 done | Session grid, scenes, launch quantize, arrangement bridge, performance, scale/probability, virtualization | Session View |
+| 9 | Tier 1–4 done | Native instruments/effects foundation (built-in synth, sampler, drum rack, 4OSC editor) | Simpler, Sampler, Drum Rack, Operator |
+| 10 | Implemented | Warp engine, native effects rack, audio-to-MIDI, VST3 effect sandbox (MVP), engine benchmark harness | Warp markers, Live's built-in device library, crash isolation |
+| 11 | Tier 1 done | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
+| 12 | Planned | Version history, collaboration scoping, light-theme finish, accessibility audit | Project polish |
 
-## Current objective: Phase 0 — establish a dependable baseline
+**Suggested order for remaining work:** finish Phase 11 (after sandbox
+hardening where hardware sessions need isolation) → Phase 12 (lowest
+architectural coupling; can slot in opportunistically).
 
-Feature expansion is paused until the Phase 0 exit criteria are met.
+---
 
-### Now
+## Delivered (Phases 1–10, condensed)
 
-#### SH-000 — Repository truth and contribution controls
+Phases 1–10 shipped the arrangement/session studio loop on TE:
 
-Status: in progress
+- **Foundation** — undo-safe Edit mutations, Edit lifetime rebuild on
+  New/Open, change-driven UI, tempo-aware timeline, piano roll, mixer,
+  plugin scan/insert.
+- **Workflow depth** — ripple, fades, folders/returns, clip groups, racks,
+  sidechain, multi-out, timeline LOD/virtualization, waveform/lane caches.
+- **Production loop** — export, metronome/count-in/punch, automation panel,
+  arm/record, markers, tempo map, freeze, autosave/crash recovery.
+- **Control / UX** — prefs, themes, command manager, MIDI learn.
+- **Detail editing** — MIDI CC/PB/AT lanes, clip inspector, takes/comping,
+  consolidate/flatten, warp markers.
+- **Browser & Session** — sample/clip/groove browsers, hot-swap/presets,
+  Session View + arrangement bridge, follow actions, scale/probability.
+- **Native content & robustness** — TE built-ins + dedicated editors, custom
+  effects, audio→MIDI (aubio), VST3 **effect** sandbox MVP, benchmark harness.
 
-Acceptance:
+Subsystem entry points and architectural limits (sandbox scope, rack rewiring,
+multi-out taps, session launch model) are documented in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-- canonical product, architecture, roadmap, validation, and handoff concerns
-  are separated;
-- agents follow a scoped required-reading path;
-- contributors have a pull-request evidence template;
-- current build and validation status is recorded without inflating claims.
+---
 
-#### SH-001 — Reproducible green build matrix
+## Phase 11 — Control Surfaces, MPE & Live Ecosystem Interop
 
-Status: proposed; highest priority after SH-000
+**Theme:** Live's hardware-first, expressive-performance workflow.
 
-Acceptance:
+- **Tier 1 — Generic MIDI control-surface API (implemented).**
+  `ControlSurfaceManager` extends MIDI learn / `ParameterControlMappings` with
+  project-persisted bindings (`CONTROLSTATE` under `EDITVIEWSTATE`): fader-bank
+  volume/pan (8 tracks per bank), transport play/stop, scene/slot launch, and
+  session-grid LED feedback via `juce::MidiOutput`. A generic fader-bank script
+  installs on first project load when no bindings exist.
 
-- Windows, macOS, and Ubuntu configure and build in CI;
-- JUCE, Tracktion Engine, runners, and toolchain expectations are pinned or
-  deliberately versioned;
-- local build instructions match the real dependency mechanism;
-- required checks protect master;
-- release creation is gated on supported-platform checks;
-- the compatibility matrix links passing evidence.
+- **Tier 2 — Push/APC-style hardware profile (planned).** Mapping layer over
+  the existing session grid slot-state model — largely a hardware-facing view
+  rather than a new engine surface.
 
-#### SH-002 — Test seam and automated baseline
+- **Tier 3 — MPE end-to-end (planned).** Per-note pitch-bend/pressure in the
+  piano roll; gated on what `te::MidiNote` exposes.
 
-Status: proposed
+- **Tier 4 — Ableton Link (planned).** Tempo/transport sync with other apps on
+  top of centralised `TransportControl` / tempo-sequence timing.
 
-Acceptance:
+**Files (Tier 1):** `Source/Engine/ControlSurfaceManager.*`, extensions to
+`MidiLearnController`. Planned: `AbletonLinkBridge`, hardware profile layer.
 
-- testable engine/domain code can build without launching the GUI;
-- CTest or an equivalent runner executes in CI;
-- deterministic tests cover grid/tempo conversion, MIDI scale/groove logic,
-  routing/state serialization, project save/reopen/migration, and plugin-host
-  protocol/shared-memory behavior;
-- one plugin-free render fixture verifies audio output within documented
-  tolerances;
-- debug benchmarks report enforceable thresholds or remain explicitly
-  diagnostic rather than tests.
+**Risks:** Prefer stronger plugin isolation before heavy hardware/MPE
+performance sessions. Tier 3 depends on TE's `MidiNote` API surface.
 
-#### SH-003 — Real-time and concurrency audit
+---
 
-Status: proposed
+## Phase 12 — Collaboration, Scale & Finish
 
-Acceptance:
+**Theme:** product polish with low architectural coupling; pick up
+opportunistically.
 
-- every custom audio callback and callback-reachable path is inventoried;
-- locks, waits, allocations, filesystem access, logging, UI calls, and
-  ValueTree access are either absent or removed;
-- cross-thread state publication and ownership are documented;
-- asynchronous callbacks have explicit lifetime protection;
-- representative buffer sizes and failure paths are measured.
+- **Tier 1 — Project version history.** Browsable timeline beyond rotating
+  `Autosave/` snapshots.
+- **Tier 2 — Collaboration scoping.** No live co-editing; shared/exportable
+  project packages only.
+- **Tier 3 — Light-theme finish.** Complete `AppLookAndFeel` / `AppColours`
+  coverage across panels.
+- **Tier 4 — Accessibility and performance audit.** Screen-reader support,
+  scalable UI, closing profiling pass against the Phase 10 baseline.
 
-### Next
+**Files:** extensions to `ProjectManager`, theme resources; no new core
+subsystems expected.
 
-#### SH-004 — Engine-timed Session launch
+---
 
-Replace message-thread polling with block/sample-aligned scheduling. Add
-deterministic launch-quantization tests and measure worst-case launch error.
+## Backlog — ARA 2 hosting (optional build)
 
-#### SH-005 — Plugin sandbox compatibility boundary
+**Theme:** Celemony ARA 2 clip analysis/editing (Melodyne-class) via Tracktion
+Engine's existing host stack.
 
-Make sandboxing opt-in while incomplete, then validate parameter and automation
-round trips, state restore, editor lifecycle, crashes, hangs, restart limits,
-sidechain, multi-output, instruments, and supported operating systems.
+- **Tier 1 — Build + clip MVP (implemented, opt-in).**
+  `-DSKELETONHIVE_ENABLE_ARA=ON` + `SKELETONHIVE_ARA_SDK_PATH` wires
+  `TRACKTION_ENABLE_ARA` / `JUCE_PLUGINHOST_ARA`. Clip inspector and context
+  menu open TE's ARA editor; ARA plugins are never sandboxed. See
+  [ARA.md](ARA.md) for SDK setup and smoke tests.
+- **Tier 2 — Hardening (planned).** Offline render/freeze of ARA clips, Session
+  View copy/parking of ARA archive state, optional CI job with SDK present.
 
-#### SH-006 — Project and asynchronous lifetime hardening
+**Files:** `CMakeLists.txt`, `Engine/AraHelpers.*`, `PluginHostHelpers`,
+`ClipInspectorPanel`, arrangement clip menu.
 
-Audit project replacement, plugin scanning, background analysis, rendering,
-recovery, and shutdown for use-after-free, stale Edit references, and queued
-callbacks.
+**Risks:** In-process only; requires licensed ARA plugin for real QA.
 
-#### SH-007 — Decompose high-coupling modules
+---
 
-After behavior has tests, split large modules along existing responsibilities:
-clip editing, routing, plugin chains, render/persistence, Session control, and
-major UI composition. Refactoring must preserve validated behavior.
+## Debug stress helpers (debug builds)
 
-### Later
-
-Re-evaluate the historical Phase 11 and Phase 12 feature inventory only after
-Phase 0 exits. Product work should be selected from confirmed user and
-maintainer priorities, not from another DAW's feature count.
-
-## Phase 0 exit criteria
-
-Phase 0 is complete only when:
-
-1. Supported-platform CI is green and required.
-2. Dependencies and release inputs are reproducible.
-3. Automated tests exercise the core state and audio paths.
-4. The narrow production loop in VISION.md has recorded human validation.
-5. Critical real-time and lifetime observations are resolved or accepted in
-   decision records.
-6. Plugin sandbox support and defaults match the published compatibility
-   boundary.
-7. The validated baseline, compatibility matrix, roadmap, and handoff agree.
-
-## Work-item template
-
-Each new item should specify:
-
-- ID and user/developer problem;
-- scope and explicit exclusions;
-- affected architecture and threads;
-- acceptance criteria;
-- automated evidence;
-- required human workflows and platforms;
-- migration, recovery, and rollback considerations;
-- documentation and handoff impact.
+- **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing
+  and live slot component count.
+- **Ctrl+Shift+Alt+B** — engine benchmark suite (populate audio tracks, freeze,
+  render); log timings to the debug console.

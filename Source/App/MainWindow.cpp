@@ -3,6 +3,7 @@
 #include "Engine/AppSettings.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/WarpEngine.h"
+#include "Engine/AraHelpers.h"
 #include "Engine/AudioToMidiEngine.h"
 #include "Engine/AudioToMidiTypes.h"
 #include "Engine/TrackInputRouting.h"
@@ -535,6 +536,12 @@ void MainContentComponent::handleClipDoubleClick (te::Clip& clip)
 
     if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (&clip))
     {
+        if (AraHelpers::isUsingAra (*audioClip))
+        {
+            AraHelpers::showAraWindow (*audioClip);
+            return;
+        }
+
         if (WarpEngine::supportsWarp (*audioClip))
             handleEditWarpMarkers (clip);
     }

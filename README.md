@@ -34,17 +34,16 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - Per-note probability and iteration lanes in the piano roll; session clips re-roll on each loop cycle
 - Session grid virtualization for large track counts (visible-row slot pooling)
 
+## Docs
+
+- [Architecture](docs/ARCHITECTURE.md) — ownership, threading, data flows, TE deviations
+- [Roadmap](docs/ROADMAP.md) — phase status and remaining backlog
+- [Contributing](docs/CONTRIBUTING.md) — invariants and placement rules
+- [ARA 2 hosting](docs/ARA.md) — optional Celemony ARA enablement and smoke tests
+
 ## Roadmap
 
-The repository contains broad implementation work across the historical phase
-plan. Code presence is tracked separately from build, automated-test, manual,
-cross-platform, and release evidence.
-
-- [Documentation index](docs/INDEX.md)
-- [Current roadmap and acceptance criteria](docs/ROADMAP.md)
-- [Validated baseline](docs/validation/VALIDATED_BASELINE.md)
-- [Compatibility matrix](docs/validation/COMPATIBILITY_MATRIX.md)
-- [Architecture and historical implementation inventory](docs/ARCHITECTURE.md)
+Phases 1–10 and Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 **Debug stress tests (debug builds only):**
 - **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing and live slot component count.
@@ -61,11 +60,29 @@ cross-platform, and release evidence.
 - ASIO is enabled in the build on Windows (uses JUCE's bundled Steinberg ASIO headers). Select **ASIO** as the audio device type under **Preferences → Audio**, then choose your interface driver and a low buffer size (e.g. 128 samples).
 - Optional: set `-DSKELETONHIVE_ASIO_SDK_PATH="C:/path/to/asiosdk"` at configure time to use an external Steinberg ASIO SDK instead of the bundled headers.
 
+### Optional ARA 2 hosting
+ARA (Audio Random Access) is **off by default**. To host ARA 2 plugins (e.g. Melodyne) via Tracktion Engine:
+
+1. Clone the Celemony ARA SDK (2.3.0+), recursively:
+   `git clone --recursive --branch releases/2.3.0 https://github.com/Celemony/ARA_SDK`
+2. Reconfigure with:
+   `-DSKELETONHIVE_ENABLE_ARA=ON -DSKELETONHIVE_ARA_SDK_PATH="C:/path/to/ARA_SDK"`
+3. Rebuild. Clip inspector and the arrangement clip menu gain **Open ARA** / **Open ARA Editor**; set the clip time-stretch mode to ARA (appears in the stretch combo when enabled).
+
+ARA plugins always load **in-process** (never through the VST3 effect sandbox). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the smoke checklist in [docs/ARA.md](docs/ARA.md). Respect Celemony's ARA SDK license terms.
+
 ### macOS
 - Xcode 15+
 
 ### Linux
-- `build-essential`, `libasound2-dev`, `libfreetype6-dev`, `libx11-dev`, `libxrandr-dev`, `libxcursor-dev`, `libxinerama-dev`, `libgl1-mesa-dev`
+- `build-essential`, `cmake`, `ninja-build`, `pkg-config`
+- Audio / plugins: `libasound2-dev`, `libjack-jackd2-dev`, `ladspa-sdk`
+- Graphics / UI: `libfreetype-dev`, `libfontconfig1-dev`, `libx11-dev`,
+  `libxcomposite-dev`, `libxcursor-dev`, `libxext-dev`, `libxinerama-dev`,
+  `libxrandr-dev`, `libxrender-dev`, `libxi-dev`, `libgl1-mesa-dev`,
+  `libglu1-mesa-dev`, `mesa-common-dev`, `libegl-dev`
+- Optional (already disabled in the app build): `libcurl4-openssl-dev`,
+  `libwebkit2gtk-4.1-dev` if you re-enable curl/webview
 
 ## Build
 
