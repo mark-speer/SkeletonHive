@@ -528,10 +528,10 @@ if(MSVC)
     target_link_options(SkeletonHive PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
     target_link_libraries(SkeletonHive PRIVATE nam_core)
 elseif(APPLE)
-    target_link_libraries(SkeletonHive PRIVATE
-        "-Wl,-force_load"
-        nam_core
-    )
+    # Keep -force_load adjacent to the archive path; a split "-Wl,-force_load" +
+    # target entry can be reordered by generators and break Apple ld.
+    target_link_options(SkeletonHive PRIVATE "LINKER:-force_load,$<TARGET_FILE:nam_core>")
+    target_link_libraries(SkeletonHive PRIVATE nam_core)
 else()
     target_link_libraries(SkeletonHive PRIVATE
         "-Wl,--whole-archive"
@@ -551,7 +551,8 @@ if(MSVC)
     target_link_options(nam_smoke_test PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:nam_core>")
     target_link_libraries(nam_smoke_test PRIVATE nam_core)
 elseif(APPLE)
-    target_link_libraries(nam_smoke_test PRIVATE "-Wl,-force_load" nam_core)
+    target_link_options(nam_smoke_test PRIVATE "LINKER:-force_load,$<TARGET_FILE:nam_core>")
+    target_link_libraries(nam_smoke_test PRIVATE nam_core)
 else()
     # Link nam_core once with --whole-archive (a second plain link duplicates symbols).
     target_link_libraries(nam_smoke_test PRIVATE "-Wl,--whole-archive" nam_core "-Wl,--no-whole-archive")

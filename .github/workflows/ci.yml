@@ -73,7 +73,18 @@ jobs:
         run: cmake -B build -G "${{ matrix.generator }}" -DCMAKE_BUILD_TYPE=${{ matrix.config }}
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.config }} --parallel
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --config ${{ matrix.config }} --parallel 2>&1 | tee build-log.txt
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.os }}
+          path: build-log.txt
+          if-no-files-found: ignore
 
       - name: Pack Windows portable zip
         if: runner.os == 'Windows'
