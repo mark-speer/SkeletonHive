@@ -369,7 +369,7 @@ NamPlugin::~NamPlugin()
     if (inputParam != nullptr) inputParam->detachFromCurrentValue();
     if (outputParam != nullptr) outputParam->detachFromCurrentValue();
 
-    activeModel.store (nullptr);
+    std::atomic_store (&activeModel, std::shared_ptr<nam::DSP> {});
 
     // Plugin teardown runs off the audio callback; force-clear any stragglers.
     {
@@ -403,7 +403,7 @@ void NamPlugin::initialise (const te::PluginInitialisationInfo& info)
     const double newSr = info.sampleRate;
     const int newBlock = juce::jmax (1, info.blockSizeSamples);
     const int newMaxBlock = juce::jmax (newBlock, (int) NAM_DEFAULT_MAX_BUFFER_SIZE);
-    const bool needsReprepare = activeModel.load() != nullptr
+    const bool needsReprepare = std::atomic_load (&activeModel) != nullptr
                                 && (preparedSampleRate != newSr || preparedMaxBlock != newMaxBlock);
 
     sampleRate = newSr;
@@ -441,7 +441,7 @@ void NamPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     const float inputGain = juce::Decibels::decibelsToGain (inputDb);
     const float outputGain = juce::Decibels::decibelsToGain (outputDb);
 
-    auto model = activeModel.load();
+    auto model = std::atomic_load (&activeModel);
     if (model == nullptr
         || numSamples > monoIn.getNumSamples()
         || numSamples > monoOut.getNumSamples()
@@ -494,7 +494,7 @@ void NamPlugin::applyToBuffer (const te::PluginRenderContext& fc)
     {
         // Only unpublish if this callback still owns the live model.
         auto expected = model;
-        activeModel.compare_exchange_strong (expected, std::shared_ptr<nam::DSP> {});
+        std::atomic_compare_exchange_strong (&activeModel, &expected, std::shared_ptr<nam::DSP> {});
         destroyNamModelOnMessageThread (std::move (model));
 
         te::Plugin::Ptr keepAlive (this);
@@ -626,7 +626,7 @@ juce::String NamPlugin::getStatusMessage() const
 
 bool NamPlugin::isModelLoaded() const
 {
-    return activeModel.load() != nullptr;
+    return std::atomic_load (&activeModel) != nullptr;
 }
 
 void NamPlugin::installModel (std::shared_ptr<nam::DSP> model, const juce::String& path,
@@ -634,7 +634,7 @@ void NamPlugin::installModel (std::shared_ptr<nam::DSP> model, const juce::Strin
 {
     // Publish only — never Reset/prewarm here. The audio thread may already be
     // calling process() on the previous model, and must not share Reset with us.
-    auto previous = activeModel.exchange (std::move (model));
+    auto previous = std::atomic_exchange (&activeModel, std::move (model));
     if (previous != nullptr)
     {
         const juce::ScopedLock sl (retireLock);

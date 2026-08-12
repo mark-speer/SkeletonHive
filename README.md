@@ -39,11 +39,14 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - [Architecture](docs/ARCHITECTURE.md) — ownership, threading, data flows, TE deviations
 - [Roadmap](docs/ROADMAP.md) — phase status and remaining backlog
 - [Contributing](docs/CONTRIBUTING.md) — invariants and placement rules
+- [Validated baseline](docs/validation/VALIDATED_BASELINE.md) — demonstrated evidence only
 - [ARA 2 hosting](docs/ARA.md) — optional Celemony ARA enablement and smoke tests
+- [JUCE pin ADR](docs/decisions/0001-juce-dependency-pinning.md) — pinned JUCE/Tracktion FetchContent policy
 
 ## Roadmap
 
-Phases 1–10 and Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/APC profile, MPE, Link) and Phase 12 remain planned. See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Phase 0 (stabilization)** is the current priority before Phase 11/12 feature
+work resumes. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 **Debug stress tests (debug builds only):**
 - **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing and live slot component count.
@@ -73,6 +76,7 @@ ARA plugins always load **in-process** (never through the VST3 effect sandbox). 
 
 ### macOS
 - Xcode 15+
+- Ninja recommended (`brew install ninja`), matching CI
 
 ### Linux
 - `build-essential`, `cmake`, `ninja-build`, `pkg-config`
@@ -86,9 +90,13 @@ ARA plugins always load **in-process** (never through the VST3 effect sandbox). 
 
 ## Build
 
+Dependencies are fetched by CMake `FetchContent` at pinned commits (Tracktion
+Engine and JUCE). Do not hand-edit generated trees under `build/_deps`.
+Tracktion corrections belong in `cmake/patches` and fail configure when stale.
+See [docs/decisions/0001-juce-dependency-pinning.md](docs/decisions/0001-juce-dependency-pinning.md).
+
 ```bash
-git submodule update --init --recursive
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
@@ -129,6 +137,10 @@ cmake --build build --config Release
 ```
 
 Output lands in `dist/` (e.g. `SkeletonHive-0.1.0-windows-x64-<date>-<sha>.zip`). CI uploads the same zip as a workflow artifact on Windows builds.
+
+Release tags (`v*`) are immutable. Cut them only from commits whose Windows +
+macOS + Ubuntu CI matrix is green. The Release workflow re-builds that matrix
+before uploading Windows assets; macOS/Linux archives are not published yet.
 
 ## Contributing
 

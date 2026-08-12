@@ -14,6 +14,7 @@ view).
 
 | Phase | Status | Focus | Live 12 analogy |
 |-------|--------|-------|-----------------|
+| 0 | In progress | Stabilization, evidence, build matrix, RT triage | Dependable core before breadth |
 | 1 | Implemented | Foundation, arrangement, piano roll, routing | Core edit workflows |
 | 2 | Implemented | Workflow polish, performance infra | Groups, ripple, racks |
 | 3 | Implemented | LOD, multi-out, sidechain, plugin hardening | Device chain depth |
@@ -24,12 +25,35 @@ view).
 | 8 | Tier 1–4 done | Session grid, scenes, launch quantize, arrangement bridge, performance, scale/probability, virtualization | Session View |
 | 9 | Tier 1–4 done | Native instruments/effects foundation (built-in synth, sampler, drum rack, 4OSC editor) | Simpler, Sampler, Drum Rack, Operator |
 | 10 | Implemented | Warp engine, native effects rack, audio-to-MIDI, VST3 effect sandbox (MVP), engine benchmark harness | Warp markers, Live's built-in device library, crash isolation |
-| 11 | Tier 1 done | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
-| 12 | Planned | Version history, collaboration scoping, light-theme finish, accessibility audit | Project polish |
+| 11 | Tier 1 done; Tiers 2–4 deferred | Generic control-surface API, Push/APC-style profile, MPE, Ableton Link | Push/APC integration, MPE, Link |
+| 12 | Deferred | Version history, collaboration scoping, light-theme finish, accessibility audit | Project polish |
 
-**Suggested order for remaining work:** finish Phase 11 (after sandbox
-hardening where hardware sessions need isolation) → Phase 12 (lowest
-architectural coupling; can slot in opportunistically).
+**Suggested order:** complete Phase 0 (SH-001…SH-006) before resuming Phase 11
+Tiers 2–4 or Phase 12. Do not expand feature breadth while the build matrix or
+recorded real-time risks remain unresolved.
+
+---
+
+## Phase 0 — Stabilization (current)
+
+**Theme:** separate code presence from demonstrated behavior; restore a
+reproducible green matrix; triage real-time and lifetime risks from PR #1.
+
+| ID | Status | Acceptance |
+|---|---|---|
+| **SH-000** | Done | Agent operating framework, validated baseline, contribution controls (PR #1) |
+| **SH-001** | In progress | Windows, macOS, and Ubuntu configure/build on pinned deps; CI protects merges; README matches FetchContent pins; release tags immutable and cut only from green commits; baseline + compatibility matrix link passing runs |
+| **SH-002** | Queued | PluginScanner lifetime-safe async callbacks (`WeakReference` / cancel); shutdown-during-scan coverage |
+| **SH-003** | Queued | Sandbox coordinator published without audio-thread `SpinLock`; bridge swap/timeout/restart under load |
+| **SH-004** | Queued | Sandbox default/policy + explicit support matrix; prefer experimental/off until validated |
+| **SH-005** | Queued | Session launch ADR, then schedule against TE block/sample time (not 30 Hz poll); deterministic offset tests |
+| **SH-006** | Queued | CTest/CI behavioral baseline (tempo/grid, save/reopen, plugin-free render); benchmark thresholds later |
+
+Recommended implementation order after SH-001:
+**SH-002 → SH-003 → SH-004 → SH-005 (ADR then code) → SH-006**.
+
+Source-review IDs in [validation/VALIDATED_BASELINE.md](validation/VALIDATED_BASELINE.md):
+LIFE-01, RT-02, SBX-01, RT-01, PERF-01/DOC-01 map to SH-002…SH-006 as above.
 
 ---
 

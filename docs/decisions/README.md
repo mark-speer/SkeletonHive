@@ -45,11 +45,16 @@ List benefits, costs, risks, compatibility boundaries, and required tests.
 Define automated evidence, human workflows, platforms, measurements, and
 rollback criteria.
 
+## Accepted decisions
+
+| ID | Title |
+|---|---|
+| [0001](0001-juce-dependency-pinning.md) | JUCE dependency pinning |
+
 ## Initial decisions likely needed
 
 - Engine/block scheduling model for Session launches.
 - Non-blocking ownership publication for sandbox coordinators.
 - Supported sandbox capabilities and default behavior.
-- Exact JUCE/dependency pinning policy.
 - Testable engine/library boundary.
 - Official platform, audio-backend, and release support matrix.

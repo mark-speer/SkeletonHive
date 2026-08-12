@@ -1,9 +1,13 @@
 # Validated baseline
 
-Evidence date: 2026-08-11
+Evidence date: 2026-08-12
 
 Baseline commit:
-3b6579643ad608710d02abe8ec7338286475b2f0
+pending — SH-001 branch `agent/SH-001-green-build-matrix` (update to the
+merge commit SHA and CI run once the three-OS matrix is green on that commit)
+
+Prior framework baseline (PR #1 documentation only):
+3aa4228f3a802bb66697790c36af533a70bee96c
 
 This document records demonstrated behavior only. It does not infer runtime
 correctness from source files, controls, feature lists, or successful
@@ -11,32 +15,38 @@ compilation on another platform.
 
 ## Automated build evidence
 
-GitHub Actions run:
-[CI run 31539254267](https://github.com/mark-speer/SkeletonHive/actions/runs/31539254267)
+### SH-001 local Windows evidence (NamPlugin publish fix)
+
+| Environment | Configure | Build | Package | Evidence result |
+|---|---:|---:|---:|---|
+| Windows 10/11, Visual Studio 18 2026, Release (`build/`) | Pass (existing tree) | Pass | Not run | Incremental Release build of `SkeletonHive` after replacing `std::atomic<std::shared_ptr<nam::DSP>>` with `std::atomic_*` shared_ptr publish |
+| Windows 10/11, Visual Studio 18 2026 (`build-sh001/`) | Pass | Not run | Not run | Fresh configure with pinned JUCE FetchContent (`37c894f8…`) and `JUCE_CPM_DEVELOP=OFF` |
+
+### Pre-SH-001 CI (master after Linux/Ninja fixes; macOS still red)
+
+GitHub Actions run on `30dd538` (pre-framework tip that fixed Ubuntu; macOS Build failed):
+[CI run 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072)
 
 | Environment | Configure | Build | Package | Evidence result |
 |---|---:|---:|---:|---|
 | Windows latest, Visual Studio 18 2026, Release | Pass | Pass | Pass | Build and artifact upload verified |
-| Ubuntu latest, Unix Makefiles, Release | Fail | Not run | Not run | Configure failure |
-| macOS latest, Xcode, Release | Pass | Fail | Not run | Compilation failure |
+| Ubuntu latest, Ninja, Release | Pass | Pass | Pass | Artifact uploaded |
+| macOS latest, Ninja, Release | Pass | Fail | Not run | Build failure; artifact `build-log-macos-latest` |
 
-The associated Windows release job also passed configuration, build,
-packaging, and asset upload:
-[release run 31539258393](https://github.com/mark-speer/SkeletonHive/actions/runs/31539258393).
+Older baseline at `3b65796` (Ubuntu configure fail, macOS compile fail under Xcode generator) is superseded for Ubuntu by the Ninja/deps fixes above. macOS remains Fail until SH-001 CI is green.
 
-This establishes a Windows CI build/package result. It does not establish that
-the application launches, produces correct audio, preserves projects, or
-works with a particular device or plugin.
+### Observed build blockers (historical → SH-001)
 
-### Observed build blockers
-
-- Ubuntu dependency discovery fails during JUCE configuration; the job does
-  not currently reach application compilation.
-- macOS reaches application compilation but fails on the current
-  std::atomic<std::shared_ptr<nam::DSP>> usage.
-
-Exact fixes and supported toolchains belong to SH-001 and must be validated by
-new runs before this table changes.
+- Ubuntu dependency discovery previously failed during JUCE configuration; fixed
+  on master by completing Linux apt deps and switching CI to Ninja (`8f000ba`).
+- macOS previously failed on `std::atomic<std::shared_ptr<nam::DSP>>` (Apple
+  libc++). SH-001 replaces that with portable `std::atomic_load` /
+  `std::atomic_store` / `std::atomic_exchange` /
+  `std::atomic_compare_exchange_strong` on a plain `shared_ptr` in
+  `NamPlugin`. Cross-platform CI confirmation is still required before marking
+  macOS Pass.
+- JUCE previously floated on CPM `#develop`; SH-001 pins JUCE to the Tracktion
+  `modules/juce` submodule SHA (ADR 0001).
 
 ## Automated test evidence
 
@@ -47,7 +57,7 @@ new runs before this table changes.
 - Debug stress commands log information but do not enforce pass/fail
   thresholds.
 
-Current automated behavioral evidence: none recorded.
+Current automated behavioral evidence: none recorded. Tracked as SH-006.
 
 ## Manual product evidence
 
@@ -77,14 +87,14 @@ a workflow to automated, human-validated, cross-platform, or released status.
 These are source-review observations. They are not accepted defects until the
 maintainer confirms them or a reproduction establishes impact.
 
-| ID | Observation | Evidence to obtain |
-|---|---|---|
-| RT-01 | SessionManager starts a 30 Hz timer and processes pending launches from timerCallback, allowing musical launch detection to lag a polling interval. | Deterministic launch-offset measurement and scheduler design |
-| RT-02 | SandboxedPluginInstance obtains a SpinLock-protected coordinator snapshot from processBlock. | Audio-thread trace/review and non-blocking replacement |
-| SBX-01 | Plugin sandboxing defaults on for supported VST3 effects while host-side parameter automation, sidechain/multi-output, instruments, AU, and some platform behavior remain deferred. | Explicit support matrix and workflow tests |
-| LIFE-01 | PluginScanner queues message-thread callbacks capturing raw this after worker activity. | Shutdown/destruction reproduction and lifetime-safe callback design |
-| PERF-01 | EngineBenchmarkHarness records diagnostic timings without thresholds; one cache-stat helper returns a placeholder value. | Measurable workloads and pass/fail criteria |
-| DOC-01 | The accumulated architecture roadmap contains conflicting phase summaries and obsolete deferred-work statements. | Current-state architecture and evidence-based roadmap review |
+| ID | Observation | Evidence to obtain | Roadmap |
+|---|---|---|---|
+| RT-01 | SessionManager starts a 30 Hz timer and processes pending launches from timerCallback, allowing musical launch detection to lag a polling interval. | Deterministic launch-offset measurement and scheduler design | SH-005 |
+| RT-02 | SandboxedPluginInstance obtains a SpinLock-protected coordinator snapshot from processBlock. | Audio-thread trace/review and non-blocking replacement | SH-003 |
+| SBX-01 | Plugin sandboxing defaults on for supported VST3 effects while host-side parameter automation, sidechain/multi-output, instruments, AU, and some platform behavior remain deferred. | Explicit support matrix and workflow tests | SH-004 |
+| LIFE-01 | PluginScanner queues message-thread callbacks capturing raw this after worker activity. | Shutdown/destruction reproduction and lifetime-safe callback design | SH-002 |
+| PERF-01 | EngineBenchmarkHarness records diagnostic timings without thresholds; one cache-stat helper returns a placeholder value. | Measurable workloads and pass/fail criteria | SH-006 |
+| DOC-01 | The accumulated architecture roadmap contains conflicting phase summaries and obsolete deferred-work statements. | Current-state architecture and evidence-based roadmap review | Phase 0 docs |
 
 Source locations:
 

@@ -70,7 +70,9 @@ private:
     int preparedMaxBlock = 0;
     bool reloadQueued = false;
 
-    std::atomic<std::shared_ptr<nam::DSP>> activeModel;
+    // Plain shared_ptr published with std::atomic_* free functions — portable on
+    // Apple libc++, which still lacks std::atomic<std::shared_ptr<T>> in CI Xcode.
+    std::shared_ptr<nam::DSP> activeModel;
     std::atomic<uint64_t> loadGeneration { 0 };
 
     juce::CriticalSection retireLock;
