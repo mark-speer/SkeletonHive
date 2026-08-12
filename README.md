@@ -75,7 +75,14 @@ ARA plugins always load **in-process** (never through the VST3 effect sandbox). 
 - Xcode 15+
 
 ### Linux
-- `build-essential`, `libasound2-dev`, `libfreetype6-dev`, `libx11-dev`, `libxrandr-dev`, `libxcursor-dev`, `libxinerama-dev`, `libgl1-mesa-dev`
+- `build-essential`, `cmake`, `ninja-build`, `pkg-config`
+- Audio / plugins: `libasound2-dev`, `libjack-jackd2-dev`, `ladspa-sdk`
+- Graphics / UI: `libfreetype-dev`, `libfontconfig1-dev`, `libx11-dev`,
+  `libxcomposite-dev`, `libxcursor-dev`, `libxext-dev`, `libxinerama-dev`,
+  `libxrandr-dev`, `libxrender-dev`, `libxi-dev`, `libgl1-mesa-dev`,
+  `libglu1-mesa-dev`, `mesa-common-dev`, `libegl-dev`
+- Optional (already disabled in the app build): `libcurl4-openssl-dev`,
+  `libwebkit2gtk-4.1-dev` if you re-enable curl/webview
 
 ## Build
 

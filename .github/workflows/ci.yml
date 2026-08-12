@@ -16,10 +16,10 @@ jobs:
             generator: "Visual Studio 18 2026"
             config: Release
           - os: macos-latest
-            generator: "Xcode"
+            generator: "Ninja"
             config: Release
           - os: ubuntu-latest
-            generator: "Unix Makefiles"
+            generator: "Ninja"
             config: Release
 
     runs-on: ${{ matrix.os }}
@@ -33,19 +33,36 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # Match juce-framework/JUCE docs/Linux Dependencies.md (Ubuntu 22/24).
+          # LADSPA hosting is enabled on Linux; JACK is optional at runtime but
+          # required at configure unless JUCE_JACK=0.
           sudo apt-get install -y \
             build-essential \
             cmake \
             ninja-build \
+            pkg-config \
             libasound2-dev \
-            libfreetype6-dev \
-            libx11-dev \
-            libxrandr-dev \
-            libxcursor-dev \
-            libxinerama-dev \
-            libgl1-mesa-dev \
+            libjack-jackd2-dev \
+            ladspa-sdk \
             libcurl4-openssl-dev \
-            pkg-config
+            libfreetype-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev \
+            libegl-dev
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
@@ -77,11 +94,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SkeletonHive-${{ matrix.os }}
-          path: build/SkeletonHive_artefacts/Release/SkeletonHive.app
+          path: |
+            build/SkeletonHive_artefacts/Release/SkeletonHive.app
+            build/SkeletonHive_artefacts/SkeletonHive.app
+          if-no-files-found: error
 
       - name: Upload artifact (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: SkeletonHive-${{ matrix.os }}
-          path: build/SkeletonHive_artefacts/Release/SkeletonHive
+          path: |
+            build/SkeletonHive_artefacts/Release/SkeletonHive
+            build/SkeletonHive_artefacts/SkeletonHive
+          if-no-files-found: error

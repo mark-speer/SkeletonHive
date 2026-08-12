@@ -464,12 +464,23 @@ target_compile_definitions(SkeletonHive PRIVATE
     JUCE_STRICT_REFCOUNTEDPOINTER=1
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_AU=1
-    JUCE_PLUGINHOST_LADSPA=1
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
     EIGEN_MAX_ALIGN_BYTES=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:SkeletonHive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
 )
+
+# LADSPA is Linux-only; enabling it on macOS/Windows pulls dead code paths and
+# requires ladspa.h at configure time on Linux CI.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(SkeletonHive PRIVATE
+        JUCE_PLUGINHOST_LADSPA=1
+        JUCE_JACK=1)
+else()
+    target_compile_definitions(SkeletonHive PRIVATE
+        JUCE_PLUGINHOST_LADSPA=0
+        JUCE_JACK=0)
+endif()
 
 if(SKELETONHIVE_ENABLE_ARA)
     target_compile_definitions(SkeletonHive PRIVATE
