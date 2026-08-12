@@ -19,9 +19,27 @@ set(SKELETONHIVE_ASIO_SDK_PATH "" CACHE PATH "Path to Steinberg ASIO SDK root (f
 option(SKELETONHIVE_ENABLE_ARA "Enable Celemony ARA 2 hosting (requires ARA SDK 2.3+)" OFF)
 set(SKELETONHIVE_ARA_SDK_PATH "" CACHE PATH "Path to Celemony ARA_SDK root (git clone --recursive --branch releases/2.3.0)")
 
-# Fetch Tracktion Engine (includes JUCE as submodule when using git submodule)
+# Fetch Tracktion Engine. JUCE is fetched separately at a pinned commit (see
+# docs/decisions/0001-juce-dependency-pinning.md) so CI does not float on
+# juce-framework/JUCE#develop via Tracktion's JUCE_CPM_DEVELOP path.
 set(TE_ADD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(JUCE_CPM_DEVELOP ON CACHE BOOL "" FORCE)
+set(JUCE_CPM_DEVELOP OFF CACHE BOOL "" FORCE)
+
+# JUCE commit recorded as the modules/juce submodule of the Tracktion Engine
+# pin below (53a32a4...). Bump both together when advancing TE.
+set(SKELETONHIVE_JUCE_GIT_TAG "37c894f83d379179b2070d437ccd0f1cd9af9576")
+set(SKELETONHIVE_TRACKTION_GIT_TAG "53a32a4dcc2d73186b6cee4600b5dd51c65a0cae")
+
+include(FetchContent)
+if(NOT TARGET juce::juce_core)
+    FetchContent_Declare(
+        juce
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG        ${SKELETONHIVE_JUCE_GIT_TAG}
+        GIT_SHALLOW    FALSE
+    )
+    FetchContent_MakeAvailable(juce)
+endif()
 
 # --- Tracktion Engine patch policy ---------------------------------------------
 # SkeletonHive carries checked-in patches against Tracktion Engine (see
@@ -62,15 +80,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/tracktion_engine/CMakeLists.txt"
     endif()
     unset(_sh_te_patch_rv)
 else()
-    include(FetchContent)
-    # Skip JUCE submodule (SSH); Tracktion fetches JUCE via CPM when JUCE_CPM_DEVELOP is ON.
-    # GIT_TAG is pinned to a specific commit so the checked-in patches have a stable
-    # target; a floating branch could move the patched code and make the patch a
-    # silent no-op. GIT_SHALLOW must be OFF to reliably fetch a pinned commit SHA.
+    # Skip JUCE submodule (SSH URL). JUCE is already available from the pinned
+    # FetchContent above, so Tracktion will not pull juce#develop via CPM.
+    # GIT_TAG is pinned so the checked-in patches have a stable target; a floating
+    # branch could move the patched code and make the patch a silent no-op.
+    # GIT_SHALLOW must be OFF to reliably fetch a pinned commit SHA.
     FetchContent_Declare(
         tracktion_engine
         GIT_REPOSITORY https://github.com/Tracktion/tracktion_engine.git
-        GIT_TAG        53a32a4dcc2d73186b6cee4600b5dd51c65a0cae
+        GIT_TAG        ${SKELETONHIVE_TRACKTION_GIT_TAG}
         GIT_SHALLOW    FALSE
         GIT_SUBMODULES ""
         PATCH_COMMAND  "${CMAKE_COMMAND}"

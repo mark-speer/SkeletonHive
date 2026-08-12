@@ -1,5 +1,11 @@
 name: Release
 
+# Release policy (SH-001):
+# - Publish only from an annotated v* tag whose commit already has a green
+#   Windows + macOS + Ubuntu CI matrix (do not move or retag published versions).
+# - This workflow re-validates the three-OS configure/build matrix before
+#   uploading Windows portable assets. Packaging remains Windows-first;
+#   macOS/Linux release archives are not published here yet.
 on:
   push:
     tags:
@@ -9,7 +15,84 @@ permissions:
   contents: write
 
 jobs:
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            generator: "Visual Studio 18 2026"
+            config: Release
+          - os: macos-latest
+            generator: "Ninja"
+            config: Release
+          - os: ubuntu-latest
+            generator: "Ninja"
+            config: Release
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            ladspa-sdk \
+            libcurl4-openssl-dev \
+            libfreetype-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev \
+            libegl-dev
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -G "${{ matrix.generator }}" -A x64 -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -B build -G "${{ matrix.generator }}" -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --config ${{ matrix.config }} --parallel 2>&1 | tee build-log.txt
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-log-${{ matrix.os }}
+          path: build-log.txt
+          if-no-files-found: ignore
+
   windows:
+    needs: matrix
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +118,10 @@ jobs:
             Portable Windows build of SkeletonHive.
 
             Source: https://github.com/mark-speer/SkeletonHive
+
+            Release tags are immutable. Cut tags only from commits whose
+            Windows + macOS + Ubuntu CI matrix is green. This workflow also
+            re-builds that matrix before uploading Windows assets.
 
             Unpack the zip and run `SkeletonHive.exe`. See `README.txt` inside the archive for audio/plugin notes.
         env:

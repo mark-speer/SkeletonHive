@@ -13,14 +13,35 @@ Status terms:
 
 ## Automated build matrix
 
-Baseline:
-3b6579643ad608710d02abe8ec7338286475b2f0
+### Latest CI on master tip before SH-001 code fix
+
+Commit: `30dd538de33031a5a719b7bbf09ea171cc9b0513`  
+Run: [CI 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072)
 
 | OS / runner | Toolchain | Configure | Build | Package | Evidence |
 |---|---|---:|---:|---:|---|
-| Windows latest | Visual Studio 18 2026, Release | Pass | Pass | Pass | [CI 31539254267](https://github.com/mark-speer/SkeletonHive/actions/runs/31539254267) |
-| Ubuntu latest | Unix Makefiles, Release | Fail | Not applicable | Not applicable | [CI 31539254267](https://github.com/mark-speer/SkeletonHive/actions/runs/31539254267) |
-| macOS latest | Xcode, Release | Pass | Fail | Not applicable | [CI 31539254267](https://github.com/mark-speer/SkeletonHive/actions/runs/31539254267) |
+| Windows latest | Visual Studio 18 2026, Release | Pass | Pass | Pass | [CI 31552281072](https://github.com/mark-speer/SkeletonHive/actions/runs/31552281072) |
+| Ubuntu latest | Ninja, Release | Pass | Pass | Pass | Artifact `SkeletonHive-ubuntu-latest` |
+| macOS latest | Ninja, Release | Pass | Fail | Not applicable | Artifact `build-log-macos-latest` |
+
+### SH-001 local / pending CI
+
+Branch: `agent/SH-001-green-build-matrix`  
+Dependency pins: Tracktion `53a32a4d…`, JUCE `37c894f8…` (ADR 0001)
+
+| OS / runner | Toolchain | Configure | Build | Package | Evidence |
+|---|---|---:|---:|---:|---|
+| Windows local | Visual Studio 18 2026, Release | Pass | Pass | Not recorded | Incremental `SkeletonHive` Release build after NamPlugin atomic shared_ptr fix |
+| Windows local | Visual Studio 18 2026 (`build-sh001`) | Pass | Not recorded | Not recorded | Fresh configure with pinned JUCE FetchContent |
+| macOS CI | Ninja, Release | Pending | Pending | Pending | Requires CI run on this branch after push |
+| Ubuntu CI | Ninja, Release | Pending | Pending | Pending | Requires CI run on this branch after push |
+
+### Release packaging policy
+
+- Published `v*` tags are immutable.
+- Cut releases only from commits whose Windows + macOS + Ubuntu CI matrix is green.
+- The Release workflow re-runs that matrix, then uploads **Windows** portable
+  zip assets only. macOS/Linux release archives are not published yet.
 
 ## Application and audio-device matrix
 

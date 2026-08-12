@@ -1,6 +1,6 @@
 # Agent handoff
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This file is the short operational handoff. It must describe the repository as
 it is, not the intended product or remembered conversation.
@@ -9,68 +9,63 @@ it is, not the intended product or remembered conversation.
 
 - Upstream: mark-speer/SkeletonHive
 - Upstream default branch: master
-- Baseline commit used to initialize this framework:
-  3b6579643ad608710d02abe8ec7338286475b2f0
-- Current work item: SH-000 — establish repository truth and contribution
-  controls
-- Working branch: agent/agent-operating-framework
-- Change type: documentation and process only
+- Working branch: `agent/SH-001-green-build-matrix`
+- Current work item: SH-001 — restore a reproducible green build matrix
+- Change type: build fix (NamPlugin publish), JUCE pin, release gates, Phase 0 docs
 
-Before continuing from this handoff, fetch upstream and confirm that the
-baseline commit is still current. Rebase or merge deliberately if it is not.
+## Scope completed on this branch (pending commit/CI closeout)
+
+- Replaced `std::atomic<std::shared_ptr<nam::DSP>>` in `NamPlugin` with portable
+  `std::atomic_*` free functions on a plain `shared_ptr` (macOS libc++ compile
+  blocker from PR #1 / VALIDATED_BASELINE).
+- Pinned JUCE via FetchContent to Tracktion's `modules/juce` submodule SHA;
+  forced `JUCE_CPM_DEVELOP` OFF; added ADR 0001.
+- Release workflow now re-validates Windows + macOS + Ubuntu before uploading
+  Windows assets; README/CONTRIBUTING document immutable tags and green-only
+  releases.
+- ROADMAP Phase 0 lists SH-001…SH-006; follow-ups queued after SH-001.
 
 ## Evidence currently recorded
 
-- Windows Release configuration, build, portable packaging, and artifact
-  upload passed in GitHub Actions for the baseline commit.
-- The Windows release workflow also built and uploaded release assets.
-- Ubuntu failed during CMake configuration.
-- macOS configured but failed during compilation.
-- No repository-level automated unit or integration test suite is registered.
-- No repeatable manual product-validation results are recorded in the
-  repository.
+- Local Windows Release build of `SkeletonHive` succeeded after the NamPlugin
+  change (existing `build/` tree).
+- Fresh Windows configure with pinned JUCE succeeded (`build-sh001/`).
+- Prior master CI (`30dd538`): Windows Pass, Ubuntu Pass, macOS Build Fail.
+- Three-OS CI on this branch: **not yet run** (requires push of the branch
+  commit). Do not mark SH-001 complete or promote macOS to Pass until that
+  matrix is green and linked here / in VALIDATED_BASELINE.
 
-See docs/validation/VALIDATED_BASELINE.md for evidence links and details.
+See docs/validation/VALIDATED_BASELINE.md and COMPATIBILITY_MATRIX.md.
 
-## Scope completed by SH-000
+## SH-001 acceptance checklist
 
-- Establish a mandatory, token-conscious agent reading order.
-- Separate product direction, architecture inventory, roadmap priority, and
-  validation evidence.
-- Add contribution and pull-request expectations.
-- Define a stabilization roadmap before additional feature expansion.
-- Preserve the existing architecture document as implementation history while
-  clarifying that its implemented labels are not validation claims.
+1. Windows, macOS, and Ubuntu configure and build on pinned dependencies —
+   **local Windows yes; macOS/Ubuntu pending CI**.
+2. Required CI checks protect master — **unchanged; still required on GitHub**.
+3. Build instructions match the dependency mechanism actually used — **done
+   (README + ADR 0001)**.
+4. Release tags immutable; releases only from green commits — **documented;
+   Release workflow matrix gate added**.
+5. Validated baseline and compatibility matrix link passing runs — **partial;
+   update with this branch's CI URL when green**.
 
-## Known risks awaiting triage
+## Known risks awaiting triage (queued)
 
-These are review observations, not accepted defects until reproduced or
-confirmed:
+Do not start these on the SH-001 branch. After SH-001 merges:
 
-- Session launches are detected by a 30 Hz timer rather than scheduled at
-  engine block/sample time.
-- The sandboxed plugin audio callback obtains a SpinLock-protected
-  coordinator snapshot.
-- Plugin sandboxing defaults on while automation, sidechain, multi-output, and
-  other bridge capabilities remain incomplete.
-- PluginScanner queues asynchronous callbacks that capture a raw this pointer.
-- The benchmark harness logs timings but does not enforce thresholds or prove
-  all asynchronous work completed.
+1. **SH-002** — PluginScanner lifetime (LIFE-01)
+2. **SH-003** — Sandbox coordinator SpinLock (RT-02)
+3. **SH-004** — Sandbox default / support matrix (SBX-01)
+4. **SH-005** — Session launch ADR then TE-time scheduling (RT-01)
+5. **SH-006** — Automated behavioral test baseline
 
 ## Next recommended action
 
-SH-001 — restore a reproducible green build matrix.
-
-Acceptance requires:
-
-1. Windows, macOS, and Ubuntu configure and build on pinned dependencies.
-2. Required CI checks protect master.
-3. Build instructions match the dependency mechanism actually used.
-4. Release tags are immutable and releases are created only from a green
-   commit.
-5. The validated baseline and compatibility matrix link the passing runs.
-
-Do not begin another feature phase while SH-001 is incomplete.
+1. Commit and push `agent/SH-001-green-build-matrix`.
+2. Confirm GitHub Actions CI is green on Windows, macOS, and Ubuntu.
+3. Update VALIDATED_BASELINE / COMPATIBILITY_MATRIX / this handoff with the
+   exact commit and CI run URL; mark SH-001 Done in ROADMAP.
+4. Open SH-002 (`agent/SH-002-plugin-scanner-lifetime`) as the next PR.
 
 ## Closeout template
 

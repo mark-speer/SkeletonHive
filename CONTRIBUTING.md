@@ -21,7 +21,10 @@ workflow, correctness, stability, testability, or maintainability.
 - Do not mix feature work, broad formatting, dependency upgrades, and
   refactoring unless the acceptance criteria require them together.
 - Open substantial work as a draft pull request early.
-- Never rewrite a published release tag.
+- Never rewrite a published release tag. Tags matching `v*` are immutable once
+  published. Create releases only from commits whose Windows + macOS + Ubuntu
+  CI matrix is green; the Release workflow re-validates that matrix before
+  uploading Windows portable assets.
 
 ## Pull-request requirements
 
