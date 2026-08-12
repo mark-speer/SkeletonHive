@@ -181,13 +181,14 @@ private:
 
 
 
-    juce::TextButton returnButton { "<<" }, playButton { "Play" }, stopButton { "Stop" },
-
-
-        recordButton { "Rec" }, loopButton { "Loop" }, punchButton { "Punch" },
-
-
-        clickButton { "Click" }, takesButton { "Takes" };
+    juce::DrawableButton returnButton { "Return to start", juce::DrawableButton::ImageFitted },
+        playButton { "Play/Pause", juce::DrawableButton::ImageFitted },
+        stopButton { "Stop", juce::DrawableButton::ImageFitted },
+        recordButton { "Record", juce::DrawableButton::ImageFitted },
+        loopButton { "Loop", juce::DrawableButton::ImageFitted },
+        punchButton { "Punch", juce::DrawableButton::ImageFitted },
+        clickButton { "Click", juce::DrawableButton::ImageFitted },
+        takesButton { "Takes", juce::DrawableButton::ImageFitted };
 
 
     juce::TextButton addAudioButton { "+ Audio" }, addMidiButton { "+ MIDI" },

@@ -229,6 +229,24 @@ juce_add_gui_app(SkeletonHive
 
 juce_generate_juce_header(SkeletonHive)
 
+juce_add_binary_data(TransportIconsData
+    SOURCES
+        Resources/Icons/Transport/return_to_start.svg
+        Resources/Icons/Transport/play.svg
+        Resources/Icons/Transport/pause.svg
+        Resources/Icons/Transport/stop.svg
+        Resources/Icons/Transport/record.svg
+        Resources/Icons/Transport/record_active.svg
+        Resources/Icons/Transport/loop.svg
+        Resources/Icons/Transport/loop_active.svg
+        Resources/Icons/Transport/punch.svg
+        Resources/Icons/Transport/punch_active.svg
+        Resources/Icons/Transport/takes.svg
+        Resources/Icons/Transport/takes_active.svg
+        Resources/Icons/Transport/metronome.svg
+        Resources/Icons/Transport/metronome_active.svg
+)
+
 target_sources(SkeletonHive PRIVATE
     Source/App/Main.cpp
     Source/App/SkeletonHiveApplication.h
@@ -385,6 +403,8 @@ target_sources(SkeletonHive PRIVATE
     Source/UI/Settings/PreferencesDialog.cpp
     Source/UI/Transport/TransportBar.h
     Source/UI/Transport/TransportBar.cpp
+    Source/UI/Transport/TransportIcons.h
+    Source/UI/Transport/TransportIcons.cpp
     Source/UI/Mixer/MixerPanel.h
     Source/UI/Mixer/MixerPanel.cpp
     Source/UI/Mixer/ChannelStrip.h
@@ -526,6 +546,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(SkeletonHive PRIVATE
+    TransportIconsData
     aubio
     tracktion::tracktion_core
     tracktion::tracktion_engine
@@ -587,4 +608,5 @@ endif()
 
 target_include_directories(SkeletonHive PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Source
+    ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_TransportIconsData/JuceLibraryCode
 )
