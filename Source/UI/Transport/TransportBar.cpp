@@ -1,4 +1,7 @@
 #include "TransportBar.h"
+#include "TransportIcons.h"
+#include "UI/AppLookAndFeel.h"
+#include "BinaryData.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/SessionArrangementBridge.h"
 #include "Engine/SessionManager.h"
@@ -14,12 +17,25 @@ const juce::StringArray timeSigChoices { "4/4", "3/4", "6/8", "2/4", "5/4", "7/8
 TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     : edit (e), transportController (tc)
 {
+    returnButton.setTooltip ("Return to start");
     returnButton.onClick = [this] { transportController.returnToStart(); };
+    TransportIcons::setButtonImage (returnButton,
+                                    BinaryData::return_to_start_svg,
+                                    BinaryData::return_to_start_svgSize,
+                                    {},
+                                    *this);
+
+    playButton.setTooltip ("Play/Pause");
     playButton.onClick = [this] { transportController.togglePlay(); updateButtonStates(); };
+
+    stopButton.setTooltip ("Stop");
     stopButton.onClick = [this] { transportController.stop(); updateButtonStates(); };
+
+    recordButton.setTooltip ("Record");
     recordButton.onClick = [this] { transportController.toggleRecord(); updateButtonStates(); };
 
     loopButton.setClickingTogglesState (true);
+    loopButton.setTooltip ("Loop playback");
     loopButton.onClick = [this] { transportController.setLooping (loopButton.getToggleState()); };
 
     punchButton.setClickingTogglesState (true);
@@ -38,6 +54,29 @@ TransportBar::TransportBar (te::Edit& e, TransportController& tc)
     clickButton.setTooltip ("Metronome click (volume slider to the right)");
     clickButton.setToggleState (transportController.isClickEnabled(), juce::dontSendNotification);
     clickButton.onClick = [this] { transportController.setClickEnabled (clickButton.getToggleState()); };
+
+    const auto loopAccent = AppColours::accentLoop (AppLookAndFeel::getCurrentTheme());
+    TransportIcons::setButtonImages (loopButton,
+                                       BinaryData::loop_svg, BinaryData::loop_svgSize, {},
+                                       BinaryData::loop_active_svg, BinaryData::loop_active_svgSize, loopAccent,
+                                       *this);
+    TransportIcons::setButtonImages (punchButton,
+                                     BinaryData::punch_svg, BinaryData::punch_svgSize, {},
+                                     BinaryData::punch_active_svg, BinaryData::punch_active_svgSize, {},
+                                     *this);
+    TransportIcons::setButtonImages (takesButton,
+                                     BinaryData::takes_svg, BinaryData::takes_svgSize, {},
+                                     BinaryData::takes_active_svg, BinaryData::takes_active_svgSize, {},
+                                     *this);
+    TransportIcons::setButtonImages (clickButton,
+                                     BinaryData::metronome_svg, BinaryData::metronome_svgSize, {},
+                                     BinaryData::metronome_active_svg, BinaryData::metronome_active_svgSize, {},
+                                     *this);
+    TransportIcons::setButtonImage (stopButton,
+                                    BinaryData::stop_svg,
+                                    BinaryData::stop_svgSize,
+                                    {},
+                                    *this);
 
     clickVolumeSlider.setRange (0.2, 1.0, 0.01);
     clickVolumeSlider.setValue (transportController.getClickVolume(), juce::dontSendNotification);
@@ -192,13 +231,23 @@ void TransportBar::resized()
 {
     auto r = getLocalBounds().reduced (4);
     const int h = 24;
+    const int iconBtnW = 28;
     const int btnW = 52;
+    const int groupGap = 6;
 
     auto row1 = r.removeFromTop (h);
-    for (auto* btn : { &returnButton, &playButton, &stopButton, &recordButton, &loopButton, &punchButton, &takesButton })
-    {
-        btn->setBounds (row1.removeFromLeft (btnW).reduced (1));
-    }
+    for (auto* btn : { &returnButton, &playButton, &stopButton, &recordButton })
+        btn->setBounds (row1.removeFromLeft (iconBtnW).reduced (1));
+
+    row1.removeFromLeft (groupGap);
+
+    for (auto* btn : { &loopButton, &punchButton, &takesButton })
+        btn->setBounds (row1.removeFromLeft (iconBtnW).reduced (1));
+
+    row1.removeFromLeft (groupGap);
+    clickButton.setBounds (row1.removeFromLeft (iconBtnW).reduced (1));
+
+    row1.removeFromLeft (groupGap);
     positionLabel.setBounds (row1.removeFromLeft (100));
     tempoLabel.setBounds (row1.removeFromLeft (30));
     tempoSlider.setBounds (row1.removeFromLeft (100));
@@ -211,7 +260,6 @@ void TransportBar::resized()
         btn->setBounds (row2.removeFromLeft (btnW + 10).reduced (1));
     }
     row2.removeFromLeft (8);
-    clickButton.setBounds (row2.removeFromLeft (btnW).reduced (1));
     clickVolumeSlider.setBounds (row2.removeFromLeft (70).reduced (1));
     countInBox.setBounds (row2.removeFromLeft (110).reduced (1));
 
@@ -333,8 +381,9 @@ void TransportBar::changeListenerCallback (juce::ChangeBroadcaster* source)
 
 void TransportBar::updateButtonStates()
 {
-    playButton.setButtonText (transportController.isPlaying() ? "Pause" : "Play");
-    recordButton.setButtonText (transportController.isRecording() ? "Stop Rec" : "Rec");
+    TransportIcons::updatePlayButton (playButton, transportController.isPlaying(), *this);
+    TransportIcons::updateRecordButton (recordButton, transportController.isRecording(), *this);
+
     loopButton.setToggleState (transportController.isLooping(), juce::dontSendNotification);
     punchButton.setToggleState (transportController.isPunchInEnabled(), juce::dontSendNotification);
     clickButton.setToggleState (transportController.isClickEnabled(), juce::dontSendNotification);
