@@ -1,4 +1,5 @@
 #include "ClipInspectorPanel.h"
+#include "Engine/AraHelpers.h"
 #include "Engine/EngineHelpers.h"
 #include "Engine/WarpEngine.h"
 #include "UI/AppLookAndFeel.h"
@@ -214,6 +215,22 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm, E
         onAudioToMidi (*clips.getFirst(), mode);
     };
 
+    openAraButton.setTooltip ("Open the ARA plugin editor for this clip (e.g. Melodyne)");
+    openAraButton.setEnabled (AraHelpers::isBuildEnabled());
+    openAraButton.onClick = [this]
+    {
+        if (updatingFromModel || clips.size() != 1 || audioClips.isEmpty())
+            return;
+
+        auto& audio = *audioClips.getFirst();
+
+        if (! AraHelpers::isUsingAra (audio))
+            audio.setTimeStretchMode (te::TimeStretcher::Mode::ara);
+
+        AraHelpers::showAraWindow (audio);
+        refreshFromModel();
+    };
+
     loopButton.onClick = [this]
     {
         if (updatingFromModel)
@@ -278,13 +295,15 @@ ClipInspectorPanel::ClipInspectorPanel (te::Edit& e, te::SelectionManager& sm, E
     addAndMakeVisible (transientButton);
     addAndMakeVisible (convertToMidiModeBox);
     addAndMakeVisible (convertToMidiButton);
+    addAndMakeVisible (openAraButton);
     addAndMakeVisible (warpedLengthLabel);
     addAndMakeVisible (warpEditor);
     addAndMakeVisible (takeLabel);
     addAndMakeVisible (takeBox);
 
     stretchModeBox.clear (juce::dontSendNotification);
-    const auto modeNames = te::TimeStretcher::getPossibleModes (edit.engine, true);
+    // Second arg is excludeARA: include ARA when this build enabled hosting.
+    const auto modeNames = te::TimeStretcher::getPossibleModes (edit.engine, ! AraHelpers::isBuildEnabled());
     int modeId = 1;
 
     for (const auto& name : modeNames)
@@ -368,6 +387,9 @@ int ClipInspectorPanel::getPreferredHeight() const
             height += warpRowHeight + 4;
             height += warpEditorHeight + 4;
         }
+
+        if (AraHelpers::isBuildEnabled() && clips.size() == 1 && ! audioClips.isEmpty())
+            height += araRowHeight + 4;
 
         if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))
             height += takeRowHeight + 4;
@@ -628,6 +650,7 @@ void ClipInspectorPanel::updateControlVisibility()
     const bool showConvert = showAudio && clips.size() == 1 && ! audioClips.isEmpty();
     convertToMidiModeBox.setVisible (showConvert);
     convertToMidiButton.setVisible (showConvert);
+    openAraButton.setVisible (AraHelpers::isBuildEnabled() && showConvert);
     warpedLengthLabel.setVisible (showWarpedLength);
     warpEditor.setVisible (showWarpEditor);
 
@@ -739,6 +762,13 @@ void ClipInspectorPanel::resized()
                 warpEditor.setBounds (area.removeFromTop (warpEditorHeight));
                 area.removeFromTop (2);
             }
+        }
+
+        if (AraHelpers::isBuildEnabled() && clips.size() == 1 && ! audioClips.isEmpty())
+        {
+            auto araRow = area.removeFromTop (rowHeight);
+            openAraButton.setBounds (araRow.removeFromLeft (100).reduced (0, 1));
+            area.removeFromTop (2);
         }
 
         if (clips.size() == 1 && EngineHelpers::hasMultipleTakes (*clips.getFirst()))

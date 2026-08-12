@@ -182,6 +182,7 @@ private:
 
 
     juce::TextButton transientButton { "Transients" };
+    juce::TextButton openAraButton { "Open ARA" };
     juce::ComboBox convertToMidiModeBox;
     juce::TextButton convertToMidiButton { "Convert to MIDI" };
 
@@ -220,6 +221,7 @@ private:
 
 
     static constexpr int warpRowHeight = 24;
+    static constexpr int araRowHeight = 24;
     static constexpr int convertRowHeight = 24;
 
 

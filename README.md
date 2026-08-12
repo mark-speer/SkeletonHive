@@ -39,6 +39,7 @@ Cross-platform arrangement-view digital audio workstation built with **JUCE** an
 - [Architecture](docs/ARCHITECTURE.md) — ownership, threading, data flows, TE deviations
 - [Roadmap](docs/ROADMAP.md) — phase status and remaining backlog
 - [Contributing](docs/CONTRIBUTING.md) — invariants and placement rules
+- [ARA 2 hosting](docs/ARA.md) — optional Celemony ARA enablement and smoke tests
 
 ## Roadmap
 
@@ -58,6 +59,17 @@ Phases 1–10 and Phase 11 Tier 1 are implemented. Phase 11 Tiers 2–4 (Push/AP
 - Visual Studio 2022 with "Desktop development with C++"
 - ASIO is enabled in the build on Windows (uses JUCE's bundled Steinberg ASIO headers). Select **ASIO** as the audio device type under **Preferences → Audio**, then choose your interface driver and a low buffer size (e.g. 128 samples).
 - Optional: set `-DSKELETONHIVE_ASIO_SDK_PATH="C:/path/to/asiosdk"` at configure time to use an external Steinberg ASIO SDK instead of the bundled headers.
+
+### Optional ARA 2 hosting
+ARA (Audio Random Access) is **off by default**. To host ARA 2 plugins (e.g. Melodyne) via Tracktion Engine:
+
+1. Clone the Celemony ARA SDK (2.3.0+), recursively:
+   `git clone --recursive --branch releases/2.3.0 https://github.com/Celemony/ARA_SDK`
+2. Reconfigure with:
+   `-DSKELETONHIVE_ENABLE_ARA=ON -DSKELETONHIVE_ARA_SDK_PATH="C:/path/to/ARA_SDK"`
+3. Rebuild. Clip inspector and the arrangement clip menu gain **Open ARA** / **Open ARA Editor**; set the clip time-stretch mode to ARA (appears in the stretch combo when enabled).
+
+ARA plugins always load **in-process** (never through the VST3 effect sandbox). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the smoke checklist in [docs/ARA.md](docs/ARA.md). Respect Celemony's ARA SDK license terms.
 
 ### macOS
 - Xcode 15+

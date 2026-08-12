@@ -71,7 +71,7 @@ for continuously moving displays (playhead, meters, time readout).
 | Arrangement | Timeline view over TE tracks/clips; zoom/scroll/snap in `EditViewState` | `UI/Arrangement/` |
 | Session | Clip slots / scenes as additive state; launch via TE transport APIs | `SessionManager`, `UI/Session/` |
 | Mixer / routing | Volume/pan, aux send/return, sidechain, multi-out | `UI/Mixer/`, `SidechainRouting`, `MultiOutputRouting` |
-| Plugins | Scan, insert, tray/rack UI, native catalog, optional VST3-effect sandbox | `PluginScanner`, `NativePluginCatalog`, `Engine/PluginHost/`, `UI/Plugins/` |
+| Plugins | Scan, insert, tray/rack UI, native catalog, optional VST3-effect sandbox; optional ARA 2 clip hosting (in-process) | `PluginScanner`, `NativePluginCatalog`, `Engine/PluginHost/`, `Engine/AraHelpers.*`, `UI/Plugins/` |
 | MIDI editing | Piano roll and CC/PB/AT lanes over `te::MidiList` | `UI/Midi/` |
 | Automation | Lanes and Read/Touch/Latch over TE automation | `UI/Automation/` |
 | Persistence | Save/load, autosave, lock file, crash recovery | `ProjectManager` |
@@ -167,6 +167,11 @@ These are architectural constraints, not temporary UI polish:
 - **Plugin sandbox is an MVP.** VST3 effects only. Instruments, AU, sidechain /
   multi-out through the bridge, full embedded editor forwarding, and host-side
   automation passthrough remain incomplete. Treat expansion as high-risk work.
+- **ARA plugins always load in-process.** Celemony ARA 2 needs Edit document /
+  musical-context / region binding that the VST3 effect sandbox cannot provide.
+  When built with `-DSKELETONHIVE_ENABLE_ARA=ON`, ARA-capable descriptions are
+  excluded from sandboxing (`PluginHostHelpers::shouldSandboxDescription`).
+  Clip workflows use Tracktion Engine's `ARADocument` / `showARAWindow` path.
 - **Rack serial graph.** Reordering or hot-swapping inside TE racks updates
   ValueTree/display order; it does not always rewire serial audio connections.
 - **Multi-out taps.** Bus layout and child-track wiring exist; per-bus audio
@@ -198,4 +203,5 @@ under [`cmake/patches/`](../cmake/patches/), applied by
 
 - [ROADMAP.md](ROADMAP.md) — phase status and remaining backlog
 - [CONTRIBUTING.md](CONTRIBUTING.md) — invariants and placement rules
+- [ARA.md](ARA.md) — optional ARA 2 hosting setup and smoke tests
 - [README.md](../README.md) — build, features, packaging

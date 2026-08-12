@@ -5,6 +5,7 @@
 #include "ArrangementSelectionHelpers.h"
 #include "Engine/AudioToMidiTypes.h"
 #include "Engine/EngineHelpers.h"
+#include "Engine/AraHelpers.h"
 #include "Engine/WarpEngine.h"
 #include "Engine/TrackInputRouting.h"
 #include "Engine/TrackPluginChainModel.h"
@@ -44,6 +45,8 @@ enum class TimelineMenuResult
     flattenTrack,
     clipProperties = 400,
     editWarpMarkers = 405,
+    openAraEditor = 406,
+    convertAraToMidi = 407,
     convertToMidiMelody = 420,
     convertToMidiHarmony,
     convertToMidiDrums,
@@ -209,6 +212,13 @@ void showTimelineContextMenu (juce::Component& target,
                 if (WarpEngine::supportsWarp (*audioClip))
                     menu.addItem ((int) TimelineMenuResult::editWarpMarkers, "Edit Warp Markers...");
 
+                if (AraHelpers::isBuildEnabled())
+                {
+                    menu.addItem ((int) TimelineMenuResult::openAraEditor, "Open ARA Editor...");
+                    if (AraHelpers::isUsingAra (*audioClip))
+                        menu.addItem ((int) TimelineMenuResult::convertAraToMidi, "Convert ARA Analysis to MIDI");
+                }
+
                 juce::PopupMenu convertMenu;
                 convertMenu.addItem ((int) TimelineMenuResult::convertToMidiMelody, "Melody");
                 convertMenu.addItem ((int) TimelineMenuResult::convertToMidiHarmony, "Harmony");
@@ -342,6 +352,19 @@ void showTimelineContextMenu (juce::Component& target,
             case TimelineMenuResult::editWarpMarkers:
                 if (takeClip != nullptr && onEditWarpMarkers)
                     onEditWarpMarkers (takeClip);
+                break;
+            case TimelineMenuResult::openAraEditor:
+                if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (takeClip))
+                {
+                    if (! AraHelpers::isUsingAra (*audioClip))
+                        audioClip->setTimeStretchMode (te::TimeStretcher::Mode::ara);
+
+                    AraHelpers::showAraWindow (*audioClip);
+                }
+                break;
+            case TimelineMenuResult::convertAraToMidi:
+                if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (takeClip))
+                    AraHelpers::convertAraToMidi (*audioClip);
                 break;
             case TimelineMenuResult::convertToMidiMelody:
                 if (takeClip != nullptr && onAudioToMidi)

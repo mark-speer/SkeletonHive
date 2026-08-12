@@ -106,6 +106,26 @@ subsystems expected.
 
 ---
 
+## Backlog — ARA 2 hosting (optional build)
+
+**Theme:** Celemony ARA 2 clip analysis/editing (Melodyne-class) via Tracktion
+Engine's existing host stack.
+
+- **Tier 1 — Build + clip MVP (implemented, opt-in).**
+  `-DSKELETONHIVE_ENABLE_ARA=ON` + `SKELETONHIVE_ARA_SDK_PATH` wires
+  `TRACKTION_ENABLE_ARA` / `JUCE_PLUGINHOST_ARA`. Clip inspector and context
+  menu open TE's ARA editor; ARA plugins are never sandboxed. See
+  [ARA.md](ARA.md) for SDK setup and smoke tests.
+- **Tier 2 — Hardening (planned).** Offline render/freeze of ARA clips, Session
+  View copy/parking of ARA archive state, optional CI job with SDK present.
+
+**Files:** `CMakeLists.txt`, `Engine/AraHelpers.*`, `PluginHostHelpers`,
+`ClipInspectorPanel`, arrangement clip menu.
+
+**Risks:** In-process only; requires licensed ARA plugin for real QA.
+
+---
+
 ## Debug stress helpers (debug builds)
 
 - **Ctrl+Shift+Alt+T** — add 200 MIDI tracks; log Session grid rebuild timing

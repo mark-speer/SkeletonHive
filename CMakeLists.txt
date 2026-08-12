@@ -16,6 +16,8 @@ endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 option(JUCE_ENABLE_MODULE_SOURCE_GROUPS "Enable Module Source Groups" ON)
 set(SKELETONHIVE_ASIO_SDK_PATH "" CACHE PATH "Path to Steinberg ASIO SDK root (folder containing common/iasiodrv.h)")
+option(SKELETONHIVE_ENABLE_ARA "Enable Celemony ARA 2 hosting (requires ARA SDK 2.3+)" OFF)
+set(SKELETONHIVE_ARA_SDK_PATH "" CACHE PATH "Path to Celemony ARA_SDK root (git clone --recursive --branch releases/2.3.0)")
 
 # Fetch Tracktion Engine (includes JUCE as submodule when using git submodule)
 set(TE_ADD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -80,6 +82,46 @@ else()
     FetchContent_MakeAvailable(tracktion_engine)
     FetchContent_GetProperties(tracktion_engine)
     set(SKELETONHIVE_TRACKTION_SRC_DIR "${tracktion_engine_SOURCE_DIR}")
+endif()
+
+# --- Optional ARA 2 hosting (Celemony SDK + JUCE/TE flags) ---------------------
+# Default OFF so CI and local builds without the SDK keep working. When ON, the
+# SDK path must point at a recursive clone of Celemony/ARA_SDK @ releases/2.3.0+.
+if(SKELETONHIVE_ENABLE_ARA)
+    if(SKELETONHIVE_ARA_SDK_PATH STREQUAL "")
+        message(FATAL_ERROR
+            "SkeletonHive: SKELETONHIVE_ENABLE_ARA=ON requires SKELETONHIVE_ARA_SDK_PATH.\n"
+            "  git clone --recursive --branch releases/2.3.0 https://github.com/Celemony/ARA_SDK")
+    endif()
+
+    set(_sh_ara_interface "${SKELETONHIVE_ARA_SDK_PATH}/ARA_API/ARAInterface.h")
+    if(NOT EXISTS "${_sh_ara_interface}")
+        message(FATAL_ERROR
+            "SkeletonHive: ARA SDK not found at SKELETONHIVE_ARA_SDK_PATH=${SKELETONHIVE_ARA_SDK_PATH}\n"
+            "  Expected ${_sh_ara_interface} (clone with --recursive).")
+    endif()
+    unset(_sh_ara_interface)
+
+    if(NOT COMMAND juce_set_ara_sdk_path)
+        message(FATAL_ERROR
+            "SkeletonHive: juce_set_ara_sdk_path is unavailable; Tracktion/JUCE CMake may be incomplete.")
+    endif()
+
+    juce_set_ara_sdk_path("${SKELETONHIVE_ARA_SDK_PATH}")
+    message(STATUS "SkeletonHive: ARA 2 hosting enabled (SDK at ${SKELETONHIVE_ARA_SDK_PATH})")
+
+    # TE/JUCE modules are INTERFACE libraries; INTERFACE defs flow to SkeletonHive
+    # when it links them (and to the module sources compiled into that target).
+    foreach(_sh_ara_target IN ITEMS tracktion_engine juce_audio_processors juce_audio_processors_headless)
+        if(TARGET ${_sh_ara_target})
+            target_compile_definitions(${_sh_ara_target} INTERFACE
+                TRACKTION_ENABLE_ARA=1
+                JUCE_PLUGINHOST_ARA=1)
+        endif()
+    endforeach()
+    unset(_sh_ara_target)
+else()
+    message(STATUS "SkeletonHive: ARA hosting disabled (set -DSKELETONHIVE_ENABLE_ARA=ON)")
 endif()
 
 include(FetchContent)
@@ -207,6 +249,8 @@ target_sources(SkeletonHive PRIVATE
     Source/Engine/SynthHelpers.cpp
     Source/Engine/WarpEngine.h
     Source/Engine/WarpEngine.cpp
+    Source/Engine/AraHelpers.h
+    Source/Engine/AraHelpers.cpp
     Source/Engine/AudioToMidiTypes.h
     Source/Engine/AudioSampleExtractor.h
     Source/Engine/AudioSampleExtractor.cpp
@@ -426,6 +470,13 @@ target_compile_definitions(SkeletonHive PRIVATE
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:SkeletonHive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
 )
+
+if(SKELETONHIVE_ENABLE_ARA)
+    target_compile_definitions(SkeletonHive PRIVATE
+        SKELETONHIVE_HAS_ARA=1
+        TRACKTION_ENABLE_ARA=1
+        JUCE_PLUGINHOST_ARA=1)
+endif()
 
 if(WIN32)
     target_compile_definitions(SkeletonHive PRIVATE JUCE_ASIO=1)
